@@ -1,0 +1,6 @@
+{
+  "name": "AutoGarage Manager",
+  "description": "Comprehensive multi-platform garage and fleet management suite for independent car dealers and micro-entrepreneurs. Vehicle lifecycle tracking, repair tasks, expenses, dynamic P&L and invoice generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

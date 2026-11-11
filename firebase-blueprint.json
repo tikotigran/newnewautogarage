@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Represents a vehicle purchased, prepared, repaired, and sold by an auto garage or independent dealer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the vehicle" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "make": { "type": "string", "maxLength": 80, "description": "Vehicle brand / manufacturer (e.g. Peugeot, Renault)" },
+        "model": { "type": "string", "maxLength": 80, "description": "Vehicle model (e.g. 208, Clio)" },
+        "trim": { "type": "string", "maxLength": 80, "description": "Trim / Version / Finition (e.g. GT Line, Allure)" },
+        "year": { "type": "number", "description": "Model year (e.g. 2021)" },
+        "mileage": { "type": "number", "description": "Mileage in kilometers" },
+        "vin": { "type": "string", "maxLength": 30, "description": "VIN or License plate / Immatriculation (e.g. AA-123-BB)" },
+        "purchaseDate": { "type": "string", "description": "Date of acquisition (YYYY-MM-DD)" },
+        "purchasePrice": { "type": "number", "description": "Purchase cost in Euros" },
+        "targetSalePrice": { "type": "number", "description": "Target or listed sales price in Euros" },
+        "status": {
+          "type": "string",
+          "enum": ["preparation", "repair", "for_sale", "sold"],
+          "description": "Current lifecycle status"
+        },
+        "photos": { "type": "array", "description": "List of photo URLs or base64 data" },
+        "documents": { "type": "array", "description": "List of attached document metadata and URLs" },
+        "buyerInfo": { "type": "object", "description": "Buyer details recorded upon sale" },
+        "repairCostTotal": { "type": "number", "description": "Aggregated sum of all parts and labor costs" },
+        "generalExpensesTotal": { "type": "number", "description": "Aggregated sum of all general non-repair expenses" },
+        "totalExpenses": { "type": "number", "description": "Repair total + General expenses total" },
+        "totalInvested": { "type": "number", "description": "Purchase price + total expenses" },
+        "netProfit": { "type": "number", "description": "Final or projected sale price minus total invested" },
+        "marginPercentage": { "type": "number", "description": "Margin percentage relative to sale price or invested capital" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "make", "model", "year", "mileage", "purchasePrice", "status"]
+    },
+    "RepairTask": {
+      "title": "RepairTask",
+      "description": "Specific repair or maintenance task assigned to a vehicle with parts and labor breakdown.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique task ID" },
+        "vehicleId": { "type": "string", "description": "ID of the parent vehicle" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "title": { "type": "string", "maxLength": 160, "description": "Task description or common preset name" },
+        "status": {
+          "type": "string",
+          "enum": ["todo", "in_progress", "done"],
+          "description": "Task completion state"
+        },
+        "partsCost": { "type": "number", "description": "Cost of parts in Euros" },
+        "laborCost": { "type": "number", "description": "Cost of outsourced or internal labor in Euros" },
+        "totalCost": { "type": "number", "description": "partsCost + laborCost" },
+        "categoryPreset": { "type": "string", "description": "Preset key if chosen from common templates" },
+        "notes": { "type": "string", "maxLength": 500, "description": "Optional notes or mechanic remarks" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["vehicleId", "userId", "title", "status", "partsCost", "laborCost"]
+    },
+    "GeneralExpense": {
+      "title": "GeneralExpense",
+      "description": "Non-repair financial expense associated with a vehicle (e.g. transport, CT, detailing, admin).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique expense ID" },
+        "vehicleId": { "type": "string", "description": "ID of the parent vehicle" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "category": {
+          "type": "string",
+          "enum": ["transport", "fuel", "controle_technique", "detailing", "admin", "insurance", "other"],
+          "description": "Category of the expense"
+        },
+        "description": { "type": "string", "maxLength": 200, "description": "Detailed description of expense" },
+        "amount": { "type": "number", "description": "Expense amount in Euros" },
+        "date": { "type": "string", "description": "Date incurred (YYYY-MM-DD)" },
+        "receiptUrl": { "type": "string", "description": "Optional attached receipt link or file name" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["vehicleId", "userId", "category", "description", "amount", "date"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered garage account profile with RBAC role and subscription plan limits.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "description": "Firebase Auth UID" },
+        "email": { "type": "string", "maxLength": 160, "description": "Account email" },
+        "displayName": { "type": "string", "maxLength": 100, "description": "Display name" },
+        "garageName": { "type": "string", "maxLength": 120, "description": "Primary garage name" },
+        "role": { "type": "string", "enum": ["user", "superadmin"], "description": "RBAC role" },
+        "planId": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Subscription plan" },
+        "vehicleLimit": { "type": "number", "description": "Maximum allowed vehicles" },
+        "activeVehiclesCount": { "type": "number", "description": "Current active vehicles count" },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "trial", "past_due", "canceled"], "description": "Billing status" },
+        "mrrAmount": { "type": "number", "description": "Monthly recurring revenue in EUR" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["uid", "email", "role", "planId", "vehicleLimit", "subscriptionStatus"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global platform design, theme variables, default layout, and Cerfa configuration.",
+      "type": "object",
+      "properties": {
+        "primaryAccentColor": { "type": "string", "maxLength": 20, "description": "Hex color for primary accent" },
+        "cardBorderRadius": { "type": "string", "enum": ["6px", "12px", "16px", "24px"], "description": "Global card border radius" },
+        "defaultInventoryViewMode": { "type": "string", "enum": ["grid", "list"], "description": "Default inventory view" },
+        "cerfaAdjustments": { "type": "object", "description": "Global Cerfa 15776*02 alignment adjustments" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }
+      },
+      "required": ["primaryAccentColor", "cardBorderRadius", "defaultInventoryViewMode"]
+    }
+  },
+  "firestore": {
+    "/vehicles/{vehicleId}": {
+      "schema": { "$ref": "#/entities/Vehicle" },
+      "description": "Top-level collection storing vehicle records owned by users."
+    },
+    "/vehicles/{vehicleId}/repairs/{repairId}": {
+      "schema": { "$ref": "#/entities/RepairTask" },
+      "description": "Sub-collection of repair tasks and to-do maintenance items for a vehicle."
+    },
+    "/vehicles/{vehicleId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/GeneralExpense" },
+      "description": "Sub-collection of general non-repair financial expenses for a vehicle."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles storing RBAC role and subscription plan limits."
+    },
+    "/system_config/{configId}": {
+      "schema": { "$ref": "#/entities/SystemConfig" },
+      "description": "Global platform theme and template configuration."
+    }
+  }
+}

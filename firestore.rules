@@ -1,0 +1,165 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'blackproduction999@gmail.com' && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin')
+      );
+    }
+
+    function isValidVehicle(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.make is string && data.make.size() > 0 && data.make.size() <= 80 &&
+             data.model is string && data.model.size() > 0 && data.model.size() <= 80 &&
+             data.year is number && data.year >= 1900 && data.year <= 2100 &&
+             data.mileage is number && data.mileage >= 0 &&
+             data.purchasePrice is number && data.purchasePrice >= 0 &&
+             data.status in ['preparation', 'repair', 'for_sale', 'sold'];
+    }
+
+    function isValidRepairTask(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.vehicleId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+             data.status in ['todo', 'in_progress', 'done'] &&
+             data.partsCost is number && data.partsCost >= 0 &&
+             data.laborCost is number && data.laborCost >= 0;
+    }
+
+    function isValidGeneralExpense(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.vehicleId is string &&
+             data.category in ['transport', 'fuel', 'controle_technique', 'detailing', 'admin', 'insurance', 'other'] &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 200 &&
+             data.amount is number && data.amount >= 0 &&
+             data.date is string;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.uid is string &&
+             data.uid == userId &&
+             data.email is string && data.email.size() <= 160 &&
+             data.role in ['user', 'superadmin'] &&
+             data.planId in ['starter', 'pro', 'enterprise'] &&
+             data.vehicleLimit is number && data.vehicleLimit >= 0 &&
+             data.subscriptionStatus in ['active', 'trial', 'past_due', 'canceled'];
+    }
+
+    function isValidSystemConfig(data) {
+      return data.primaryAccentColor is string && data.primaryAccentColor.size() <= 20 &&
+             data.cardBorderRadius in ['6px', '12px', '16px', '24px'] &&
+             data.defaultInventoryViewMode in ['grid', 'list'];
+    }
+
+    // Connection testing endpoint for boot verification
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // User profiles & RBAC
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isSuperAdmin());
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn() && isValidId(userId) &&
+                    isValidUserProfile(incoming(), userId) &&
+                    ((request.auth.uid == userId && incoming().role == 'user') || isSuperAdmin());
+      allow update: if isSignedIn() && isValidId(userId) &&
+                    isValidUserProfile(incoming(), userId) && (
+                      isSuperAdmin() ||
+                      (request.auth.uid == userId &&
+                       incoming().role == existing().role &&
+                       incoming().planId == existing().planId &&
+                       incoming().vehicleLimit == existing().vehicleLimit &&
+                       incoming().subscriptionStatus == existing().subscriptionStatus &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'garageName', 'activeVehiclesCount', 'updatedAt']))
+                    );
+      allow delete: if isSuperAdmin();
+    }
+
+    // Global System Config (Theme, Layout, Cerfa, Expenses, Features, Texts)
+    match /system_config/{configId} {
+      allow get: if true;
+      allow list: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin() && isValidId(configId) &&
+        (configId != 'global' || isValidSystemConfig(incoming()));
+    }
+
+    // Vehicles collection
+    match /vehicles/{vehicleId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(vehicleId) && isValidVehicle(incoming());
+      allow update: if isSignedIn() && isValidId(vehicleId) &&
+                    (existing().userId == request.auth.uid || isSuperAdmin()) &&
+                    incoming().userId == existing().userId &&
+                    isValidVehicle(incoming());
+      allow delete: if isSignedIn() && isValidId(vehicleId) && (existing().userId == request.auth.uid || isSuperAdmin());
+
+      // Subcollection for vehicle repairs & tasks
+      match /repairs/{repairId} {
+        allow get, list: if isSignedIn() && (
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid ||
+          isSuperAdmin()
+        );
+        allow create: if isSignedIn() && isValidId(vehicleId) && isValidId(repairId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          isValidRepairTask(incoming());
+        allow update: if isSignedIn() && isValidId(vehicleId) && isValidId(repairId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          existing().userId == request.auth.uid &&
+          incoming().userId == request.auth.uid &&
+          isValidRepairTask(incoming());
+        allow delete: if isSignedIn() && isValidId(vehicleId) && isValidId(repairId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          existing().userId == request.auth.uid;
+      }
+
+      // Subcollection for vehicle general expenses
+      match /expenses/{expenseId} {
+        allow get, list: if isSignedIn() && (
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid ||
+          isSuperAdmin()
+        );
+        allow create: if isSignedIn() && isValidId(vehicleId) && isValidId(expenseId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          isValidGeneralExpense(incoming());
+        allow update: if isSignedIn() && isValidId(vehicleId) && isValidId(expenseId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          existing().userId == request.auth.uid &&
+          incoming().userId == request.auth.uid &&
+          isValidGeneralExpense(incoming());
+        allow delete: if isSignedIn() && isValidId(vehicleId) && isValidId(expenseId) &&
+          get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
+          existing().userId == request.auth.uid;
+      }
+    }
+  }
+}
