@@ -262,43 +262,43 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const statusBadge = getStatusBadge(vehicle.status);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-[var(--ag-section-gap)]">
       {/* Top Breadcrumb & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition"
+            className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition"
             title={t('backToFleet')}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-[var(--foreground)] tracking-tight">
                 {vehicle.make} {vehicle.model}
               </h1>
-              <span className="text-xs font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-400 border border-slate-700">
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] tabular-nums">
                 {vehicle.year}
               </span>
               <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${statusBadge.bg}`}>
                 {statusBadge.label}
               </span>
             </div>
-            <p className="text-xs text-slate-400 flex flex-wrap items-center gap-2 mt-0.5 font-mono">
+            <p className="text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-2 mt-0.5 font-mono tabular-nums">
               {vehicle.registrationNumber && (
                 <>
-                  <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 font-bold">
+                  <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-500 border border-blue-500/30 font-bold">
                     {vehicle.registrationNumber}
                   </span>
-                  <span>•</span>
+                  <span>·</span>
                 </>
               )}
               <span>VIN : {vehicle.vin}</span>
-              <span>•</span>
+              <span>·</span>
               <span>{vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km</span>
-              <span>•</span>
-              <span className="text-slate-300">{vehicle.trim || 'Standard'}</span>
+              <span>·</span>
+              <span className="text-[var(--secondary-foreground)]">{vehicle.trim || 'Standard'}</span>
             </p>
           </div>
         </div>
@@ -306,12 +306,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         {/* Action Buttons: Status selector, Edit, Sell, Delete */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Dynamic Lifecycle Status Selector */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
-            <span className="text-[11px] text-slate-500 px-2 font-medium">Statut :</span>
+          <div className="flex items-center bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)]">
+            <span className="text-[11px] text-[var(--muted-foreground)] px-2 font-medium">{t('statusLabel')}</span>
             <select
               value={vehicle.status}
               onChange={(e) => handleStatusChange(e.target.value as VehicleStatus)}
-              className="text-xs font-bold bg-slate-800 text-slate-200 rounded-lg px-2.5 py-1.5 border-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+              className="text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2.5 py-1.5 border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer"
             >
               <option value="preparation">🛠️ {t('statusPreparation')}</option>
               <option value="repair">🔧 {t('statusRepair')}</option>
@@ -323,7 +323,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {!isSold ? (
             <button
               onClick={() => onOpenSellModal(vehicle)}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md shadow-purple-600/20 transition flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>{t('recordSaleBtn')}</span>
@@ -331,7 +331,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           ) : (
             <button
               onClick={() => generateSalesInvoicePDF(vehicle)}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{t('invoicePdfBtn')}</span>
@@ -340,7 +340,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
           <button
             onClick={() => onOpenEdit(vehicle)}
-            className="p-2 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition"
+            className="p-2 text-[var(--secondary-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition"
             title={t('editVehicleTitle')}
           >
             <Edit className="w-4 h-4" />
@@ -352,7 +352,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 onDeleteVehicle(vehicle.id);
               }
             }}
-            className="p-2 text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-950/60 rounded-xl transition border border-red-900/30"
+            className="p-2 text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-[var(--ag-button-radius)] transition border border-red-500/30"
             title={t('deleteVehicleTitle')}
           >
             <Trash2 className="w-4 h-4" />
@@ -362,181 +362,222 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
       {/* Real-time Financial Margin & P&L Banner */}
       {featureFlags.pnlCalculator && (
-        <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5 shadow-2xl">
-        <div className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3 flex items-center justify-between">
-          <span className="flex items-center gap-1.5">
-            <TrendingUp className="w-4 h-4" />
-            {t('pnlBannerTitle')}
-          </span>
-          <span className="text-[11px] font-mono text-slate-400 font-normal">
-            {t('pnlBannerFormula')}
-          </span>
-        </div>
-
-        {/* 6 Key Financial Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {/* 1. Prix d'achat */}
-          <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800/80">
-            <span className="text-[11px] text-slate-400 block mb-1">{t('purchasePriceLabel')}</span>
-            <div className="text-base sm:text-lg font-bold text-white">
-              {formatEuro(vehicle.purchasePrice)}
-            </div>
-            <span className="text-[10px] text-slate-500">{t('acquiredOn', { date: formatDate(vehicle.purchaseDate) })}</span>
-          </div>
-
-          {/* 2. Travaux Réparations (Pièces + MO) */}
-          <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800/80">
-            <span className="text-[11px] text-slate-400 block mb-1">{t('workshopRepairsLabel')}</span>
-            <div className="text-base sm:text-lg font-bold text-amber-300">
-              {formatEuro(fin.repairCostTotal)}
-            </div>
-            <span className="text-[10px] text-slate-500">
-              {t('partsAndLaborBreakdown', { parts: formatEuro(fin.repairPartsTotal), labor: formatEuro(fin.repairLaborTotal) })}
+        <div
+          data-testid="vehicle-financial-dashboard"
+          className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm"
+        >
+          <div className="text-xs font-bold uppercase tracking-wider text-[var(--primary)] mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4" />
+              {t('pnlBannerTitle')}
+            </span>
+            <span className="text-[11px] font-mono text-[var(--muted-foreground)] font-normal">
+              {t('pnlBannerFormula')}
             </span>
           </div>
 
-          {/* 3. Frais Généraux Non-Réparations */}
-          <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800/80">
-            <span className="text-[11px] text-slate-400 block mb-1">{t('generalExpensesLabel')}</span>
-            <div className="text-base sm:text-lg font-bold text-blue-300">
-              {formatEuro(fin.generalExpensesTotal)}
-            </div>
-            <span className="text-[10px] text-slate-500">{t('expensesCount', { count: expenses.length })}</span>
-          </div>
-
-          {/* 4. Total Capital Investi */}
-          <div className="bg-amber-950/20 p-3 rounded-2xl border border-amber-500/30">
-            <span className="text-[11px] text-amber-300 font-semibold block mb-1">
-              {t('totalCapitalInvestedLabel')}
-            </span>
-            <div className="text-base sm:text-lg font-black text-amber-400">
-              {formatEuro(fin.totalInvested)}
-            </div>
-            <span className="text-[10px] text-amber-200/70">
-              {t('expensesSum', { val: formatEuro(fin.totalExpenses) })}
-            </span>
-          </div>
-
-          {/* 5. Prix de Vente (Visé ou Réalisé) */}
-          <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800/80">
-            <span className="text-[11px] text-slate-400 block mb-1">
-              {isSold ? t('realizedSalePrice') : t('targetSalePrice')}
-            </span>
-            <div className={`text-base sm:text-lg font-bold ${hasSalePrice ? 'text-white' : 'text-slate-500'}`}>
-              {hasSalePrice ? formatEuro(effectiveSalePrice) : '—'}
-            </div>
-            <span className="text-[10px] text-slate-500">
-              {isSold ? t('soldTo', { name: vehicle.buyerInfo?.fullName || 'Client' }) : t('inListing')}
-            </span>
-          </div>
-
-          {/* 6. Bénéfice Net (Marge P&L & ROI) */}
-          <div
-            className={`p-3 rounded-2xl border ${
-              !hasSalePrice
-                ? 'bg-slate-950/70 border-slate-800/80 text-slate-400'
-                : fin.netProfit >= 0
-                ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-                : 'bg-red-950/30 border-red-500/40 text-red-300'
-            }`}
-          >
-            <span className="text-[11px] font-semibold block mb-1">{t('netProfitLabel')}</span>
-            {hasSalePrice ? (
-              <>
-                <div className="text-base sm:text-lg font-black">
-                  {fin.netProfit >= 0 ? '+' : ''}{formatEuro(fin.netProfit)}
-                </div>
-                <span className="text-[10px] font-mono font-bold block">
-                  {t('marginPercent', { val: fin.marginPercentage.toFixed(1) })} | {t('roiPercent', { val: fin.roiPercentage.toFixed(1) })}
-                </span>
-              </>
-            ) : (
-              <div className="text-base sm:text-lg font-mono font-bold text-slate-500">—</div>
-            )}
-          </div>
-        </div>
-
-        {/* Structured Sale Financial Report (Gross Margin -> Tax by Settings -> Net Profit) */}
-        {saleReport && (
-          <div
-            data-testid="sale-financial-report"
-            className="mt-4 bg-slate-950/85 border border-slate-800 rounded-2xl p-4 font-mono text-xs"
-          >
-            <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-800">
-              <span className="font-bold text-amber-400">
-                {lang === 'ru'
-                  ? `Финансовый отчёт продажи (${vehicle.make} ${vehicle.model})`
-                  : `Rapport financier de vente (${vehicle.make} ${vehicle.model})`}
+          {/* 6 Key Financial Metric Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* 1. Prix d'achat */}
+            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+                {t('purchasePriceLabel')}
               </span>
-              <span className="text-[11px] text-slate-400">
-                {lang === 'ru' ? `Режим: ${saleReport.taxLabel}` : `Régime : ${saleReport.taxLabel}`}
+              <div className="text-base sm:text-lg font-bold text-[var(--foreground)] tabular-nums">
+                {formatEuro(vehicle.purchasePrice)}
+              </div>
+              <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                {t('acquiredOn', { date: formatDate(vehicle.purchaseDate) })}
               </span>
             </div>
 
-            <div className="space-y-1.5 tabular-nums">
-              <div className="flex items-center justify-between text-slate-200">
-                <span>+ {lang === 'ru' ? 'Цена продажи:' : 'Prix de vente :'}</span>
-                <span className="font-bold text-white">{formatEuro(saleReport.salePrice)}</span>
+            {/* 2. Travaux Réparations (Pièces + MO) */}
+            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+                {t('workshopRepairsLabel')}
+              </span>
+              <div className="text-base sm:text-lg font-bold text-[var(--warning)] tabular-nums">
+                {formatEuro(fin.repairCostTotal)}
               </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>- {lang === 'ru' ? 'Закупка авто:' : 'Achat véhicule :'}</span>
-                <span className="text-red-300">-{formatEuro(saleReport.purchasePrice)}</span>
+              <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                {t('partsAndLaborBreakdown', { parts: formatEuro(fin.repairPartsTotal), labor: formatEuro(fin.repairLaborTotal) })}
+              </span>
+            </div>
+
+            {/* 3. Frais Généraux Non-Réparations */}
+            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+                {t('generalExpensesLabel')}
+              </span>
+              <div className="text-base sm:text-lg font-bold text-[var(--foreground)] tabular-nums">
+                {formatEuro(fin.generalExpensesTotal)}
               </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>- {lang === 'ru' ? 'Ремонт и запчасти:' : 'Réparations & pièces :'}</span>
-                <span className="text-red-300">-{formatEuro(saleReport.repairCostTotal)}</span>
+              <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                {t('expensesCount', { count: expenses.length })}
+              </span>
+            </div>
+
+            {/* 4. Total Capital Investi */}
+            <div
+              className="p-3 rounded-xl border"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--primary) 10%, var(--card))',
+                borderColor: 'color-mix(in srgb, var(--primary) 35%, var(--border))',
+              }}
+            >
+              <span className="text-[11px] text-[var(--primary)] font-semibold block mb-1">
+                {t('totalCapitalInvestedLabel')}
+              </span>
+              <div className="text-base sm:text-lg font-black text-[var(--primary)] tabular-nums">
+                {formatEuro(fin.totalInvested)}
               </div>
-              {saleReport.generalExpensesTotal > 0 && (
-                <div className="flex items-center justify-between text-slate-300">
-                  <span>- {lang === 'ru' ? 'Прочие расходы:' : 'Frais généraux :'}</span>
-                  <span className="text-red-300">-{formatEuro(saleReport.generalExpensesTotal)}</span>
+              <span className="text-[10px] text-[var(--secondary-foreground)] tabular-nums">
+                {t('expensesSum', { val: formatEuro(fin.totalExpenses) })}
+              </span>
+            </div>
+
+            {/* 5. Prix de Vente (Visé ou Réalisé) */}
+            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+                {isSold ? t('realizedSalePrice') : t('targetSalePrice')}
+              </span>
+              <div
+                className={`text-base sm:text-lg font-bold tabular-nums ${
+                  hasSalePrice ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
+                }`}
+              >
+                {hasSalePrice ? formatEuro(effectiveSalePrice) : '—'}
+              </div>
+              <span className="text-[10px] text-[var(--muted-foreground)]">
+                {isSold ? t('soldTo', { name: vehicle.buyerInfo?.fullName || 'Client' }) : t('inListing')}
+              </span>
+            </div>
+
+            {/* 6. Bénéfice Net (Marge P&L & ROI) */}
+            <div
+              className={`p-3 rounded-xl border ${
+                !hasSalePrice
+                  ? 'bg-[var(--surface-muted)] border-[var(--border)] text-[var(--muted-foreground)]'
+                  : ''
+              }`}
+              style={
+                hasSalePrice
+                  ? fin.netProfit >= 0
+                    ? {
+                        backgroundColor: 'color-mix(in srgb, var(--success) 12%, var(--card))',
+                        borderColor: 'color-mix(in srgb, var(--success) 40%, var(--border))',
+                        color: 'var(--success)',
+                      }
+                    : {
+                        backgroundColor: 'color-mix(in srgb, #ef4444 12%, var(--card))',
+                        borderColor: 'color-mix(in srgb, #ef4444 40%, var(--border))',
+                        color: '#ef4444',
+                      }
+                  : undefined
+              }
+            >
+              <span className="text-[11px] font-semibold block mb-1">{t('netProfitLabel')}</span>
+              {hasSalePrice ? (
+                <>
+                  <div className="text-base sm:text-lg font-black tabular-nums">
+                    {fin.netProfit >= 0 ? '+' : ''}
+                    {formatEuro(fin.netProfit)}
+                  </div>
+                  <span className="text-[10px] font-mono font-bold block tabular-nums">
+                    {t('marginPercent', { val: fin.marginPercentage.toFixed(1) })} | {t('roiPercent', { val: fin.roiPercentage.toFixed(1) })}
+                  </span>
+                </>
+              ) : (
+                <div className="text-base sm:text-lg font-mono font-bold text-[var(--muted-foreground)]">
+                  —
                 </div>
               )}
-
-              <div className="flex items-center justify-between pt-2 mt-2 border-t border-dashed border-slate-800 text-slate-100">
-                <span className="font-semibold">
-                  = {lang === 'ru' ? 'Валовая маржа (Брутто):' : 'Marge brute (Brut) :'}
-                </span>
-                <span className={`font-bold ${saleReport.grossMargin >= 0 ? 'text-amber-300' : 'text-red-400'}`}>
-                  {formatEuro(saleReport.grossMargin)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-slate-300">
-                <span>
-                  - {lang === 'ru' ? `Налог (${saleReport.taxLabel}):` : `Impôt (${saleReport.taxLabel}) :`}
-                </span>
-                <span className="text-amber-400">
-                  {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 mt-2 border-t border-slate-700 text-sm">
-                <span className="font-bold text-white">
-                  = {lang === 'ru' ? 'Чистая прибыль (Нетто):' : 'Bénéfice net (Net) :'}
-                </span>
-                <span
-                  className={`font-black ${
-                    saleReport.netProfitAfterTax >= 0 ? 'text-emerald-400' : 'text-red-400'
-                  }`}
-                >
-                  {formatEuro(saleReport.netProfitAfterTax)}
-                </span>
-              </div>
             </div>
           </div>
-        )}
+
+          {/* Structured Sale Financial Report (Gross Margin -> Tax by Settings -> Net Profit) */}
+          {saleReport && (
+            <div
+              data-testid="sale-financial-report"
+              className="mt-4 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] font-mono text-xs"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-[var(--border)]">
+                <span className="font-bold text-[var(--primary)]">
+                  {t('saleReportTitle', { vehicle: `${vehicle.make} ${vehicle.model}` })}
+                </span>
+                <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {t('saleReportRegime', { regime: saleReport.taxLabel })}
+                </span>
+              </div>
+
+              <div className="space-y-1.5 tabular-nums">
+                <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                  <span>+ {t('saleReportSalePrice')}</span>
+                  <span className="font-bold text-[var(--foreground)]">{formatEuro(saleReport.salePrice)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                  <span>- {t('saleReportPurchase')}</span>
+                  <span className="font-semibold text-red-500">-{formatEuro(saleReport.purchasePrice)}</span>
+                </div>
+                <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                  <span>- {t('saleReportRepairs')}</span>
+                  <span className="font-semibold text-red-500">-{formatEuro(saleReport.repairCostTotal)}</span>
+                </div>
+                {saleReport.generalExpensesTotal > 0 && (
+                  <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                    <span>- {t('saleReportExpenses')}</span>
+                    <span className="font-semibold text-red-500">-{formatEuro(saleReport.generalExpensesTotal)}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 mt-2 border-t border-dashed border-[var(--border)] text-[var(--foreground)]">
+                  <span className="font-semibold">
+                    = {t('saleReportGrossMargin')}
+                  </span>
+                  <span
+                    className={`font-bold ${
+                      saleReport.grossMargin >= 0 ? 'text-[var(--warning)]' : 'text-red-500'
+                    }`}
+                  >
+                    {formatEuro(saleReport.grossMargin)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                  <span>
+                    - {t('saleReportTax', { regime: saleReport.taxLabel })}
+                  </span>
+                  <span className="font-semibold text-[var(--primary)]">
+                    {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-sm">
+                  <span className="font-bold text-[var(--foreground)]">
+                    = {t('saleReportNetProfit')}
+                  </span>
+                  <span
+                    className={`font-black ${
+                      saleReport.netProfitAfterTax >= 0 ? 'text-[var(--success)]' : 'text-red-500'
+                    }`}
+                  >
+                    {formatEuro(saleReport.netProfitAfterTax)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-2">
         <button
           onClick={() => setActiveTab('overview')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold transition whitespace-nowrap ${
             activeTab === 'overview'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -546,10 +587,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         {featureFlags.repairChecklist && (
           <button
             onClick={() => setActiveTab('repairs')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold transition whitespace-nowrap ${
               activeTab === 'repairs'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
             }`}
           >
             <ListCheck className="w-4 h-4" />
@@ -559,10 +600,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
         <button
           onClick={() => setActiveTab('expenses')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold transition whitespace-nowrap ${
             activeTab === 'expenses'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
           }`}
         >
           <Receipt className="w-4 h-4" />
@@ -571,10 +612,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
         <button
           onClick={() => setActiveTab('documents')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold transition whitespace-nowrap ${
             activeTab === 'documents'
-              ? 'bg-amber-500 text-slate-950 shadow-md'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -588,8 +629,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {/* Left Column: Photo Gallery & Details */}
           <div className="lg:col-span-2 space-y-6">
             {/* Main Photo & Carousel */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-              <div className="relative h-72 sm:h-96 w-full bg-slate-950">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-sm">
+              <div className="relative h-72 sm:h-96 w-full bg-[var(--background)]">
                 {vehicle.photos && vehicle.photos.length > 0 ? (
                   <img
                     src={vehicle.photos[0]}
@@ -599,20 +640,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 ) : (
                   <VehiclePhotoPlaceholder variant="detail" />
                 )}
-                <div className="absolute top-4 right-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-mono font-bold text-slate-200 border border-slate-700">
+                <div className="absolute top-4 right-4 bg-[var(--card)]/90 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-mono font-bold text-[var(--foreground)] border border-[var(--border)]">
                   {vehicle.photos.length} Photo{vehicle.photos.length > 1 ? 's' : ''}
                 </div>
               </div>
 
               {/* Thumbnails */}
               {vehicle.photos.length > 1 && (
-                <div className="p-4 bg-slate-950/60 border-t border-slate-800 flex gap-3 overflow-x-auto">
+                <div className="p-4 bg-[var(--surface-muted)] border-t border-[var(--border)] flex gap-3 overflow-x-auto">
                   {vehicle.photos.map((p, idx) => (
                     <img
                       key={idx}
                       src={p}
                       alt={`Vue ${idx + 1}`}
-                      className="w-20 h-14 rounded-lg object-cover border border-slate-700 shrink-0 cursor-pointer hover:border-amber-400 transition"
+                      className="w-20 h-14 rounded-lg object-cover border border-[var(--border)] shrink-0 cursor-pointer hover:border-[var(--primary)] transition"
                     />
                   ))}
                 </div>
@@ -620,53 +661,53 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* Technical Specifications Summary Card */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Gauge className="w-4 h-4 text-amber-400" />
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
+              <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-[var(--primary)]" />
                 {t('techSpecTitle')}
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('make')}</span>
-                  <span className="text-white font-bold text-sm">{vehicle.make}</span>
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('make')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.make}</span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('model')}</span>
-                  <span className="text-white font-bold text-sm">{vehicle.model}</span>
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('model')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.model}</span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('year')}</span>
-                  <span className="text-white font-bold text-sm">{vehicle.year}</span>
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('year')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{vehicle.year}</span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('mileage')}</span>
-                  <span className="text-white font-bold text-sm">
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('mileage')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
                     {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
                   </span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">VIN (E)</span>
-                  <span className="text-amber-400 font-mono font-bold text-xs break-all">{vehicle.vin}</span>
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('vinFieldLabel')}</span>
+                  <span className="text-[var(--primary)] font-mono font-bold text-xs break-all">{vehicle.vin}</span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">Immatriculation (A)</span>
-                  <span className="text-blue-300 font-mono font-bold text-sm">
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('plateFieldLabel')}</span>
+                  <span className="text-blue-500 font-mono font-bold text-sm">
                     {vehicle.registrationNumber || '—'}
                   </span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('purchaseDate')}</span>
-                  <span className="text-white font-bold text-sm">{formatDate(vehicle.purchaseDate)}</span>
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('purchaseDate')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{formatDate(vehicle.purchaseDate)}</span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('purchasePriceLabel')}</span>
-                  <span className="text-white font-bold text-sm">
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('purchasePriceLabel')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
                     {formatEuro(vehicle.purchasePrice)}
                   </span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                  <span className="text-slate-500 block">{t('targetSalePriceInput')}</span>
-                  <span className="text-white font-bold text-sm">
+                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                  <span className="text-[var(--muted-foreground)] block">{t('targetSalePriceInput')}</span>
+                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
                     {vehicle.targetSalePrice > 0 ? formatEuro(vehicle.targetSalePrice) : '—'}
                   </span>
                 </div>
@@ -677,48 +718,48 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {/* Right Column: Buyer Info & Quick Checklist Status */}
           <div className="space-y-6">
             {/* Buyer Card if Sold or Prompt to Sell */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-              <h3 className="text-base font-bold text-white flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-purple-400" />
-                  {t('commercialStatusTitle')}
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
+              <h3 className="text-base font-bold text-[var(--foreground)] flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 min-w-0">
+                  <UserCheck className="w-4 h-4 text-purple-500 shrink-0" />
+                  <span className="truncate">{t('commercialStatusTitle')}</span>
                 </span>
                 {isSold && (
-                  <span className="text-xs font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/30">
+                  <span className="text-xs font-bold text-purple-500 bg-purple-500/10 px-2.5 py-0.5 rounded-full border border-purple-500/30 whitespace-nowrap shrink-0">
                     {t('saleValidated')}
                   </span>
                 )}
               </h3>
 
               {isSold && vehicle.buyerInfo ? (
-                <div className="space-y-3 bg-slate-950/80 p-4 rounded-2xl border border-slate-800 text-xs">
+                <div className="space-y-3 bg-[var(--surface-muted)] p-4 rounded-xl border border-[var(--border)] text-xs">
                   <div>
-                    <span className="text-slate-500 block">{t('buyer')}</span>
-                    <span className="text-white font-bold text-sm">
+                    <span className="text-[var(--muted-foreground)] block">{t('buyer')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm">
                       {vehicle.buyerInfo.fullName}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <span className="text-slate-500 block">{t('phone')}</span>
-                      <span className="text-slate-300">{vehicle.buyerInfo.phone}</span>
+                      <span className="text-[var(--muted-foreground)] block">{t('phone')}</span>
+                      <span className="text-[var(--secondary-foreground)]">{vehicle.buyerInfo.phone}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">{t('saleDateLabel')}</span>
-                      <span className="text-slate-300">{formatDate(vehicle.buyerInfo.saleDate)}</span>
+                      <span className="text-[var(--muted-foreground)] block">{t('saleDateLabel')}</span>
+                      <span className="text-[var(--secondary-foreground)] tabular-nums">{formatDate(vehicle.buyerInfo.saleDate)}</span>
                     </div>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{t('email')}</span>
-                    <span className="text-slate-300 truncate block">{vehicle.buyerInfo.email}</span>
+                    <span className="text-[var(--muted-foreground)] block">{t('email')}</span>
+                    <span className="text-[var(--secondary-foreground)] truncate block">{vehicle.buyerInfo.email}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{t('billingAddress')}</span>
-                    <span className="text-slate-300 block">{vehicle.buyerInfo.address}</span>
+                    <span className="text-[var(--muted-foreground)] block">{t('billingAddress')}</span>
+                    <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.address}</span>
                   </div>
-                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                    <span className="text-slate-400 font-semibold">{t('netSalePrice')}</span>
-                    <span className="text-base font-black text-emerald-400">
+                  <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
+                    <span className="text-[var(--muted-foreground)] font-semibold">{t('netSalePrice')}</span>
+                    <span className="text-base font-black text-[var(--success)] tabular-nums">
                       {formatEuro(vehicle.buyerInfo.salePrice)}
                     </span>
                   </div>
@@ -726,20 +767,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   {/* Quick Export Button */}
                   <button
                     onClick={() => generateSalesInvoicePDF(vehicle)}
-                    className="w-full mt-2 py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold flex items-center justify-center gap-2 transition"
+                    className="w-full mt-2 py-2 px-3 rounded-[var(--ag-button-radius)] bg-purple-600 hover:bg-purple-500 text-white font-bold flex items-center justify-center gap-2 transition whitespace-nowrap"
                   >
                     <Download className="w-4 h-4" />
                     <span>{t('downloadInvoicePdf')}</span>
                   </button>
                 </div>
               ) : (
-                <div className="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 text-center space-y-3">
-                  <p className="text-xs text-slate-400">
+                <div className="bg-[var(--surface-muted)] p-5 rounded-xl border border-[var(--border)] text-center space-y-3">
+                  <p className="text-xs text-[var(--muted-foreground)]">
                     {t('inStockNotice', { status: statusBadge.label })}
                   </p>
                   <button
                     onClick={() => onOpenSellModal(vehicle)}
-                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white shadow transition flex items-center justify-center gap-2"
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center justify-center gap-2"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>{t('recordSaleAndDetails')}</span>
@@ -750,23 +791,24 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
             {/* Quick Repairs Checklist Progress */}
             {featureFlags.repairChecklist && (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <ListCheck className="w-4 h-4 text-amber-400" />
+                <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
+                  <ListCheck className="w-4 h-4 text-[var(--primary)]" />
                   {t('repairsProgressTitle')}
                 </h3>
-                <span className="text-xs text-slate-400 font-mono">
+                <span className="text-xs text-[var(--muted-foreground)] font-mono tabular-nums">
                   {t('completedCount', { done: repairs.filter((r) => r.status === 'done').length, total: repairs.length })}
                 </span>
               </div>
 
               {/* Progress bar */}
-              <div className="w-full h-2 rounded-full bg-slate-950 overflow-hidden border border-slate-800">
+              <div className="w-full h-2 rounded-full bg-[var(--surface-muted)] overflow-hidden border border-[var(--border)]">
                 <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-500"
+                  className="h-full transition-all duration-500"
                   style={{
                     width: `${repairs.length > 0 ? (repairs.filter((r) => r.status === 'done').length / repairs.length) * 100 : 0}%`,
+                    backgroundColor: 'var(--primary)',
                   }}
                 ></div>
               </div>
@@ -776,21 +818,23 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 {repairs.slice(0, 3).map((task) => (
                   <div
                     key={task.id}
-                    className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between text-xs"
+                    className="p-2.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] flex items-center justify-between text-xs"
                   >
                     <div className="flex items-center gap-2 truncate">
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          task.status === 'done'
-                            ? 'bg-emerald-400'
-                            : task.status === 'in_progress'
-                            ? 'bg-blue-400'
-                            : 'bg-amber-400'
-                        }`}
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{
+                          backgroundColor:
+                            task.status === 'done'
+                              ? 'var(--success)'
+                              : task.status === 'in_progress'
+                              ? '#3b82f6'
+                              : 'var(--warning)',
+                        }}
                       ></span>
-                      <span className="text-slate-200 truncate">{task.title}</span>
+                      <span className="text-[var(--foreground)] truncate">{task.title}</span>
                     </div>
-                    <span className="text-amber-400 font-bold shrink-0 ml-2">
+                    <span className="text-[var(--primary)] font-bold shrink-0 ml-2 tabular-nums">
                       {formatEuro(task.totalCost)}
                     </span>
                   </div>
@@ -799,7 +843,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               <button
                 onClick={() => setActiveTab('repairs')}
-                className="w-full py-2 text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center justify-center gap-1 transition pt-1"
+                className="w-full py-2 text-xs font-bold text-[var(--primary)] flex items-center justify-center gap-1 transition pt-1"
               >
                 <span>{t('manageAllRepairs', { count: repairs.length })}</span>
                 <ChevronRight className="w-4 h-4" />
@@ -814,13 +858,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       {featureFlags.repairChecklist && activeTab === 'repairs' && (
         <div className="space-y-6">
           {/* Header & Add Task CTA */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
             <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Wrench className="w-5 h-5 text-amber-400" />
+              <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-[var(--primary)]" />
                 {t('repairChecklistTitle', { count: repairs.length })}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--muted-foreground)]">
                 {t('repairChecklistSubtitle')}
               </p>
             </div>
@@ -828,7 +872,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowAddTask(!showAddTask)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition flex items-center gap-1.5"
+                className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm transition flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
                 <span>{t('newRepairBtn')}</span>
@@ -840,17 +884,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {showAddTask && (
             <form
               onSubmit={handleCreateRepairTask}
-              className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
+              className="bg-[var(--card)] border border-[var(--primary)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-lg space-y-4 animate-in fade-in zoom-in-95"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Wrench className="w-4 h-4 text-amber-400" />
+              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                  <Wrench className="w-4 h-4 text-[var(--primary)]" />
                   {t('addRepairOperation')}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowAddTask(false)}
-                  className="text-xs text-slate-400 hover:text-white"
+                  className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 >
                   {t('closeForm')}
                 </button>
@@ -858,7 +902,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Template Presets Buttons */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                <label className="block text-xs font-semibold text-[var(--muted-foreground)] mb-1.5">
                   {t('presetsHelp')}
                 </label>
                 <div className="flex flex-wrap gap-1.5">
@@ -869,8 +913,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       onClick={() => handleSelectPreset(preset)}
                       className={`text-xs px-2.5 py-1 rounded-lg border transition ${
                         taskPresetKey === preset.id
-                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
+                          ? 'bg-[var(--surface-muted)] border-[var(--primary)] text-[var(--primary)] font-bold'
+                          : 'bg-[var(--background)] border-[var(--border)] text-[var(--secondary-foreground)] hover:bg-[var(--surface-muted)]'
                       }`}
                     >
                       {lang === 'ru' ? preset.labelRu : preset.labelFr}
@@ -881,7 +925,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Task Title */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                   {t('taskTitleLabel')}
                 </label>
                 <input
@@ -890,14 +934,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
                   placeholder={t('taskTitlePlaceholder')}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
                 />
               </div>
 
               {/* Cost Breakdown: Separate Parts Cost (€) and Labor Cost (€) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('partsCostLabel')}
                   </label>
                   <input
@@ -907,11 +951,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     value={taskPartsCost}
                     onChange={(e) => setTaskPartsCost(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="0"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('laborCostLabel')}
                   </label>
                   <input
@@ -921,17 +965,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     value={taskLaborCost}
                     onChange={(e) => setTaskLaborCost(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="0"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('taskStatusLabel')}
                   </label>
                   <select
                     value={taskStatus}
                     onChange={(e) => setTaskStatus(e.target.value as RepairTaskStatus)}
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 cursor-pointer"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] cursor-pointer"
                   >
                     <option value="todo">{t('taskTodo')}</option>
                     <option value="in_progress">{t('taskInProgress')}</option>
@@ -942,7 +986,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Optional Notes */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                   {t('taskNotesLabel')}
                 </label>
                 <input
@@ -950,7 +994,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   value={taskNotes}
                   onChange={(e) => setTaskNotes(e.target.value)}
                   placeholder={t('taskNotesPlaceholder')}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
                 />
               </div>
 
@@ -959,13 +1003,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddTask(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl transition"
+                  className="px-4 py-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-[var(--ag-button-radius)] transition"
                 >
                   {t('cancelBtn')}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md transition flex items-center gap-1.5"
+                  className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm transition flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{t('saveOperationBtn')}</span>
@@ -976,11 +1020,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
           {/* Table / List of Repair Tasks */}
           {repairs.length > 0 ? (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <tr className="bg-[var(--background)] border-b border-[var(--border)] text-[11px] font-bold text-[var(--muted-foreground)] uppercase tracking-wider">
                       <th className="py-3 px-4">{t('thTaskDesc')}</th>
                       <th className="py-3 px-4">{t('thStatus')}</th>
                       <th className="py-3 px-4 text-right">{t('thPartsCost')}</th>
@@ -989,14 +1033,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       <th className="py-3 px-4 text-center">{t('thActions')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-xs">
+                  <tbody className="divide-y divide-[var(--border)] text-xs">
                     {repairs.map((task) => (
-                      <tr key={task.id} className="hover:bg-slate-800/40 transition">
+                      <tr key={task.id} className="hover:bg-[var(--surface-muted)] transition">
                         {/* Title and notes */}
                         <td className="py-3.5 px-4">
-                          <div className="font-bold text-white text-sm">{task.title}</div>
+                          <div className="font-bold text-[var(--foreground)] text-sm">{task.title}</div>
                           {task.notes && (
-                            <div className="text-[11px] text-slate-400 mt-0.5">{task.notes}</div>
+                            <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">{task.notes}</div>
                           )}
                         </td>
 
@@ -1011,10 +1055,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                             }
                             className={`text-xs font-bold rounded-lg px-2.5 py-1 border cursor-pointer ${
                               task.status === 'done'
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                ? 'bg-emerald-500/10 text-[var(--success)] border-emerald-500/30'
                                 : task.status === 'in_progress'
-                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
+                                : 'bg-amber-500/10 text-[var(--warning)] border-amber-500/30'
                             }`}
                           >
                             <option value="todo">{t('taskTodo')}</option>
@@ -1034,7 +1078,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                                 partsCost: Number(e.target.value) || 0,
                               })
                             }
-                            className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-right font-mono text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                            className="w-20 px-2 py-1 bg-[var(--background)] border border-[var(--border)] rounded-lg text-right font-mono text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] tabular-nums"
                           />
                         </td>
 
@@ -1049,12 +1093,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                                 laborCost: Number(e.target.value) || 0,
                               })
                             }
-                            className="w-20 px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg text-right font-mono text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                            className="w-20 px-2 py-1 bg-[var(--background)] border border-[var(--border)] rounded-lg text-right font-mono text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] tabular-nums"
                           />
                         </td>
 
                         {/* Total Cost for this task */}
-                        <td className="py-3.5 px-4 text-right font-bold text-amber-400 font-mono text-sm">
+                        <td className="py-3.5 px-4 text-right font-bold text-[var(--primary)] font-mono text-sm tabular-nums">
                           {formatEuro(task.totalCost)}
                         </td>
 
@@ -1062,7 +1106,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                         <td className="py-3.5 px-4 text-center">
                           <button
                             onClick={() => deleteRepairTask(vehicle.id, task.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition"
+                            className="p-1.5 text-[var(--muted-foreground)] hover:text-red-500 rounded-lg hover:bg-[var(--surface-muted)] transition"
                             title={t('deleteTooltip')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1073,17 +1117,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </tbody>
                   {/* Aggregation summary footer */}
                   <tfoot>
-                    <tr className="bg-slate-950/90 font-bold border-t border-slate-800 text-xs">
-                      <td colSpan={2} className="py-3 px-4 text-slate-300">
+                    <tr className="bg-[var(--surface-muted)] font-bold border-t border-[var(--border)] text-xs">
+                      <td colSpan={2} className="py-3 px-4 text-[var(--secondary-foreground)]">
                         {t('totalCumulativeRepairs', { count: repairs.length })}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-slate-300">
+                      <td className="py-3 px-4 text-right font-mono text-[var(--secondary-foreground)] tabular-nums">
                         {formatEuro(fin.repairPartsTotal)}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-slate-300">
+                      <td className="py-3 px-4 text-right font-mono text-[var(--secondary-foreground)] tabular-nums">
                         {formatEuro(fin.repairLaborTotal)}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-base text-amber-400">
+                      <td className="py-3 px-4 text-right font-mono text-base text-[var(--primary)] tabular-nums">
                         {formatEuro(fin.repairCostTotal)}
                       </td>
                       <td></td>
@@ -1093,17 +1137,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               </div>
             </div>
           ) : (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-8 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-[var(--surface-muted)] text-[var(--primary)] flex items-center justify-center mx-auto border border-[var(--border)]">
                 <Wrench className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-white">{t('emptyRepairsTitle')}</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
+              <h3 className="text-base font-bold text-[var(--foreground)]">{t('emptyRepairsTitle')}</h3>
+              <p className="text-xs text-[var(--muted-foreground)] max-w-md mx-auto">
                 {t('emptyRepairsSubtitle')}
               </p>
               <button
                 onClick={() => setShowAddTask(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
+                className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] transition"
               >
                 {t('addFirstTask')}
               </button>
@@ -1116,20 +1160,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       {activeTab === 'expenses' && (
         <div className="space-y-6">
           {/* Header & Add CTA */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
             <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-blue-400" />
+              <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-blue-500" />
                 {t('generalExpensesTitle', { count: expenses.length })}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--muted-foreground)]">
                 {t('generalExpensesSubtitle')}
               </p>
             </div>
 
             <button
               onClick={() => setShowAddExpense(!showAddExpense)}
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md transition flex items-center gap-1.5"
+              className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
               <span>{t('newExpenseBtn')}</span>
@@ -1140,17 +1184,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {showAddExpense && (
             <form
               onSubmit={handleCreateExpense}
-              className="bg-slate-900 border border-blue-500/40 rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
+              className="bg-[var(--card)] border border-blue-500/40 rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-lg space-y-4 animate-in fade-in zoom-in-95"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-blue-400" />
+              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-blue-500" />
                   {t('recordExpenseTitle')}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowAddExpense(false)}
-                  className="text-xs text-slate-400 hover:text-white"
+                  className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                 >
                   {t('closeForm')}
                 </button>
@@ -1159,7 +1203,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               {/* Category & Amount */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('expenseCategoryLabel')}
                   </label>
                   <select
@@ -1172,7 +1216,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                         setExpenseAmount(found.defaultAmount);
                       }
                     }}
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-blue-500 cursor-pointer"
                   >
                     {dynamicCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
@@ -1182,7 +1226,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('expenseAmountLabel')}
                   </label>
                   <input
@@ -1193,11 +1237,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     value={expenseAmount}
                     onChange={(e) => setExpenseAmount(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="ex. 120"
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500 font-bold"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-blue-500 font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('expenseDateLabel')}
                   </label>
                   <input
@@ -1205,14 +1249,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     required
                     value={expenseDate}
                     onChange={(e) => setExpenseDate(e.target.value)}
-                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                   {t('expenseDescLabel')}
                 </label>
                 <input
@@ -1221,13 +1265,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   value={expenseDesc}
                   onChange={(e) => setExpenseDesc(e.target.value)}
                   placeholder={t('expenseDescPlaceholder')}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               {/* Receipt Reference or attachment note */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                   {t('expenseReceiptLabel')}
                 </label>
                 <input
@@ -1235,7 +1279,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   value={expenseReceipt}
                   onChange={(e) => setExpenseReceipt(e.target.value)}
                   placeholder="ex. Facture N° 2026-89 Dekra..."
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -1244,13 +1288,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAddExpense(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl transition"
+                  className="px-4 py-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-[var(--ag-button-radius)] transition"
                 >
                   {t('cancelBtn')}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow transition flex items-center gap-1.5"
+                  className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow transition flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{t('saveExpenseBtn')}</span>
@@ -1261,11 +1305,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
           {/* List of General Expenses */}
           {expenses.length > 0 ? (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    <tr className="bg-[var(--background)] border-b border-[var(--border)] text-[11px] font-bold text-[var(--muted-foreground)] uppercase tracking-wider">
                       <th className="py-3 px-4">{t('thCategory')}</th>
                       <th className="py-3 px-4">{t('thDescription')}</th>
                       <th className="py-3 px-4">{t('thDate')}</th>
@@ -1273,35 +1317,35 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       <th className="py-3 px-4 text-center">{t('thActions')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-xs">
+                  <tbody className="divide-y divide-[var(--border)] text-xs">
                     {expenses.map((expense) => {
                       const catInfo = dynamicCategories.find((c) => c.id === expense.category);
                       const catLabel = catInfo
                         ? (lang === 'ru' ? catInfo.labelRu : catInfo.labelFr)
                         : expense.category;
                       return (
-                        <tr key={expense.id} className="hover:bg-slate-800/40 transition">
+                        <tr key={expense.id} className="hover:bg-[var(--surface-muted)] transition">
                           <td className="py-3.5 px-4">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-950 text-blue-300 border border-slate-800">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)]">
                               {catLabel}
                             </span>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="font-semibold text-white">{expense.description}</div>
+                            <div className="font-semibold text-[var(--foreground)]">{expense.description}</div>
                             {expense.receiptUrl && (
-                              <div className="text-[11px] text-slate-400">
+                              <div className="text-[11px] text-[var(--muted-foreground)]">
                                 Réf : {expense.receiptUrl}
                               </div>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-slate-300">{formatDate(expense.date)}</td>
-                          <td className="py-3.5 px-4 text-right font-mono font-bold text-sm text-blue-300">
+                          <td className="py-3.5 px-4 text-[var(--secondary-foreground)] tabular-nums">{formatDate(expense.date)}</td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-sm text-[var(--foreground)] tabular-nums">
                             {formatEuro(expense.amount)}
                           </td>
                           <td className="py-3.5 px-4 text-center">
                             <button
                               onClick={() => deleteGeneralExpense(vehicle.id, expense.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800 transition"
+                              className="p-1.5 text-[var(--muted-foreground)] hover:text-red-500 rounded-lg hover:bg-[var(--surface-muted)] transition"
                               title={t('deleteTooltip')}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1313,11 +1357,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </tbody>
                   {/* Aggregation summary */}
                   <tfoot>
-                    <tr className="bg-slate-950/90 font-bold border-t border-slate-800 text-xs">
-                      <td colSpan={3} className="py-3 px-4 text-slate-300">
+                    <tr className="bg-[var(--surface-muted)] font-bold border-t border-[var(--border)] text-xs">
+                      <td colSpan={3} className="py-3 px-4 text-[var(--secondary-foreground)]">
                         {t('totalCumulativeExpenses', { count: expenses.length })}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-base text-blue-300">
+                      <td className="py-3 px-4 text-right font-mono text-base text-[var(--foreground)] tabular-nums">
                         {formatEuro(fin.generalExpensesTotal)}
                       </td>
                       <td></td>
@@ -1327,17 +1371,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               </div>
             </div>
           ) : (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-8 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center mx-auto border border-blue-500/20">
                 <Receipt className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-white">{t('emptyExpensesTitle')}</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
+              <h3 className="text-base font-bold text-[var(--foreground)]">{t('emptyExpensesTitle')}</h3>
+              <p className="text-xs text-[var(--muted-foreground)] max-w-md mx-auto">
                 {t('emptyExpensesSubtitle')}
               </p>
               <button
                 onClick={() => setShowAddExpense(true)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition"
+                className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition"
               >
                 {t('addFirstExpense')}
               </button>
@@ -1349,13 +1393,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       {/* TAB 4: SALES & DOCUMENT GENERATION MODULE */}
       {activeTab === 'documents' && (
         <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-6">
             <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-amber-400" />
+              <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
+                <FileText className="w-5 h-5 text-[var(--primary)]" />
                 {t('officialDocumentsTitle')}
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-[var(--muted-foreground)] mt-1">
                 {t('officialDocumentsSubtitle')}
               </p>
             </div>
@@ -1363,21 +1407,21 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             {/* Document Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Doc 1: Facture de Vente Véhicule d'Occasion */}
-              <div className="bg-slate-950/80 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow transition">
+              <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-[var(--primary)] rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
                 <div className="space-y-2">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-[var(--primary)] flex items-center justify-center border border-amber-500/20">
                     <FileText className="w-5 h-5" />
                   </div>
-                  <h3 className="font-bold text-white text-sm">
+                  <h3 className="font-bold text-[var(--foreground)] text-sm">
                     {t('docInvoiceTitle')}
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-[var(--muted-foreground)]">
                     {t('docInvoiceDesc')}
                   </p>
                 </div>
                 <button
                   onClick={() => generateSalesInvoicePDF(vehicle)}
-                  className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition flex items-center justify-center gap-2 shadow"
+                  className="w-full py-2.5 px-4 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] transition flex items-center justify-center gap-2 shadow-sm"
                 >
                   <Download className="w-4 h-4" />
                   <span>{t('downloadInvoiceBtn')}</span>
@@ -1386,21 +1430,21 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Doc 2: Certificat de Cession Cerfa 15776*02 */}
               {featureFlags.cerfaGenerator && (
-                <div className="bg-slate-950/80 border border-slate-800 hover:border-blue-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow transition">
+                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-blue-500/50 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
                   <div className="space-y-2">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center border border-blue-500/20">
                       <FileCheck className="w-5 h-5" />
                     </div>
-                    <h3 className="font-bold text-white text-sm">
+                    <h3 className="font-bold text-[var(--foreground)] text-sm">
                       {t('docCerfaTitle')}
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-[var(--muted-foreground)]">
                       {t('docCerfaDesc')}
                     </p>
                   </div>
                   <button
                     onClick={() => setShowCerfaWizard(true)}
-                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center justify-center gap-2 shadow"
+                    className="w-full py-2.5 px-4 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center justify-center gap-2 shadow-sm"
                   >
                     <FileCheck className="w-4 h-4" />
                     <span>{t('downloadCerfaBtn')}</span>
@@ -1410,21 +1454,21 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Doc 3: Fiche Bilan Financier P&L Détaillé */}
               {featureFlags.pnlCalculator && (
-                <div className="bg-slate-950/80 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow transition">
+                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-emerald-500/50 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
                   <div className="space-y-2">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-[var(--success)] flex items-center justify-center border border-emerald-500/20">
                       <TrendingUp className="w-5 h-5" />
                     </div>
-                    <h3 className="font-bold text-white text-sm">
+                    <h3 className="font-bold text-[var(--foreground)] text-sm">
                       {t('docPnlTitle')}
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-[var(--muted-foreground)]">
                       {t('docPnlDesc')}
                     </p>
                   </div>
                   <button
                     onClick={() => generateVehicleFinancialReportPDF(vehicle, repairs, expenses)}
-                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-2 shadow"
+                    className="w-full py-2.5 px-4 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-2 shadow-sm"
                   >
                     <Download className="w-4 h-4" />
                     <span>{t('downloadPnlBtn')}</span>
@@ -1434,44 +1478,44 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* Buyer information recap & modify button */}
-            <div className="pt-4 border-t border-slate-800">
+            <div className="pt-4 border-t border-[var(--border)]">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-[var(--foreground)]">
                   {t('registeredBuyerCoords')}
                 </h3>
                 <button
                   onClick={() => onOpenSellModal(vehicle)}
-                  className="text-xs font-bold text-amber-400 hover:text-amber-300"
+                  className="text-xs font-bold text-[var(--primary)]"
                 >
                   {vehicle.buyerInfo ? t('editBuyerCoords') : t('fillBuyerCoords')}
                 </button>
               </div>
 
               {vehicle.buyerInfo ? (
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="bg-[var(--background)] p-4 rounded-2xl border border-[var(--border)] text-xs grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
-                    <span className="text-slate-500 block">{t('buyer')}</span>
-                    <span className="text-white font-bold">{vehicle.buyerInfo.fullName}</span>
+                    <span className="text-[var(--muted-foreground)] block">{t('buyer')}</span>
+                    <span className="text-[var(--foreground)] font-bold">{vehicle.buyerInfo.fullName}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{t('phone')} & {t('email')}</span>
-                    <span className="text-slate-300 block">{vehicle.buyerInfo.phone}</span>
-                    <span className="text-slate-400 block truncate">{vehicle.buyerInfo.email}</span>
+                    <span className="text-[var(--muted-foreground)] block">{t('phone')} & {t('email')}</span>
+                    <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.phone}</span>
+                    <span className="text-[var(--muted-foreground)] block truncate">{vehicle.buyerInfo.email}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{t('billingAddress')}</span>
-                    <span className="text-slate-300 block">{vehicle.buyerInfo.address}</span>
+                    <span className="text-[var(--muted-foreground)] block">{t('billingAddress')}</span>
+                    <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.address}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{t('netSalePrice')}</span>
-                    <span className="text-emerald-400 font-extrabold text-sm block">
+                    <span className="text-[var(--muted-foreground)] block">{t('netSalePrice')}</span>
+                    <span className="text-[var(--success)] font-extrabold text-sm block tabular-nums">
                       {formatEuro(vehicle.buyerInfo.salePrice)}
                     </span>
-                    <span className="text-slate-500 text-[10px]">le {formatDate(vehicle.buyerInfo.saleDate)}</span>
+                    <span className="text-[var(--muted-foreground)] text-[10px] tabular-nums">le {formatDate(vehicle.buyerInfo.saleDate)}</span>
                   </div>
                 </div>
               ) : (
-                <div className="text-xs text-slate-400 italic">
+                <div className="text-xs text-[var(--muted-foreground)] italic">
                   {t('noBuyerYet')}
                 </div>
               )}

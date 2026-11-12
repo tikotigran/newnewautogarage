@@ -82,10 +82,10 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
   return (
     <div
       onClick={() => onSelect(vehicle)}
-      className="group bg-slate-900/90 rounded-2xl ag-card-surface border border-slate-800 hover:border-amber-500/50 shadow-lg hover:shadow-2xl hover:shadow-amber-500/5 transition-all duration-300 overflow-hidden flex flex-col cursor-pointer"
+      className="group bg-[var(--card)] rounded-[var(--ag-card-radius)] ag-card-surface border border-[var(--border)] hover:border-[var(--primary)] shadow-sm transition-all duration-300 overflow-hidden flex flex-col cursor-pointer"
     >
       {/* Top Image Preview with Overlaid Badges */}
-      <div className="relative h-32 w-full bg-slate-950 overflow-hidden">
+      <div className="relative h-32 w-full bg-[var(--background)] overflow-hidden">
         {hasPhoto ? (
           <img
             src={photoUrl}
@@ -119,14 +119,14 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         {/* Bottom overlay: Make, Model & Year */}
         <div className="absolute bottom-2 left-2.5 right-2.5 flex items-end justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-sm sm:text-base font-bold !text-white tracking-tight truncate group-hover:text-amber-400 transition-colors">
+            <h3 className="text-sm sm:text-base font-bold !text-white tracking-tight truncate group-hover:text-[var(--primary)] transition-colors">
               {vehicle.make} {vehicle.model}
             </h3>
             <p className="text-[11px] !text-slate-200 font-medium truncate">
               {vehicle.trim || 'Standard'}
             </p>
           </div>
-          <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-500 text-slate-950 shadow shrink-0">
+          <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow shrink-0">
             {vehicle.year}
           </span>
         </div>
@@ -135,16 +135,16 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
       {/* Body: Compact Specifications */}
       <div className="p-3 flex-1 flex flex-col justify-between space-y-2.5">
         {/* Specs row */}
-        <div className="grid grid-cols-2 gap-1.5 text-[11px] text-slate-400 bg-slate-950/60 px-2 py-1.5 rounded-lg border border-slate-800/80">
+        <div className="grid grid-cols-2 gap-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--surface-muted)] px-2 py-1.5 rounded-lg border border-[var(--border)]">
           <div className="flex items-center gap-1 truncate">
-            <Gauge className="w-3 h-3 text-slate-500 shrink-0" />
-            <span className="text-slate-200 font-semibold truncate">
+            <Gauge className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
+            <span className="text-[var(--foreground)] font-semibold truncate">
               {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
             </span>
           </div>
           <div className="flex items-center gap-1 truncate justify-end">
-            <Calendar className="w-3 h-3 text-slate-500 shrink-0" />
-            <span className="text-slate-300 truncate">
+            <Calendar className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
+            <span className="text-[var(--secondary-foreground)] truncate">
               {formatDate(vehicle.purchaseDate)}
             </span>
           </div>
@@ -153,17 +153,17 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         {/* Financial Ledger Snapshot */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">{lang === 'ru' ? 'Инвестиции' : 'Investi'}</span>
-            <span className="text-amber-300 font-bold">
+            <span className="text-[var(--muted-foreground)]">{t('cardInvested')}</span>
+            <span className="text-[var(--primary)] font-bold tabular-nums">
               {formatEuro(vehicle.totalInvested)}
             </span>
           </div>
 
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-slate-400">
-              {isSold ? (lang === 'ru' ? 'Продано' : 'Vendu') : (lang === 'ru' ? 'Цель' : 'Prix visé')}
+            <span className="text-[var(--muted-foreground)]">
+              {isSold ? t('cardSold') : t('cardTarget')}
             </span>
-            <span className={`font-extrabold text-xs ${hasSalePrice ? 'text-white' : 'text-slate-500'}`}>
+            <span className={`font-extrabold text-xs tabular-nums ${hasSalePrice ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
               {hasSalePrice ? formatEuro(effectivePrice) : '—'}
             </span>
           </div>
@@ -173,10 +173,10 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
             <div
               className={`px-2.5 py-1.5 rounded-xl border flex items-center justify-between ${
                 !hasSalePrice
-                  ? 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  ? 'bg-[var(--surface-muted)] border-[var(--border)] text-[var(--muted-foreground)]'
                   : vehicle.netProfit >= 0
-                  ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                  : 'bg-red-950/30 border-red-500/30 text-red-300'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-[var(--success)]'
+                  : 'bg-red-500/10 border-red-500/30 text-red-500'
               }`}
             >
               <div className="flex items-center gap-1">
@@ -186,15 +186,15 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
               <div className="text-right">
                 {hasSalePrice ? (
                   <>
-                    <div className="text-xs font-extrabold leading-tight">
+                    <div className="text-xs font-extrabold leading-tight tabular-nums">
                       {vehicle.netProfit >= 0 ? '+' : ''}{formatEuro(vehicle.netProfit)}
                     </div>
-                    <div className="text-[10px] opacity-80 font-mono leading-tight">
+                    <div className="text-[10px] opacity-80 font-mono leading-tight tabular-nums">
                       {vehicle.marginPercentage.toFixed(1)}%
                     </div>
                   </>
                 ) : (
-                  <div className="text-xs font-mono font-bold text-slate-500">—</div>
+                  <div className="text-xs font-mono font-bold text-[var(--muted-foreground)]">—</div>
                 )}
               </div>
             </div>
@@ -202,7 +202,7 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         </div>
 
         {/* Bottom Action Footer */}
-        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+        <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
           {/* Quick status selector */}
           <select
             value={vehicle.status}
@@ -215,7 +215,7 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
                 onQuickStatusChange(vehicle.id, newStatus);
               }
             }}
-            className="text-[11px] font-semibold bg-slate-800 text-slate-200 rounded-lg px-2 py-1 border border-slate-700 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer max-w-[125px]"
+            className="text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer max-w-[125px]"
           >
             <option value="preparation">🛠️ {t('statusPreparation')}</option>
             <option value="repair">🔧 {t('statusRepair')}</option>
@@ -228,9 +228,9 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
               e.stopPropagation();
               onSelect(vehicle);
             }}
-            className="flex items-center gap-1 text-[11px] font-bold text-amber-400 group-hover:text-amber-300 transition-colors whitespace-nowrap"
+            className="flex items-center gap-1 text-[11px] font-bold text-[var(--primary)] transition-colors whitespace-nowrap"
           >
-            <span>{lang === 'ru' ? 'Досье' : 'Dossier'}</span>
+            <span>{t('dossierBtn')}</span>
             <ArrowRight className="w-3 h-3 transform group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>

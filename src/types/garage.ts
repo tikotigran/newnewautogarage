@@ -261,11 +261,34 @@ export interface CerfaGlobalAdjustments {
   defaultTemplate: string;
 }
 
+export interface ThemePaletteTokens {
+  background: string;
+  card: string;
+  surfaceMuted: string;
+  primary: string;
+  primaryForeground: string;
+  foreground: string;
+  secondaryForeground: string;
+  mutedForeground: string;
+  border: string;
+  success: string;
+  warning: string;
+}
+
+export type CardPaddingDensity = 'compact' | 'comfortable' | 'spacious';
+export type ButtonBorderRadius = '6px' | '10px' | '12px' | '16px';
+export type SectionGapSize = '16px' | '24px' | '32px';
+
 export interface SystemThemeConfig {
   primaryAccentColor: string;
   cardBorderRadius: '6px' | '12px' | '16px' | '24px';
+  buttonBorderRadius?: ButtonBorderRadius;
+  cardPadding?: CardPaddingDensity;
+  sectionGap?: SectionGapSize;
   defaultInventoryViewMode: 'grid' | 'list';
   cerfaAdjustments: CerfaGlobalAdjustments;
+  lightPalette?: ThemePaletteTokens;
+  darkPalette?: ThemePaletteTokens;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -277,6 +300,8 @@ export interface GarageWorkspace {
   entityType: 'morale' | 'physique';
   city?: string;
   siret?: string;
+  taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+  taxRatePercent?: number;
   createdAt: string;
   updatedAt: string;
 }

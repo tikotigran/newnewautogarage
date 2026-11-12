@@ -23,26 +23,44 @@ import {
   ArrowUp,
   ArrowDown,
   Edit3,
+  Sun,
+  Moon,
+  Sparkles,
+  Eye,
 } from 'lucide-react';
 import {
+  ButtonBorderRadius,
+  CardPaddingDensity,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
   GlobalTextOverrides,
+  SectionGapSize,
   SubscriptionPlan,
   SubscriptionPlanId,
   SubscriptionStatus,
   SystemThemeConfig,
+  ThemePaletteTokens,
   UserProfile,
   UserRole,
 } from '../types/garage';
 import {
-  ACCENT_COLOR_PRESETS,
+  applySystemThemeVariables,
+  BRAND_THEME_PRESETS,
+  CARD_PADDING_VALUES,
   computeAdminDashboardMetrics,
+  DEFAULT_DARK_PALETTE,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
   DEFAULT_FEATURE_FLAGS,
+  DEFAULT_LIGHT_PALETTE,
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
+  getContrastForeground,
+  getTranslationKeyCategory,
+  resolveLocalizedLabel,
+  resolveSystemThemeConfig,
   sortExpenseCategories,
+  TRANSLATION_CATEGORIES,
+  TranslationCategoryId,
 } from '../utils/adminUtils';
 import {
   getSubscriptionPlans,
@@ -75,6 +93,8 @@ interface AdminPanelProps {
   isSuperAdmin: boolean;
   currentUserUid?: string;
   systemConfig: SystemThemeConfig;
+  theme?: 'dark' | 'light';
+  onThemeChange?: (theme: 'dark' | 'light') => void;
   onBackToApp: () => void;
   onSignIn: () => void;
   onOpenAlignerMode: () => void;
@@ -84,6 +104,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   isSuperAdmin,
   currentUserUid,
   systemConfig,
+  theme = 'dark',
+  onThemeChange,
   onBackToApp,
   onSignIn,
   onOpenAlignerMode,
@@ -95,7 +117,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [accounts, setAccounts] = useState<UserProfile[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() => getSubscriptionPlans());
   const [searchQuery, setSearchQuery] = useState('');
-  const [draftConfig, setDraftConfig] = useState<SystemThemeConfig>(systemConfig);
+  const [draftConfig, setDraftConfig] = useState<SystemThemeConfig>(() =>
+    resolveSystemThemeConfig(systemConfig)
+  );
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   // Dynamic Expense Categories state
@@ -115,10 +139,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [textOverrides, setTextOverrides] = useState<GlobalTextOverrides>({});
   const [textSearch, setTextSearch] = useState('');
   const [onlyModifiedTexts, setOnlyModifiedTexts] = useState(false);
+  const [selectedTextCategory, setSelectedTextCategory] = useState<TranslationCategoryId>('all');
 
   useEffect(() => {
-    setDraftConfig(systemConfig);
+    setDraftConfig(resolveSystemThemeConfig(systemConfig));
   }, [systemConfig]);
+
+  // Real-time live CSS custom property injection while editing in Design & UI Customization Studios
+  useEffect(() => {
+    if (activeTab === 'design' || activeTab === 'texts') {
+      applySystemThemeVariables(draftConfig, theme);
+    } else {
+      applySystemThemeVariables(systemConfig, theme);
+    }
+  }, [activeTab, draftConfig, systemConfig, theme]);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -156,6 +190,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         a.garageName.toLowerCase().includes(q)
     );
   }, [accounts, searchQuery]);
+
+  const translationCategoryCounts = useMemo(() => {
+    const keys = Object.keys(translations.fr) as (keyof typeof translations.fr)[];
+    const counts: Record<TranslationCategoryId, number> = {
+      all: keys.length,
+      navigation: 0,
+      inventory: 0,
+      vehicle_detail: 0,
+      sale_report: 0,
+      statuses: 0,
+      analytics: 0,
+      forms: 0,
+    };
+    for (const k of keys) {
+      counts[getTranslationKeyCategory(k)] += 1;
+    }
+    return counts;
+  }, []);
+
+  const allTranslationKeys = useMemo(() => {
+    const keys = Object.keys(translations.fr) as (keyof typeof translations.fr)[];
+    const q = textSearch.trim().toLowerCase();
+    return keys.filter((k) => {
+      if (selectedTextCategory !== 'all' && getTranslationKeyCategory(k) !== selectedTextCategory) {
+        return false;
+      }
+      const hasOverride = Boolean(
+        textOverrides[k]?.fr?.trim() || textOverrides[k]?.ru?.trim()
+      );
+      if (onlyModifiedTexts && !hasOverride) return false;
+      if (!q) return true;
+      return (
+        k.toLowerCase().includes(q) ||
+        translations.fr[k].toLowerCase().includes(q) ||
+        translations.ru[k].toLowerCase().includes(q) ||
+        (textOverrides[k]?.fr || '').toLowerCase().includes(q) ||
+        (textOverrides[k]?.ru || '').toLowerCase().includes(q)
+      );
+    });
+  }, [textSearch, onlyModifiedTexts, textOverrides, selectedTextCategory]);
 
   // Strict RBAC Gate for /admin
   if (!isSuperAdmin) {
@@ -204,21 +278,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleSaveGlobalConfig = async (nextConfig: SystemThemeConfig = draftConfig) => {
-    await saveSystemThemeConfig(nextConfig, currentUserUid);
+    const resolved = resolveSystemThemeConfig(nextConfig);
+    setDraftConfig(resolved);
+    await saveSystemThemeConfig(resolved, currentUserUid);
+    applySystemThemeVariables(resolved, theme);
     // Sync default inventory view mode if user hasn't set one or wants global default
     try {
-      localStorage.setItem('autogarage_inventory_view', nextConfig.defaultInventoryViewMode);
+      localStorage.setItem('autogarage_inventory_view', resolved.defaultInventoryViewMode);
     } catch {
       // ignore
     }
     showSavedFeedback(
-      isRu ? 'Глобальная конфигурация сохранена' : 'Configuration globale enregistrée'
+      isRu ? 'Брендинг и палитра сохранены глобально' : 'Branding et palettes appliqués globalement'
     );
   };
 
   const handleResetConfig = async () => {
-    setDraftConfig(DEFAULT_SYSTEM_THEME_CONFIG);
-    await handleSaveGlobalConfig(DEFAULT_SYSTEM_THEME_CONFIG);
+    const reset = resolveSystemThemeConfig(DEFAULT_SYSTEM_THEME_CONFIG);
+    setDraftConfig(reset);
+    await handleSaveGlobalConfig(reset);
+    showSavedFeedback(
+      isRu ? 'Сброшено к стандартным цветам' : 'Couleurs réinitialisées par défaut'
+    );
+  };
+
+  const handlePaletteTokenChange = (
+    mode: 'light' | 'dark',
+    token: keyof ThemePaletteTokens,
+    rawHex: string
+  ) => {
+    setDraftConfig((prev) => {
+      const resolved = resolveSystemThemeConfig(prev);
+      const targetKey = mode === 'light' ? 'lightPalette' : 'darkPalette';
+      const currentPalette =
+        resolved[targetKey] || (mode === 'light' ? DEFAULT_LIGHT_PALETTE : DEFAULT_DARK_PALETTE);
+      const updatedPalette: ThemePaletteTokens = {
+        ...currentPalette,
+        [token]: rawHex,
+      };
+      if (token === 'primary') {
+        updatedPalette.primaryForeground = getContrastForeground(rawHex);
+      }
+      return {
+        ...resolved,
+        primaryAccentColor:
+          token === 'primary' && mode === theme ? rawHex : resolved.primaryAccentColor,
+        [targetKey]: updatedPalette,
+      };
+    });
+  };
+
+  const handleApplyBrandPreset = (presetId: string) => {
+    const preset = BRAND_THEME_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    setDraftConfig((prev) => ({
+      ...resolveSystemThemeConfig(prev),
+      primaryAccentColor: preset.primaryHex,
+      lightPalette: { ...preset.lightPalette },
+      darkPalette: { ...preset.darkPalette },
+    }));
   };
 
   const handlePlanChange = async (uid: string, planId: SubscriptionPlanId) => {
@@ -383,6 +501,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     showSavedFeedback(isRu ? 'Тексты применены глобально' : 'Textes appliqués globalement');
   };
 
+  const handleSaveUiAndTexts = async () => {
+    const cleaned: GlobalTextOverrides = {};
+    for (const [k, v] of Object.entries(textOverrides)) {
+      if ((v.fr && v.fr.trim() !== '') || (v.ru && v.ru.trim() !== '')) {
+        cleaned[k] = { fr: v.fr || '', ru: v.ru || '' };
+      }
+    }
+    setTextOverrides(cleaned);
+    const resolvedLayout = resolveSystemThemeConfig(draftConfig);
+    setDraftConfig(resolvedLayout);
+    await Promise.all([
+      saveGlobalTextOverrides(cleaned, currentUserUid),
+      saveSystemThemeConfig(resolvedLayout, currentUserUid),
+    ]);
+    applySystemThemeVariables(resolvedLayout, theme);
+    showSavedFeedback(
+      isRu ? 'Настройки UI и тексты сохранены глобально' : 'UI & textes appliqués globalement'
+    );
+  };
+
   const handleResetSingleText = async (key: string) => {
     const copy = { ...textOverrides };
     delete copy[key];
@@ -394,25 +532,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     await saveGlobalTextOverrides({}, currentUserUid);
     showSavedFeedback(isRu ? 'Все тексты сброшены' : 'Tous les textes réinitialisés');
   };
-
-  const allTranslationKeys = useMemo(() => {
-    const keys = Object.keys(translations.fr) as (keyof typeof translations.fr)[];
-    const q = textSearch.trim().toLowerCase();
-    return keys.filter((k) => {
-      const hasOverride = Boolean(
-        textOverrides[k]?.fr?.trim() || textOverrides[k]?.ru?.trim()
-      );
-      if (onlyModifiedTexts && !hasOverride) return false;
-      if (!q) return true;
-      return (
-        k.toLowerCase().includes(q) ||
-        translations.fr[k].toLowerCase().includes(q) ||
-        translations.ru[k].toLowerCase().includes(q) ||
-        (textOverrides[k]?.fr || '').toLowerCase().includes(q) ||
-        (textOverrides[k]?.ru || '').toLowerCase().includes(q)
-      );
-    });
-  }, [textSearch, onlyModifiedTexts, textOverrides]);
 
   const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
     {
@@ -437,12 +556,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     },
     {
       id: 'texts',
-      label: isRu ? 'Редактор текстов' : 'Éditeur de textes',
+      label: isRu ? 'UI и Тексты' : 'UI & Text Customization',
       icon: <Type className="w-4 h-4" />,
     },
     {
       id: 'design',
-      label: isRu ? 'Дизайн и брендинг' : 'Design & Branding',
+      label: isRu ? 'Дизайн и Брендинг' : 'Design & Branding',
       icon: <Palette className="w-4 h-4" />,
     },
     {
@@ -717,82 +836,408 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* 3. DESIGN & THEME CUSTOMIZER ENGINE */}
-        {activeTab === 'design' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Система дизайна и тем' : 'Système de Design & Thème Global'}
-                </h1>
-                <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Динамическое управление CSS-переменными, скруглением карточек и видом инвентаря по умолчанию'
-                    : 'Modification dynamique des variables CSS globales, rayons de cartes et vue par défaut'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleResetConfig}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сбросить' : 'Réinitialiser'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveGlobalConfig()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Применить глобально' : 'Enregistrer & Appliquer'}</span>
-                </button>
-              </div>
-            </div>
+        {/* 3. DESIGN & BRANDING STUDIO (DUAL-THEME PALETTE ENGINE) */}
+        {activeTab === 'design' && (() => {
+          const resolvedDraft = resolveSystemThemeConfig(draftConfig);
+          const lightPalette = resolvedDraft.lightPalette || DEFAULT_LIGHT_PALETTE;
+          const darkPalette = resolvedDraft.darkPalette || DEFAULT_DARK_PALETTE;
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
-                {/* Primary Accent Color */}
-                <div className="space-y-2.5">
-                  <label className="block text-xs font-bold text-white">
-                    {isRu ? 'Основной акцентный цвет (--ag-accent)' : 'Couleur d’accent principale (--ag-accent)'}
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {ACCENT_COLOR_PRESETS.map((preset) => (
-                      <button
-                        key={preset.hex}
-                        type="button"
-                        onClick={() =>
-                          setDraftConfig({ ...draftConfig, primaryAccentColor: preset.hex })
-                        }
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
-                          draftConfig.primaryAccentColor === preset.hex
-                            ? 'border-white bg-slate-800 text-white'
-                            : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <span
-                          className="w-3.5 h-3.5 rounded-full"
-                          style={{ backgroundColor: preset.hex }}
-                        />
-                        <span>{preset.name}</span>
-                      </button>
-                    ))}
-                    <input
-                      type="color"
-                      aria-label="Custom accent color"
-                      value={draftConfig.primaryAccentColor}
-                      onChange={(e) =>
-                        setDraftConfig({ ...draftConfig, primaryAccentColor: e.target.value })
-                      }
-                      className="w-9 h-9 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-0.5"
-                    />
+          const paletteTokenRows: {
+            key: keyof ThemePaletteTokens;
+            cssVar: string;
+            labelRu: string;
+            labelFr: string;
+          }[] = [
+            { key: 'background', cssVar: '--background', labelRu: 'Фон страницы (Canvas)', labelFr: 'Fond de page (Canvas)' },
+            { key: 'card', cssVar: '--card', labelRu: 'Фон карточек (Card)', labelFr: 'Surface des cartes (Card)' },
+            { key: 'surfaceMuted', cssVar: '--surface-muted', labelRu: 'Вторичная панель / инпут', labelFr: 'Surface secondaire / champ' },
+            { key: 'primary', cssVar: '--primary', labelRu: 'Основной акцент / кнопки', labelFr: 'Couleur principale / CTA' },
+            { key: 'foreground', cssVar: '--foreground', labelRu: 'Заголовки (Primary Text)', labelFr: 'Titres (Texte principal)' },
+            { key: 'secondaryForeground', cssVar: '--secondary-foreground', labelRu: 'Основной текст', labelFr: 'Texte courant' },
+            { key: 'mutedForeground', cssVar: '--muted-foreground', labelRu: 'Приглушённые подписи', labelFr: 'Textes secondaires' },
+            { key: 'border', cssVar: '--border', labelRu: 'Рамки и разделители', labelFr: 'Bordures & séparateurs' },
+            { key: 'success', cssVar: '--success', labelRu: 'Прибыль P&L / В продаже', labelFr: 'Profit P&L / En vente' },
+            { key: 'warning', cssVar: '--warning', labelRu: 'Статус подготовки / ремонта', labelFr: 'Statut préparation / atelier' },
+          ];
+
+          const renderThemeColumn = (mode: 'light' | 'dark', palette: ThemePaletteTokens) => {
+            const isLightCol = mode === 'light';
+            const isActiveAppMode = theme === mode;
+
+            return (
+              <div
+                key={mode}
+                className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5"
+              >
+                {/* Column Header */}
+                <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                        isLightCol
+                          ? 'bg-slate-100 text-slate-900 border-slate-300'
+                          : 'bg-slate-950 text-amber-400 border-slate-800'
+                      }`}
+                    >
+                      {isLightCol ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-bold text-white">
+                        {isLightCol
+                          ? isRu
+                            ? 'Светлая тема (Light Theme)'
+                            : 'Thème Clair (Light Palette)'
+                          : isRu
+                            ? 'Тёмная тема (Dark Theme)'
+                            : 'Thème Sombre (Dark Palette)'}
+                      </h2>
+                      <p className="text-[11px] text-slate-400">
+                        {isLightCol
+                          ? isRu
+                            ? 'Дневной режим интерфейса и карточек'
+                            : 'Mode jour pour les postes de travail lumineux'
+                          : isRu
+                            ? 'Ночной режим и контрастные акценты'
+                            : 'Mode nuit et contrastes élevés'}
+                      </p>
+                    </div>
                   </div>
+                  {onThemeChange && (
+                    <button
+                      type="button"
+                      onClick={() => onThemeChange(mode)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition whitespace-nowrap shrink-0 ${
+                        isActiveAppMode
+                          ? 'bg-amber-500 text-slate-950 border-amber-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>
+                        {isActiveAppMode
+                          ? isRu
+                            ? 'Активна сейчас'
+                            : 'Actif'
+                          : isRu
+                            ? 'Включить на сайте'
+                            : 'Tester en direct'}
+                      </span>
+                    </button>
+                  )}
                 </div>
 
-                {/* Card Border Radius */}
-                <div className="space-y-2.5">
+                {/* Color Pickers & Hex Inputs */}
+                <div className="grid grid-cols-1 gap-2">
+                  {paletteTokenRows.map((row) => {
+                    const value = palette[row.key];
+                    const safePickerVal = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
+                    return (
+                      <div
+                        key={`${mode}-${row.key}`}
+                        className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-semibold text-white truncate">
+                            {isRu ? row.labelRu : row.labelFr}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500 shrink-0">
+                            {row.cssVar}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <input
+                            type="color"
+                            aria-label={`${mode} ${row.cssVar} color picker`}
+                            value={safePickerVal}
+                            onChange={(e) => handlePaletteTokenChange(mode, row.key, e.target.value)}
+                            className="w-7 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            aria-label={`${mode} ${row.cssVar} hex value`}
+                            value={value}
+                            maxLength={9}
+                            onChange={(e) => handlePaletteTokenChange(mode, row.key, e.target.value)}
+                            className="w-[82px] bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-200 tabular-nums focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Live Theme Preview Card (Scoped CSS Custom Properties) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-400">
+                      {isLightCol
+                        ? isRu
+                          ? 'Предпросмотр светлой темы'
+                          : 'Aperçu Thème Clair'
+                        : isRu
+                          ? 'Предпросмотр тёмной темы'
+                          : 'Aperçu Thème Sombre'}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500 tabular-nums">
+                      {palette.background} · {palette.card} · {palette.primary}
+                    </span>
+                  </div>
+
+                  <div
+                    data-branding-preview="true"
+                    className="p-4 border transition-all"
+                    style={
+                      {
+                        '--background': palette.background,
+                        '--card': palette.card,
+                        '--surface-muted': palette.surfaceMuted,
+                        '--primary': palette.primary,
+                        '--primary-foreground': palette.primaryForeground || getContrastForeground(palette.primary),
+                        '--foreground': palette.foreground,
+                        '--secondary-foreground': palette.secondaryForeground,
+                        '--muted-foreground': palette.mutedForeground,
+                        '--border': palette.border,
+                        '--success': palette.success,
+                        '--warning': palette.warning,
+                        '--ag-card-radius': resolvedDraft.cardBorderRadius,
+                        backgroundColor: palette.background,
+                        borderColor: palette.border,
+                        borderRadius: resolvedDraft.cardBorderRadius,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <div
+                      className="p-4 border space-y-3"
+                      style={{
+                        backgroundColor: palette.card,
+                        borderColor: palette.border,
+                        borderRadius: resolvedDraft.cardBorderRadius,
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="text-sm font-bold"
+                              style={{ color: palette.foreground }}
+                            >
+                              Peugeot 208 GT
+                            </span>
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                              style={{
+                                backgroundColor: palette.primary,
+                                color: palette.primaryForeground || getContrastForeground(palette.primary),
+                              }}
+                            >
+                              2022
+                            </span>
+                          </div>
+                          <p
+                            className="text-xs mt-0.5"
+                            style={{ color: palette.mutedForeground }}
+                          >
+                            1.2 PureTech 130ch · 34 200 km
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
+                            style={{
+                              backgroundColor: `color-mix(in srgb, ${palette.warning} 14%, transparent)`,
+                              borderColor: `color-mix(in srgb, ${palette.warning} 35%, transparent)`,
+                              color: palette.warning,
+                            }}
+                          >
+                            {isRu ? 'В подготовке' : 'Préparation'}
+                          </span>
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
+                            style={{
+                              backgroundColor: `color-mix(in srgb, ${palette.success} 14%, transparent)`,
+                              borderColor: `color-mix(in srgb, ${palette.success} 35%, transparent)`,
+                              color: palette.success,
+                            }}
+                          >
+                            {isRu ? 'В продаже' : 'En vente'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        className="p-2.5 rounded-xl border flex items-center justify-between"
+                        style={{
+                          backgroundColor: palette.surfaceMuted,
+                          borderColor: palette.border,
+                        }}
+                      >
+                        <span
+                          className="text-xs font-medium"
+                          style={{ color: palette.secondaryForeground }}
+                        >
+                          {isRu ? 'Цена продажи' : 'Prix affiché'}
+                        </span>
+                        <span
+                          className="text-sm font-bold tabular-nums"
+                          style={{ color: palette.foreground }}
+                        >
+                          16 900 €
+                        </span>
+                      </div>
+
+                      <div
+                        className="p-2.5 rounded-xl border flex items-center justify-between"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${palette.success} 12%, transparent)`,
+                          borderColor: `color-mix(in srgb, ${palette.success} 32%, transparent)`,
+                        }}
+                      >
+                        <span
+                          className="text-xs font-semibold"
+                          style={{ color: palette.secondaryForeground }}
+                        >
+                          {isRu ? 'Чистая прибыль (P&L)' : 'Marge Nette (P&L)'}
+                        </span>
+                        <span
+                          className="text-sm font-bold tabular-nums"
+                          style={{ color: palette.success }}
+                        >
+                          +3 700 € · 21.9%
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span
+                          className="text-[11px]"
+                          style={{ color: palette.mutedForeground }}
+                        >
+                          VIN: VR3UPHNKSN...
+                        </span>
+                        <span
+                          className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap"
+                          style={{
+                            backgroundColor: palette.primary,
+                            color: palette.primaryForeground || getContrastForeground(palette.primary),
+                          }}
+                        >
+                          {isRu ? 'Открыть карту' : 'Voir fiche'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          return (
+            <div className="space-y-6">
+              {/* Studio Header */}
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <h1 className="text-xl font-bold text-white">
+                    {isRu ? 'Дизайн и Брендинг' : 'Design & Branding Studio'}
+                  </h1>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isRu
+                      ? 'Живая настройка палитр светлой и тёмной темы через CSS-переменные и глобальная синхронизация'
+                      : 'Personnalisation en temps réel des palettes clair/sombre par variables CSS et synchronisation globale'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+                  {onThemeChange && (
+                    <button
+                      type="button"
+                      onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition whitespace-nowrap shrink-0"
+                    >
+                      {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                      <span>
+                        {theme === 'dark'
+                          ? isRu
+                            ? 'Тёмная'
+                            : 'Sombre'
+                          : isRu
+                            ? 'Светлая'
+                            : 'Clair'}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResetConfig}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition whitespace-nowrap shrink-0"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{isRu ? 'Сбросить по умолчанию' : 'Réinitialiser par défaut'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveGlobalConfig(resolvedDraft)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap shrink-0"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isRu ? 'Применить глобально' : 'Enregistrer & Appliquer'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Dual-Theme Brand Presets */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-white">
+                      {isRu ? 'Готовые палитры бренда (Light + Dark)' : 'Préréglages de marque (Clair + Sombre)'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    {isRu ? 'Изменения применяются к предпросмотру мгновенно' : 'Aperçu instantané sans rechargement'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {BRAND_THEME_PRESETS.map((preset) => {
+                    const isSelected =
+                      lightPalette.primary.toLowerCase() === preset.lightPalette.primary.toLowerCase() &&
+                      darkPalette.primary.toLowerCase() === preset.darkPalette.primary.toLowerCase() &&
+                      darkPalette.background.toLowerCase() === preset.darkPalette.background.toLowerCase();
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleApplyBrandPreset(preset.id)}
+                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                          isSelected
+                            ? 'border-amber-500 bg-slate-800 text-white'
+                            : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        <span className="inline-flex items-center -space-x-1">
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-white/40"
+                            style={{ backgroundColor: preset.lightPalette.primary }}
+                          />
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-slate-700"
+                            style={{ backgroundColor: preset.darkPalette.card }}
+                          />
+                        </span>
+                        <span>{isRu ? preset.nameRu : preset.nameFr}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dual-Column Light & Dark Theme Palettes */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {renderThemeColumn('light', lightPalette)}
+                {renderThemeColumn('dark', darkPalette)}
+              </div>
+
+              {/* Geometry, Default View & Live CSS Variables Summary */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <div className="lg:col-span-4 space-y-2.5">
                   <label className="block text-xs font-bold text-white">
                     {isRu ? 'Скругление карточек (--ag-card-radius)' : 'Rayon des bordures de cartes (--ag-card-radius)'}
                   </label>
@@ -802,10 +1247,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         key={rad}
                         type="button"
                         onClick={() =>
-                          setDraftConfig({ ...draftConfig, cardBorderRadius: rad })
+                          setDraftConfig({ ...resolvedDraft, cardBorderRadius: rad })
                         }
                         className={`py-2 px-3 rounded-xl text-xs font-semibold border transition ${
-                          draftConfig.cardBorderRadius === rad
+                          resolvedDraft.cardBorderRadius === rad
                             ? 'bg-amber-500 text-slate-950 border-amber-500'
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
@@ -816,78 +1261,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Default Inventory View Mode */}
-                <div className="space-y-2.5">
+                <div className="lg:col-span-4 space-y-2.5">
                   <label className="block text-xs font-bold text-white">
-                    {isRu ? 'Режим отображения инвентаря по умолчанию' : 'Mode d’affichage par défaut de l’inventaire'}
+                    {isRu ? 'Вид инвентаря по умолчанию' : 'Vue par défaut de l’inventaire'}
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() =>
-                        setDraftConfig({ ...draftConfig, defaultInventoryViewMode: 'grid' })
+                        setDraftConfig({ ...resolvedDraft, defaultInventoryViewMode: 'grid' })
                       }
-                      className={`py-2.5 px-4 rounded-xl text-xs font-semibold border transition ${
-                        draftConfig.defaultInventoryViewMode === 'grid'
+                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                        resolvedDraft.defaultInventoryViewMode === 'grid'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {isRu ? 'Компактная сетка (Grid)' : 'Grille Compacte (Grid)'}
+                      {isRu ? 'Сетка (Grid)' : 'Grille (Grid)'}
                     </button>
                     <button
                       type="button"
                       onClick={() =>
-                        setDraftConfig({ ...draftConfig, defaultInventoryViewMode: 'list' })
+                        setDraftConfig({ ...resolvedDraft, defaultInventoryViewMode: 'list' })
                       }
-                      className={`py-2.5 px-4 rounded-xl text-xs font-semibold border transition ${
-                        draftConfig.defaultInventoryViewMode === 'list'
+                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                        resolvedDraft.defaultInventoryViewMode === 'list'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {isRu ? 'Табличный список (List)' : 'Vue Liste / Tableau'}
+                      {isRu ? 'Список (List)' : 'Liste (List)'}
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Live Preview Card */}
-              <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
-                <h2 className="text-xs font-bold text-slate-400">
-                  {isRu ? 'Предпросмотр темы в реальном времени' : 'Aperçu en direct'}
-                </h2>
-                <div
-                  className="bg-slate-950 border border-slate-800 p-4 space-y-3 transition-all"
-                  style={{ borderRadius: draftConfig.cardBorderRadius }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-white">Peugeot 208 GT</span>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded text-slate-950"
-                      style={{ backgroundColor: draftConfig.primaryAccentColor }}
-                    >
-                      2021
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">1.2 PureTech 130ch · 48 500 km</p>
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                    <span className="text-xs text-slate-400">Marge Nette</span>
-                    <span
-                      className="text-sm font-bold tabular-nums"
-                      style={{ color: draftConfig.primaryAccentColor }}
-                    >
-                      +3 700 €
-                    </span>
+                <div className="lg:col-span-4 space-y-2">
+                  <p className="text-xs font-bold text-white">
+                    {isRu
+                      ? `Активные CSS-токены (${theme === 'light' ? 'Light' : 'Dark'})`
+                      : `Variables CSS actives (${theme === 'light' ? 'Light' : 'Dark'})`}
+                  </p>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 space-y-1 tabular-nums">
+                    <div>
+                      --background: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).background}</span> · --card: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).card}</span>
+                    </div>
+                    <div>
+                      --primary: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).primary}</span> · --foreground: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).foreground}</span>
+                    </div>
+                    <div>
+                      --border: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).border}</span> · --success: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).success}</span>
+                    </div>
                   </div>
                 </div>
-                <p className="text-[11px] text-slate-500 tabular-nums">
-                  CSS: --ag-accent: {draftConfig.primaryAccentColor} · --ag-card-radius: {draftConfig.cardBorderRadius}
-                </p>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 4. SUBSCRIPTION & BILLING */}
         {activeTab === 'billing' && (
@@ -1399,38 +1828,352 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* 8. GLOBAL LABEL & TEXT CUSTOMIZER */}
+        {/* 8. COMPREHENSIVE UI & COPYWRITING CUSTOMIZATION STUDIO */}
         {activeTab === 'texts' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Редактор надписей и текстов' : 'Éditeur Global de Textes & Libellés'}
+                  {isRu ? 'Студия UI, макета и текстов' : 'Studio UI, Mise en page & Textes'}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
                   {isRu
-                    ? 'Динамическое переопределение заголовков, кнопок и подсказок без пересборки (/system_config/texts)'
-                    : 'Personnalisez dynamiquement les libellés, boutons et en-têtes (/system_config/texts)'}
+                    ? 'Глобальное управление отступами, скруглениями, отчётом продажи и всеми текстами (settings/ui_customization)'
+                    : 'Contrôle global des rayons, espacements, fiches véhicules et libellés (settings/ui_customization)'}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleResetAllTexts}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition whitespace-nowrap shrink-0"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сбросить все' : 'Tout réinitialiser'}</span>
+                  <span>{isRu ? 'Сбросить тексты' : 'Réinitialiser textes'}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSaveTextOverrides()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
+                  onClick={handleSaveUiAndTexts}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap shrink-0"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сохранить тексты' : 'Enregistrer les textes'}</span>
+                  <span>{isRu ? 'Сохранить UI и тексты' : 'Enregistrer UI & Textes'}</span>
                 </button>
               </div>
+            </div>
+
+            {/* Section A: Vehicle Detail & Sale Ledger Layout Tokens + Live Preview */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+              <div className="xl:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    <h2 className="text-sm font-bold text-white">
+                      {isRu
+                        ? 'Токены макета карточки авто и P&L'
+                        : 'Tokens de mise en page (Fiche & P&L)'}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraftConfig((prev) => ({
+                        ...prev,
+                        cardBorderRadius: DEFAULT_SYSTEM_THEME_CONFIG.cardBorderRadius,
+                        buttonBorderRadius: DEFAULT_SYSTEM_THEME_CONFIG.buttonBorderRadius,
+                        cardPadding: DEFAULT_SYSTEM_THEME_CONFIG.cardPadding,
+                        sectionGap: DEFAULT_SYSTEM_THEME_CONFIG.sectionGap,
+                      }))
+                    }
+                    className="text-[11px] font-semibold text-slate-400 hover:text-amber-400 transition"
+                  >
+                    {isRu ? 'Сбросить макет' : 'Réinitialiser layout'}
+                  </button>
+                </div>
+
+                {/* Card Radius */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Скругление карточек (--ag-card-radius)' : 'Rayon des cartes (--ag-card-radius)'}
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(['6px', '12px', '16px', '24px'] as const).map((r) => {
+                      const active = draftConfig.cardBorderRadius === r;
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() =>
+                            setDraftConfig((prev) => ({ ...prev, cardBorderRadius: r }))
+                          }
+                          className={`py-2 px-2 rounded-lg text-xs font-bold border transition ${
+                            active
+                              ? 'bg-amber-500 text-slate-950 border-amber-500'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Button Radius */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Скругление кнопок и вкладок (--ag-button-radius)' : 'Rayon des boutons & onglets (--ag-button-radius)'}
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(['6px', '10px', '12px', '16px'] as ButtonBorderRadius[]).map((r) => {
+                      const active = (draftConfig.buttonBorderRadius || '12px') === r;
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() =>
+                            setDraftConfig((prev) => ({ ...prev, buttonBorderRadius: r }))
+                          }
+                          className={`py-2 px-2 rounded-lg text-xs font-bold border transition ${
+                            active
+                              ? 'bg-amber-500 text-slate-950 border-amber-500'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Card Padding Density */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Внутренние отступы карточек (--ag-card-padding)' : 'Marge interne des cartes (--ag-card-padding)'}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { id: 'compact', labelFr: 'Compact', labelRu: 'Компакт' },
+                        { id: 'comfortable', labelFr: 'Confort', labelRu: 'Стандарт' },
+                        { id: 'spacious', labelFr: 'Spacieux', labelRu: 'Просторно' },
+                      ] as { id: CardPaddingDensity; labelFr: string; labelRu: string }[]
+                    ).map((opt) => {
+                      const active = (draftConfig.cardPadding || 'comfortable') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() =>
+                            setDraftConfig((prev) => ({ ...prev, cardPadding: opt.id }))
+                          }
+                          className={`py-2 px-2.5 rounded-lg text-xs font-bold border transition ${
+                            active
+                              ? 'bg-amber-500 text-slate-950 border-amber-500'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          {isRu ? opt.labelRu : opt.labelFr} ({CARD_PADDING_VALUES[opt.id]})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Section Gap */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Интервал между секциями (--ag-section-gap)' : 'Espacement des sections (--ag-section-gap)'}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['16px', '24px', '32px'] as SectionGapSize[]).map((gap) => {
+                      const active = (draftConfig.sectionGap || '24px') === gap;
+                      return (
+                        <button
+                          key={gap}
+                          type="button"
+                          onClick={() =>
+                            setDraftConfig((prev) => ({ ...prev, sectionGap: gap }))
+                          }
+                          className={`py-2 px-2 rounded-lg text-xs font-bold border transition ${
+                            active
+                              ? 'bg-amber-500 text-slate-950 border-amber-500'
+                              : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          {gap}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section B: Live Preview of Vehicle Detail & Sale Ledger */}
+              <div className="xl:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-emerald-400" />
+                    <h2 className="text-sm font-bold text-white">
+                      {isRu ? 'Предпросмотр карточки авто и P&L' : 'Aperçu Fiche Véhicule & P&L'}
+                    </h2>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    {theme === 'light' ? (isRu ? 'Светлая' : 'Clair') : isRu ? 'Тёмная' : 'Sombre'}
+                  </span>
+                </div>
+
+                <div
+                  className="border border-[var(--border)] bg-[var(--background)] p-4 flex flex-col"
+                  style={{
+                    borderRadius: draftConfig.cardBorderRadius,
+                    gap: draftConfig.sectionGap || '24px',
+                  }}
+                >
+                  <div
+                    className="bg-[var(--card)] border border-[var(--border)] shadow-sm"
+                    style={{
+                      borderRadius: draftConfig.cardBorderRadius,
+                      padding: CARD_PADDING_VALUES[draftConfig.cardPadding || 'comfortable'],
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <span className="text-xs font-bold text-[var(--foreground)]">
+                        {resolveLocalizedLabel(
+                          'pnlBannerTitle',
+                          lang,
+                          translations[lang].pnlBannerTitle,
+                          textOverrides
+                        )}
+                      </span>
+                      <span
+                        className="px-3 py-1 text-[11px] font-bold bg-[var(--primary)] text-[var(--primary-foreground)]"
+                        style={{ borderRadius: draftConfig.buttonBorderRadius || '12px' }}
+                      >
+                        {resolveLocalizedLabel(
+                          'recordSaleBtn',
+                          lang,
+                          translations[lang].recordSaleBtn,
+                          textOverrides
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="p-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
+                        <div className="text-[10px] text-[var(--muted-foreground)] truncate">
+                          {resolveLocalizedLabel(
+                            'purchasePriceLabel',
+                            lang,
+                            translations[lang].purchasePriceLabel,
+                            textOverrides
+                          )}
+                        </div>
+                        <div className="text-xs font-bold text-[var(--foreground)] tabular-nums mt-0.5">
+                          3 000 €
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
+                        <div className="text-[10px] text-[var(--muted-foreground)] truncate">
+                          {resolveLocalizedLabel(
+                            'workshopRepairsLabel',
+                            lang,
+                            translations[lang].workshopRepairsLabel,
+                            textOverrides
+                          )}
+                        </div>
+                        <div className="text-xs font-bold text-[var(--foreground)] tabular-nums mt-0.5">
+                          500 €
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                        <div className="text-[10px] text-emerald-500 truncate font-semibold">
+                          {resolveLocalizedLabel(
+                            'netProfitLabel',
+                            lang,
+                            translations[lang].netProfitLabel,
+                            textOverrides
+                          )}
+                        </div>
+                        <div className="text-xs font-bold text-emerald-500 tabular-nums mt-0.5">
+                          +1 275 €
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mini Sale Ledger Preview */}
+                  <div
+                    className="bg-[var(--card)] border border-[var(--border)]"
+                    style={{
+                      borderRadius: draftConfig.cardBorderRadius,
+                      padding: CARD_PADDING_VALUES[draftConfig.cardPadding || 'comfortable'],
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-[var(--border)] mb-2">
+                      <span className="text-[11px] font-bold text-[var(--foreground)]">
+                        {resolveLocalizedLabel(
+                          'saleReportTitle',
+                          lang,
+                          translations[lang].saleReportTitle,
+                          textOverrides
+                        ).includes('{vehicle}')
+                          ? resolveLocalizedLabel(
+                              'saleReportTitle',
+                              lang,
+                              translations[lang].saleReportTitle,
+                              textOverrides
+                            ).replace('{vehicle}', 'Peugeot 207')
+                          : `${resolveLocalizedLabel(
+                              'saleReportTitle',
+                              lang,
+                              translations[lang].saleReportTitle,
+                              textOverrides
+                            )} (Peugeot 207)`}
+                      </span>
+                      <span
+                        className="px-2 py-0.5 text-[10px] font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)]"
+                        style={{ borderRadius: draftConfig.buttonBorderRadius || '12px' }}
+                      >
+                        {resolveLocalizedLabel('tabOverview', lang, translations[lang].tabOverview, textOverrides)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-[var(--foreground)]">
+                        {resolveLocalizedLabel(
+                          'saleReportNetProfit',
+                          lang,
+                          translations[lang].saleReportNetProfit,
+                          textOverrides
+                        )}
+                      </span>
+                      <span className="text-emerald-500 tabular-nums">+1 275 €</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section C: Category Filter Pills & Full Translation Key Table */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {TRANSLATION_CATEGORIES.map((cat) => {
+                const active = selectedTextCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedTextCategory(cat.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition whitespace-nowrap ${
+                      active
+                        ? 'bg-amber-500 text-slate-950 border-amber-500 font-bold'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    {isRu ? cat.labelRu : cat.labelFr} ({translationCategoryCounts[cat.id]})
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -1444,41 +2187,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
-              <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={onlyModifiedTexts}
-                  onChange={(e) => setOnlyModifiedTexts(e.target.checked)}
-                  className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500"
-                />
-                <span>{isRu ? 'Только изменённые' : 'Modifiés uniquement'}</span>
-              </label>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-slate-400 tabular-nums">
+                  {isRu ? `Показано: ${allTranslationKeys.length}` : `Affichés : ${allTranslationKeys.length}`}
+                </span>
+                <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={onlyModifiedTexts}
+                    onChange={(e) => setOnlyModifiedTexts(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500"
+                  />
+                  <span>{isRu ? 'Только изменённые' : 'Modifiés uniquement'}</span>
+                </label>
+              </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto max-h-[560px] overflow-y-auto">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto max-h-[600px] overflow-y-auto">
               <table className="w-full table-fixed text-left border-collapse text-xs">
                 <thead className="sticky top-0 bg-slate-950 z-10 border-b border-slate-800">
                   <tr className="text-[11px] font-semibold text-slate-400">
-                    <th className="py-3 px-3 w-36">{isRu ? 'Ключ' : 'Clé'}</th>
+                    <th className="py-3 px-3 w-44">{isRu ? 'Ключ' : 'Clé'}</th>
                     <th className="py-3 px-3">{isRu ? 'Французский (FR)' : 'Français (FR)'}</th>
                     <th className="py-3 px-3">{isRu ? 'Русский (RU)' : 'Russe (RU)'}</th>
                     <th className="py-3 px-3 text-right w-16">{isRu ? 'Сброс' : 'Reset'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
-                  {allTranslationKeys.slice(0, 80).map((key) => {
+                  {allTranslationKeys.map((key) => {
                     const custom = textOverrides[key];
                     const isModified = Boolean(custom?.fr?.trim() || custom?.ru?.trim());
+                    const catId = getTranslationKeyCategory(key);
+                    const catObj = TRANSLATION_CATEGORIES.find((c) => c.id === catId);
                     return (
                       <tr key={key} className="hover:bg-slate-800/30 transition">
-                        <td className="py-2.5 px-3 align-top truncate">
-                          <span
-                            className={`font-mono text-[11px] font-semibold ${
+                        <td className="py-2.5 px-3 align-top">
+                          <div
+                            className={`font-mono text-[11px] font-semibold truncate ${
                               isModified ? 'text-amber-400' : 'text-slate-300'
                             }`}
+                            title={key}
                           >
                             {key}
-                          </span>
+                          </div>
+                          {catObj && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400">
+                              {isRu ? catObj.labelRu : catObj.labelFr}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 align-top space-y-1">
                           <input

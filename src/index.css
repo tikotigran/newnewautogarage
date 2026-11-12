@@ -1,8 +1,32 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
+  --background: #020617;
+  --card: #0f172a;
+  --surface-muted: #1e293b;
+  --primary: #f59e0b;
+  --primary-foreground: #020617;
+  --foreground: #f8fafc;
+  --secondary-foreground: #cbd5e1;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --success: #34d399;
+  --warning: #fbbf24;
   --ag-accent: #f59e0b;
   --ag-card-radius: 16px;
+  --ag-button-radius: 12px;
+  --ag-card-padding: 20px;
+  --ag-section-gap: 24px;
+}
+
+html.theme-light {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
 }
 
 .ag-card-surface {
@@ -10,83 +34,141 @@
 }
 
 .ag-accent-bg {
-  background-color: var(--ag-accent);
+  background-color: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .ag-accent-text {
-  color: var(--ag-accent);
+  color: var(--primary);
 }
 
-/* Light Mode theme overrides when html.theme-light is active */
-html.theme-light {
-  color-scheme: light;
+/* Semantic CSS variable bindings across surfaces, typography, borders, primary accent & P&L status */
+.bg-slate-950 {
+  background-color: var(--background) !important;
 }
 
-html.theme-light body {
-  background-color: #f8fafc;
-  color: #0f172a;
+.bg-slate-950\/85,
+.bg-slate-950\/80,
+.bg-slate-950\/70,
+.bg-slate-950\/60,
+.bg-slate-950\/50,
+.bg-slate-950\/40,
+.bg-slate-950\/30 {
+  background-color: color-mix(in srgb, var(--background) 88%, transparent) !important;
 }
 
-html.theme-light .bg-slate-950 {
-  background-color: #f1f5f9 !important;
+.bg-slate-900 {
+  background-color: var(--card) !important;
 }
 
-html.theme-light .bg-slate-950\/85,
-html.theme-light .bg-slate-950\/80,
-html.theme-light .bg-slate-950\/70,
-html.theme-light .bg-slate-950\/60,
-html.theme-light .bg-slate-950\/40 {
-  background-color: rgba(241, 245, 249, 0.92) !important;
+.bg-slate-900\/95,
+.bg-slate-900\/90,
+.bg-slate-900\/80,
+.bg-slate-900\/70,
+.bg-slate-900\/60,
+.bg-slate-900\/50,
+.bg-slate-900\/40 {
+  background-color: color-mix(in srgb, var(--card) 94%, transparent) !important;
 }
 
-html.theme-light .bg-slate-900 {
-  background-color: #ffffff !important;
+.bg-slate-800,
+.bg-slate-800\/90,
+.bg-slate-800\/80,
+.bg-slate-800\/70 {
+  background-color: var(--surface-muted) !important;
 }
 
-html.theme-light .bg-slate-900\/95,
-html.theme-light .bg-slate-900\/90,
-html.theme-light .bg-slate-900\/80,
-html.theme-light .bg-slate-900\/70,
-html.theme-light .bg-slate-900\/50 {
-  background-color: rgba(255, 255, 255, 0.96) !important;
+.border-slate-800,
+.border-slate-800\/80,
+.border-slate-800\/60,
+.border-slate-700,
+.border-slate-700\/80 {
+  border-color: var(--border) !important;
 }
 
-html.theme-light .bg-slate-800,
-html.theme-light .bg-slate-800\/80 {
-  background-color: #e2e8f0 !important;
+.divide-slate-800 > :not(:last-child),
+.divide-slate-800\/80 > :not(:last-child) {
+  border-color: var(--border) !important;
 }
 
-html.theme-light .border-slate-800,
-html.theme-light .border-slate-800\/80,
-html.theme-light .border-slate-700 {
-  border-color: #cbd5e1 !important;
+.text-white,
+.text-slate-100,
+.text-slate-200 {
+  color: var(--foreground) !important;
 }
 
-html.theme-light .text-white {
-  color: #0f172a !important;
+.text-slate-300 {
+  color: var(--secondary-foreground) !important;
 }
 
-html.theme-light .text-slate-100,
-html.theme-light .text-slate-200 {
-  color: #1e293b !important;
+.text-slate-400,
+.text-slate-500 {
+  color: var(--muted-foreground) !important;
 }
 
-html.theme-light .text-slate-300 {
-  color: #334155 !important;
+/* Primary Brand Accent bindings */
+.bg-amber-500 {
+  background-color: var(--primary) !important;
 }
 
-html.theme-light .text-slate-400 {
-  color: #475569 !important;
+.bg-amber-500.text-slate-950,
+.bg-gradient-to-r.from-amber-500.text-slate-950 {
+  color: var(--primary-foreground) !important;
 }
 
-html.theme-light .text-slate-500 {
-  color: #64748b !important;
+.bg-gradient-to-r.from-amber-500 {
+  background-image: none !important;
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
 }
 
-/* Keep white text inside solid primary/accent buttons */
-html.theme-light .bg-blue-600.text-white,
-html.theme-light .bg-emerald-600.text-white,
-html.theme-light .bg-red-600.text-white,
-html.theme-light .bg-amber-600.text-white {
+.text-amber-400,
+.text-amber-300 {
+  color: var(--primary) !important;
+}
+
+.border-amber-500,
+.border-amber-500\/50,
+.border-amber-500\/40,
+.border-amber-500\/30 {
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent) !important;
+}
+
+.bg-amber-500\/20,
+.bg-amber-500\/15,
+.bg-amber-500\/10 {
+  background-color: color-mix(in srgb, var(--primary) 15%, transparent) !important;
+}
+
+/* Semantic Status & P&L Profit Tints */
+.text-emerald-400,
+.text-emerald-300 {
+  color: var(--success) !important;
+}
+
+.bg-emerald-500\/15,
+.bg-emerald-500\/10 {
+  background-color: color-mix(in srgb, var(--success) 14%, transparent) !important;
+}
+
+.border-emerald-500\/30,
+.border-emerald-500\/20 {
+  border-color: color-mix(in srgb, var(--success) 35%, transparent) !important;
+}
+
+/* Preserve white text on solid semantic CTA buttons */
+.bg-blue-600.text-white,
+.bg-emerald-600.text-white,
+.bg-purple-600.text-white,
+.from-purple-500.text-white,
+.bg-red-600.text-white,
+.bg-amber-600.text-white {
   color: #ffffff !important;
+}
+
+/* Dual-theme live preview cards inside SuperAdmin Design Studio stay isolated to their own inline CSS vars */
+[data-branding-preview="true"] {
+  background-color: var(--preview-bg) !important;
+  color: var(--preview-fg) !important;
+  border-color: var(--preview-border) !important;
 }

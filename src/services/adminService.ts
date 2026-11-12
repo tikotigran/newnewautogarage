@@ -23,6 +23,7 @@ import {
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
   isSuperAdminUser,
+  resolveSystemThemeConfig,
   sortExpenseCategories,
   SUPERADMIN_BOOTSTRAP_EMAIL,
 } from '../utils/adminUtils';
@@ -246,16 +247,7 @@ export async function updateUserAccount(
 
 export function getSystemThemeConfig(): SystemThemeConfig {
   const saved = readLocal<SystemThemeConfig | null>(LOCAL_SYSTEM_CONFIG_KEY, null);
-  return saved
-    ? {
-        ...DEFAULT_SYSTEM_THEME_CONFIG,
-        ...saved,
-        cerfaAdjustments: {
-          ...DEFAULT_SYSTEM_THEME_CONFIG.cerfaAdjustments,
-          ...(saved.cerfaAdjustments || {}),
-        },
-      }
-    : DEFAULT_SYSTEM_THEME_CONFIG;
+  return resolveSystemThemeConfig(saved);
 }
 
 export function subscribeSystemThemeConfig(
@@ -265,25 +257,64 @@ export function subscribeSystemThemeConfig(
   applySystemThemeVariables(initial);
   onData(initial);
 
-  if (auth.currentUser) {
-    const ref = doc(db, 'system_config', 'global');
-    return onSnapshot(
-      ref,
+  // Always hydrate global branding & UI layout from Firestore on init (publicly readable)
+  getDoc(doc(db, 'settings', 'branding'))
+    .then((snap) => {
+      if (snap.exists()) {
+        const cfg = resolveSystemThemeConfig(snap.data() as Partial<SystemThemeConfig>);
+        writeLocal(LOCAL_SYSTEM_CONFIG_KEY, cfg);
+        applySystemThemeVariables(cfg);
+        onData(cfg);
+      }
+    })
+    .catch(() => {});
+
+  let unsubGlobal: (() => void) | null = null;
+  let unsubBranding: (() => void) | null = null;
+  let unsubUiLayout: (() => void) | null = null;
+  try {
+    unsubGlobal = onSnapshot(
+      doc(db, 'system_config', 'global'),
       (snap) => {
         if (snap.exists()) {
-          const cfg = {
-            ...DEFAULT_SYSTEM_THEME_CONFIG,
-            ...(snap.data() as SystemThemeConfig),
-          };
+          const cfg = resolveSystemThemeConfig(snap.data() as Partial<SystemThemeConfig>);
           writeLocal(LOCAL_SYSTEM_CONFIG_KEY, cfg);
           applySystemThemeVariables(cfg);
           onData(cfg);
         }
       },
-      () => {
-        // Fallback silently to local config
-      }
+      () => {}
     );
+    unsubBranding = onSnapshot(
+      doc(db, 'settings', 'branding'),
+      (snap) => {
+        if (snap.exists()) {
+          const cfg = resolveSystemThemeConfig(snap.data() as Partial<SystemThemeConfig>);
+          writeLocal(LOCAL_SYSTEM_CONFIG_KEY, cfg);
+          applySystemThemeVariables(cfg);
+          onData(cfg);
+        }
+      },
+      () => {}
+    );
+    unsubUiLayout = onSnapshot(
+      doc(db, 'settings', 'ui_customization'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as { layout?: Partial<SystemThemeConfig> };
+          if (data?.layout) {
+            const current = getSystemThemeConfig();
+            const merged = resolveSystemThemeConfig({ ...current, ...data.layout });
+            writeLocal(LOCAL_SYSTEM_CONFIG_KEY, merged);
+            applySystemThemeVariables(merged);
+            onData(merged);
+          }
+        }
+      },
+      () => {}
+    );
+  } catch {
+    // Fallback silently to local config
   }
 
   const listener = () => {
@@ -292,17 +323,25 @@ export function subscribeSystemThemeConfig(
     onData(cfg);
   };
   window.addEventListener('autogarage_system_config_updated', listener);
-  return () => window.removeEventListener('autogarage_system_config_updated', listener);
+  return () => {
+    if (unsubGlobal) unsubGlobal();
+    if (unsubBranding) unsubBranding();
+    if (unsubUiLayout) unsubUiLayout();
+    window.removeEventListener('autogarage_system_config_updated', listener);
+  };
 }
 
 export async function saveSystemThemeConfig(
   config: SystemThemeConfig,
   adminUid?: string
 ): Promise<void> {
+  const resolved = resolveSystemThemeConfig(config);
+  const now = new Date().toISOString();
+  const actor = adminUid || auth.currentUser?.uid || 'superadmin';
   const payload: SystemThemeConfig = {
-    ...config,
-    updatedAt: new Date().toISOString(),
-    updatedBy: adminUid || auth.currentUser?.uid || 'superadmin',
+    ...resolved,
+    updatedAt: now,
+    updatedBy: actor,
   };
 
   writeLocal(LOCAL_SYSTEM_CONFIG_KEY, payload, 'autogarage_system_config_updated');
@@ -310,9 +349,26 @@ export async function saveSystemThemeConfig(
 
   if (auth.currentUser) {
     try {
-      await setDoc(doc(db, 'system_config', 'global'), payload, { merge: true });
+      await Promise.all([
+        setDoc(doc(db, 'system_config', 'global'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'branding'), payload, { merge: true }),
+        setDoc(
+          doc(db, 'settings', 'ui_customization'),
+          {
+            layout: {
+              cardBorderRadius: resolved.cardBorderRadius,
+              buttonBorderRadius: resolved.buttonBorderRadius,
+              cardPadding: resolved.cardPadding,
+              sectionGap: resolved.sectionGap,
+            },
+            updatedAt: now,
+            updatedBy: actor,
+          },
+          { merge: true }
+        ),
+      ]);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'system_config/global');
+      handleFirestoreError(err, OperationType.WRITE, 'settings/branding');
     }
   }
 }
@@ -425,7 +481,7 @@ export async function saveFeatureFlags(
   }
 }
 
-// 3. Global Text Overrides (/system_config/texts)
+// 3. Global UI & Copywriting Text Overrides (/settings/ui_customization + /settings/copywriting + /system_config/texts)
 export function getGlobalTextOverrides(): GlobalTextOverrides {
   return readLocal<GlobalTextOverrides>(LOCAL_TEXTS_CONFIG_KEY, {});
 }
@@ -435,12 +491,26 @@ export function subscribeGlobalTextOverrides(
 ): () => void {
   onData(getGlobalTextOverrides());
 
-  if (auth.currentUser) {
-    const ref = doc(db, 'system_config', 'texts');
-    return onSnapshot(
-      ref,
+  // Always hydrate global UI customization & copywriting overrides on init (publicly readable)
+  getDoc(doc(db, 'settings', 'ui_customization'))
+    .then((snap) => {
+      if (snap.exists() && snap.data()?.overrides) {
+        const overrides = (snap.data()?.overrides as GlobalTextOverrides) || {};
+        writeLocal(LOCAL_TEXTS_CONFIG_KEY, overrides);
+        onData(overrides);
+      }
+    })
+    .catch(() => {});
+
+  let unsubUiCustomization: (() => void) | null = null;
+  let unsubCopywriting: (() => void) | null = null;
+  let unsubTexts: (() => void) | null = null;
+
+  try {
+    unsubUiCustomization = onSnapshot(
+      doc(db, 'settings', 'ui_customization'),
       (snap) => {
-        if (snap.exists()) {
+        if (snap.exists() && snap.data()?.overrides) {
           const overrides = (snap.data()?.overrides as GlobalTextOverrides) || {};
           writeLocal(LOCAL_TEXTS_CONFIG_KEY, overrides);
           onData(overrides);
@@ -448,11 +518,40 @@ export function subscribeGlobalTextOverrides(
       },
       () => {}
     );
+    unsubCopywriting = onSnapshot(
+      doc(db, 'settings', 'copywriting'),
+      (snap) => {
+        if (snap.exists() && snap.data()?.overrides) {
+          const overrides = (snap.data()?.overrides as GlobalTextOverrides) || {};
+          writeLocal(LOCAL_TEXTS_CONFIG_KEY, overrides);
+          onData(overrides);
+        }
+      },
+      () => {}
+    );
+    unsubTexts = onSnapshot(
+      doc(db, 'system_config', 'texts'),
+      (snap) => {
+        if (snap.exists() && snap.data()?.overrides) {
+          const overrides = (snap.data()?.overrides as GlobalTextOverrides) || {};
+          writeLocal(LOCAL_TEXTS_CONFIG_KEY, overrides);
+          onData(overrides);
+        }
+      },
+      () => {}
+    );
+  } catch {
+    // Fallback silently to local overrides
   }
 
   const listener = () => onData(getGlobalTextOverrides());
   window.addEventListener('autogarage_texts_config_updated', listener);
-  return () => window.removeEventListener('autogarage_texts_config_updated', listener);
+  return () => {
+    if (unsubUiCustomization) unsubUiCustomization();
+    if (unsubCopywriting) unsubCopywriting();
+    if (unsubTexts) unsubTexts();
+    window.removeEventListener('autogarage_texts_config_updated', listener);
+  };
 }
 
 export async function saveGlobalTextOverrides(
@@ -461,14 +560,17 @@ export async function saveGlobalTextOverrides(
 ): Promise<void> {
   writeLocal(LOCAL_TEXTS_CONFIG_KEY, overrides, 'autogarage_texts_config_updated');
   if (auth.currentUser) {
+    const now = new Date().toISOString();
+    const actor = adminUid || auth.currentUser.uid;
+    const payload = { overrides, updatedAt: now, updatedBy: actor };
     try {
-      await setDoc(
-        doc(db, 'system_config', 'texts'),
-        { overrides, updatedAt: new Date().toISOString(), updatedBy: adminUid || auth.currentUser.uid },
-        { merge: true }
-      );
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'ui_customization'), payload, { merge: true }),
+        setDoc(doc(db, 'settings', 'copywriting'), payload, { merge: true }),
+        setDoc(doc(db, 'system_config', 'texts'), payload, { merge: true }),
+      ]);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'system_config/texts');
+      handleFirestoreError(err, OperationType.WRITE, 'settings/ui_customization');
     }
   }
 }

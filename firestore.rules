@@ -76,7 +76,31 @@ service cloud.firestore {
     function isValidSystemConfig(data) {
       return data.primaryAccentColor is string && data.primaryAccentColor.size() <= 20 &&
              data.cardBorderRadius in ['6px', '12px', '16px', '24px'] &&
+             (!('buttonBorderRadius' in data) || data.buttonBorderRadius in ['6px', '10px', '12px', '16px']) &&
+             (!('cardPadding' in data) || data.cardPadding in ['compact', 'comfortable', 'spacious']) &&
+             (!('sectionGap' in data) || data.sectionGap in ['16px', '24px', '32px']) &&
              data.defaultInventoryViewMode in ['grid', 'list'];
+    }
+
+    function isValidUiCustomization(data) {
+      return (!('overrides' in data) || data.overrides is map) &&
+             (!('layout' in data) || data.layout is map);
+    }
+
+    function isValidGarageWorkspace(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+             data.entityType in ['morale', 'physique'] &&
+             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'micro', 'custom', 'none']) &&
+             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
+    }
+
+    function isValidGarageSettings(data) {
+      return data.name is string && data.name.size() <= 120 &&
+             (!('entityType' in data) || data.entityType in ['morale', 'physique']) &&
+             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'micro', 'custom', 'none']) &&
+             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
 
     // Connection testing endpoint for boot verification
@@ -110,6 +134,46 @@ service cloud.firestore {
       allow list: if isSuperAdmin();
       allow create, update, delete: if isSuperAdmin() && isValidId(configId) &&
         (configId != 'global' || isValidSystemConfig(incoming()));
+    }
+
+    // Garage Workspaces collection
+    match /garages/{garageId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(garageId) && isValidGarageWorkspace(incoming());
+      allow update: if isSignedIn() && isValidId(garageId) &&
+                    (existing().userId == request.auth.uid || isSuperAdmin()) &&
+                    incoming().userId == existing().userId &&
+                    isValidGarageWorkspace(incoming());
+      allow delete: if isSignedIn() && isValidId(garageId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Global Branding & Theme Tokens (/settings/branding)
+    match /settings/branding {
+      allow get: if true;
+      allow create, update, delete: if isSuperAdmin() && isValidSystemConfig(incoming());
+    }
+
+    // Global UI Customization & Copywriting Overrides (/settings/ui_customization, /settings/copywriting)
+    match /settings/ui_customization {
+      allow get: if true;
+      allow create, update, delete: if isSuperAdmin() && isValidUiCustomization(incoming());
+    }
+
+    match /settings/copywriting {
+      allow get: if true;
+      allow create, update, delete: if isSuperAdmin() && isValidUiCustomization(incoming());
+    }
+
+    // Scoped Garage Settings collection ({userId}_{garageId})
+    match /settings/{settingsId} {
+      allow get: if isSignedIn() && isValidId(settingsId) &&
+        (settingsId.matches('^' + request.auth.uid + '_.*') || isSuperAdmin());
+      allow create, update: if isSignedIn() && isValidId(settingsId) &&
+        (settingsId.matches('^' + request.auth.uid + '_.*') || isSuperAdmin()) &&
+        isValidGarageSettings(incoming());
+      allow delete: if isSignedIn() && isValidId(settingsId) &&
+        (settingsId.matches('^' + request.auth.uid + '_.*') || isSuperAdmin());
     }
 
     // Vehicles collection

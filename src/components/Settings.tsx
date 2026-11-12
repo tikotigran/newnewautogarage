@@ -34,6 +34,8 @@ import { GarageSettings, Vehicle } from '../types/garage';
 import {
   DEFAULT_GARAGE_SETTINGS,
   getGarageSettings,
+  fetchGarageSettingsFromCloud,
+  getDefaultTaxRateForRegime,
   saveGarageSettings,
   exportGarageDatabase,
   importGarageDatabase,
@@ -111,19 +113,43 @@ export const Settings: React.FC<SettingsProps> = ({
   useEffect(() => {
     if (isOpen) {
       const current = getGarageSettings();
+      const resolvedRegime = current.taxRegime || 'sarl';
+      const resolvedRate =
+        typeof current.taxRatePercent === 'number' && !Number.isNaN(current.taxRatePercent)
+          ? current.taxRatePercent
+          : getDefaultTaxRateForRegime(resolvedRegime);
       setSettings({
         ...DEFAULT_GARAGE_SETTINGS,
         ...current,
         theme,
         defaultMarginPercent: current.defaultMarginPercent ?? 20,
         currency: current.currency || 'EUR',
+        taxRegime: resolvedRegime,
+        taxRatePercent: resolvedRate,
       });
       setErrors({});
       setStatusMessage(null);
       setConfirmClearCache(false);
       setMobileMenuOpen(false);
+
+      if (userId) {
+        fetchGarageSettingsFromCloud(userId).then((cloudSettings) => {
+          setSettings((prev) => ({
+            ...prev,
+            ...cloudSettings,
+            theme,
+            defaultMarginPercent: cloudSettings.defaultMarginPercent ?? prev.defaultMarginPercent ?? 20,
+            currency: cloudSettings.currency || prev.currency || 'EUR',
+            taxRegime: cloudSettings.taxRegime || prev.taxRegime || 'sarl',
+            taxRatePercent:
+              typeof cloudSettings.taxRatePercent === 'number' && !Number.isNaN(cloudSettings.taxRatePercent)
+                ? cloudSettings.taxRatePercent
+                : prev.taxRatePercent ?? 15,
+          }));
+        });
+      }
     }
-  }, [isOpen, theme]);
+  }, [isOpen, theme, userId]);
 
   if (!isOpen) return null;
 
@@ -133,23 +159,34 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const validationErrors = validateGarageSettings(settings);
-    setErrors(validationErrors);
-    if (Object.keys(validationErrors).length > 0) {
-      setActiveTab('company');
-      setStatusMessage({
-        type: 'error',
-        text: isRu
-          ? 'Проверьте корректность полей профиля компании (SIRET 14 цифр, индекс 5 цифр).'
-          : 'Veuillez corriger les erreurs dans le profil entreprise (SIRET 14 chiffres, code postal 5 chiffres).',
-      });
-      return;
+    if (activeTab === 'company') {
+      const validationErrors = validateGarageSettings(settings);
+      setErrors(validationErrors);
+      if (Object.keys(validationErrors).length > 0) {
+        setStatusMessage({
+          type: 'error',
+          text: isRu
+            ? 'Проверьте корректность полей профиля компании (SIRET 14 цифр, индекс 5 цифр).'
+            : 'Veuillez corriger les erreurs dans le profil entreprise (SIRET 14 chiffres, code postal 5 chiffres).',
+        });
+        return;
+      }
     }
+
+    const resolvedRegime = settings.taxRegime || 'sarl';
+    const resolvedTaxRate =
+      resolvedRegime === 'none'
+        ? 0
+        : typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
+        ? Math.max(0, settings.taxRatePercent)
+        : getDefaultTaxRateForRegime(resolvedRegime);
 
     const updatedSettings: GarageSettings = {
       ...settings,
-      siret: settings.siret.trim(),
-      postalCode: settings.postalCode.replace(/\s+/g, ''),
+      siret: (settings.siret || '').trim(),
+      postalCode: (settings.postalCode || '').replace(/\s+/g, ''),
+      taxRegime: resolvedRegime,
+      taxRatePercent: resolvedTaxRate,
       theme,
     };
 
@@ -158,8 +195,8 @@ export const Settings: React.FC<SettingsProps> = ({
     setStatusMessage({
       type: 'success',
       text: isRu
-        ? 'Настройки сохранены и синхронизированы с Cerfa 15776*02.'
-        : 'Paramètres enregistrés et synchronisés avec le module Cerfa 15776*02.',
+        ? 'Настройки сохранены и синхронизированы с Cerfa 15776*02 и P&L.'
+        : 'Paramètres enregistrés et synchronisés avec Cerfa 15776*02 et P&L.',
     });
   };
 

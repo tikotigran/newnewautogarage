@@ -93,7 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white shadow-lg">
+    <header className="sticky top-0 z-40 bg-[var(--card)]/95 backdrop-blur-md border-b border-[var(--border)] text-[var(--foreground)] shadow-lg">
       {/* Compact Top Main Navigation */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 gap-3">
@@ -105,14 +105,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex items-center gap-2.5 text-left hover:opacity-90 transition-opacity focus:outline-none"
               title={t('appName')}
             >
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-orange-600 to-red-600 flex items-center justify-center shadow-md shadow-orange-500/20">
-                <Car className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-md">
+                <Car className="w-4 h-4" />
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base sm:text-lg tracking-tight whitespace-nowrap text-white">
+                <span className="font-extrabold text-base sm:text-lg tracking-tight whitespace-nowrap text-[var(--foreground)]">
                   {t('appName')}
                 </span>
-                <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30">
                   {t('proDealer')}
                 </span>
               </div>
@@ -126,10 +126,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   aria-label={lang === 'ru' ? 'Переключить гараж' : 'Changer de garage'}
                   value={activeGarageId || ''}
                   onChange={(e) => onSelectGarage(e.target.value || null)}
-                  className="bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-slate-700 rounded-lg px-2 py-1 max-w-[180px] truncate focus:outline-none focus:border-amber-500 transition cursor-pointer"
+                  className="bg-[var(--surface-muted)] text-xs font-semibold text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2 py-1 max-w-[180px] truncate focus:outline-none focus:border-[var(--primary)] transition cursor-pointer"
                 >
                   <option value="">
-                    {lang === 'ru' ? 'Все гаражи (Главная)' : 'Tous les garages'}
+                    {t('allGarages')}
                   </option>
                   {garages.map((g) => (
                     <option key={g.id} value={g.id}>
@@ -254,7 +254,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <button
                 type="button"
                 onClick={onNewVehicle}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/20 transition-all transform active:scale-95"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold whitespace-nowrap bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm transition-all transform active:scale-95"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 <span>{t('newVehicle')}</span>
@@ -267,10 +267,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveView('admin')}
                 aria-label="SuperAdmin"
                 title="SuperAdmin Console"
-                className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border transition ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold border transition ${
                   activeView === 'admin'
-                    ? 'bg-amber-500 text-slate-950 border-amber-500'
-                    : 'bg-slate-800 hover:bg-slate-700 text-amber-400 border-slate-700'
+                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
+                    : 'bg-[var(--surface-muted)] text-[var(--primary)] border-[var(--border)]'
                 }`}
               >
                 <ShieldCheck className="w-4 h-4" />
@@ -281,11 +281,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              aria-label="Paramètres"
-              title={lang === 'ru' ? 'Настройки' : 'Paramètres'}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+              aria-label={t('settingsLabel')}
+              title={t('settingsLabel')}
+              className="p-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--secondary-foreground)] hover:text-[var(--foreground)] border border-[var(--border)] transition"
             >
-              <Settings className="w-4 h-4 text-amber-400" />
+              <Settings className="w-4 h-4 text-[var(--primary)]" />
             </button>
 
             <a
@@ -338,46 +338,42 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Context-Aware Fleet Performance Metrics Ribbon */}
       <div
         data-testid="header-analytics-ribbon"
-        className="bg-slate-950/80 border-t border-slate-800/80 px-4 sm:px-6 lg:px-8 py-1.5 text-xs"
+        className="bg-[var(--background)] border-t border-[var(--border)] px-4 sm:px-6 lg:px-8 py-1.5 text-xs"
       >
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-y-1 gap-x-4">
           <div className="flex items-center gap-5 flex-wrap">
             <span
               data-testid="header-analytics-scope"
-              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800/90 border border-slate-700/80 text-[11px] font-semibold text-amber-400 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[var(--surface-muted)] border border-[var(--border)] text-[11px] font-semibold text-[var(--primary)] whitespace-nowrap"
             >
               <Building2 className="w-3 h-3 shrink-0" />
               <span>
-                {activeGarage
-                  ? activeGarage.name
-                  : lang === 'ru'
-                  ? 'Все гаражи'
-                  : 'Tous les garages'}
+                {activeGarage ? activeGarage.name : t('allGarages')}
               </span>
             </span>
             <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-slate-400">
-                {lang === 'ru' ? 'Всего в наличии:' : 'Total en stock :'}
+              <span className="text-[var(--muted-foreground)]">
+                {t('headerTotalInStock')}
               </span>
-              <span className="font-bold text-white">{inStock}</span>
+              <span className="font-bold text-[var(--foreground)] tabular-nums">{inStock}</span>
             </div>
             <div className="hidden sm:flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-slate-400">
-                {lang === 'ru' ? '🛠️ В подготовке / ремонте:' : '🛠️ Prép. / réparation :'}
+              <span className="text-[var(--muted-foreground)]">
+                {t('headerPrepRepair')}
               </span>
-              <span className="font-bold text-amber-400">{prepOrRepairCount}</span>
+              <span className="font-bold text-[var(--warning)] tabular-nums">{prepOrRepairCount}</span>
             </div>
             <div className="hidden sm:flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-slate-400">
-                {lang === 'ru' ? '🏷️ В продаже:' : '🏷️ En vente :'}
+              <span className="text-[var(--muted-foreground)]">
+                {t('headerForSale')}
               </span>
-              <span className="font-bold text-emerald-400">{forSaleCount}</span>
+              <span className="font-bold text-[var(--success)] tabular-nums">{forSaleCount}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-400 whitespace-nowrap">
+          <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] whitespace-nowrap">
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse"></span>
               {t('liveSync')}
             </span>
           </div>

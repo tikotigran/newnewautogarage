@@ -1,11 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applySystemThemeVariables,
+  BRAND_THEME_PRESETS,
+  CARD_PADDING_VALUES,
   computeAdminDashboardMetrics,
+  DEFAULT_DARK_PALETTE,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
+  DEFAULT_LIGHT_PALETTE,
   DEFAULT_SUBSCRIPTION_PLANS,
+  DEFAULT_SYSTEM_THEME_CONFIG,
+  getContrastForeground,
+  getTranslationKeyCategory,
   isSuperAdminUser,
   resolveLocalizedLabel,
+  resolveSystemThemeConfig,
   sortExpenseCategories,
   SUPERADMIN_BOOTSTRAP_EMAIL,
 } from './adminUtils';
@@ -103,5 +112,84 @@ test('resolveLocalizedLabel returns override when set and falls back to baseText
   assert.equal(resolveLocalizedLabel('appName', 'fr', 'AutoGarage Manager', overrides), 'Mon Garage Pro');
   assert.equal(resolveLocalizedLabel('appName', 'ru', 'AutoGarage Manager', overrides), 'Мой Автосалон');
   assert.equal(resolveLocalizedLabel('newVehicle', 'fr', 'Nouveau Véhicule', overrides), 'Nouveau Véhicule');
+});
+
+test('getContrastForeground selects readable dark or white ink based on background luminance', () => {
+  assert.equal(getContrastForeground('#f59e0b'), '#0f172a');
+  assert.equal(getContrastForeground('#ffffff'), '#0f172a');
+  assert.equal(getContrastForeground('#2563eb'), '#ffffff');
+  assert.equal(getContrastForeground('#0f172a'), '#ffffff');
+});
+
+test('resolveSystemThemeConfig hydrates legacy single-accent configs into dual light & dark palettes', () => {
+  const resolved = resolveSystemThemeConfig({
+    primaryAccentColor: '#2563eb',
+    cardBorderRadius: '12px',
+  });
+  assert.equal(resolved.lightPalette?.primary, '#2563eb');
+  assert.equal(resolved.lightPalette?.primaryForeground, '#ffffff');
+  assert.equal(resolved.lightPalette?.background, DEFAULT_LIGHT_PALETTE.background);
+  assert.equal(resolved.darkPalette?.primary, '#2563eb');
+  assert.equal(resolved.darkPalette?.background, DEFAULT_DARK_PALETTE.background);
+  assert.equal(resolved.cardBorderRadius, '12px');
+});
+
+test('applySystemThemeVariables injects mode-specific CSS custom properties onto documentElement', () => {
+  const store = new Map<string, string>();
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  (globalThis as { document?: unknown }).document = {
+    documentElement: {
+      classList: { contains: () => false },
+      style: {
+        setProperty: (k: string, v: string) => store.set(k, v),
+      },
+    },
+  };
+
+  try {
+    const preset = BRAND_THEME_PRESETS.find((p) => p.id === 'cobalt_executive')!;
+    const customConfig = {
+      ...DEFAULT_SYSTEM_THEME_CONFIG,
+      primaryAccentColor: preset.primaryHex,
+      cardBorderRadius: '24px' as const,
+      lightPalette: preset.lightPalette,
+      darkPalette: preset.darkPalette,
+    };
+
+    applySystemThemeVariables(customConfig, 'light');
+    assert.equal(store.get('--background'), preset.lightPalette.background);
+    assert.equal(store.get('--card'), preset.lightPalette.card);
+    assert.equal(store.get('--primary'), preset.lightPalette.primary);
+    assert.equal(store.get('--ag-card-radius'), '24px');
+
+    applySystemThemeVariables(customConfig, 'dark');
+    assert.equal(store.get('--background'), preset.darkPalette.background);
+    assert.equal(store.get('--card'), preset.darkPalette.card);
+    assert.equal(store.get('--primary'), preset.darkPalette.primary);
+
+    const layoutConfig = {
+      ...customConfig,
+      buttonBorderRadius: '16px' as const,
+      cardPadding: 'spacious' as const,
+      sectionGap: '32px' as const,
+    };
+    applySystemThemeVariables(layoutConfig, 'light');
+    assert.equal(store.get('--ag-button-radius'), '16px');
+    assert.equal(store.get('--ag-card-padding'), CARD_PADDING_VALUES.spacious);
+    assert.equal(store.get('--ag-section-gap'), '32px');
+  } finally {
+    (globalThis as { document?: unknown }).document = prevDoc;
+  }
+});
+
+test('getTranslationKeyCategory classifies keys into expected UI customization categories', () => {
+  assert.equal(getTranslationKeyCategory('saleReportTitle'), 'sale_report');
+  assert.equal(getTranslationKeyCategory('saleReportNetProfit'), 'sale_report');
+  assert.equal(getTranslationKeyCategory('pnlBannerTitle'), 'vehicle_detail');
+  assert.equal(getTranslationKeyCategory('tabOverview'), 'vehicle_detail');
+  assert.equal(getTranslationKeyCategory('headerTotalInStock'), 'navigation');
+  assert.equal(getTranslationKeyCategory('analyticsRevenueTitle'), 'analytics');
+  assert.equal(getTranslationKeyCategory('statusForSale'), 'statuses');
+  assert.equal(getTranslationKeyCategory('searchPlaceholder'), 'inventory');
 });
 

@@ -108,12 +108,60 @@
       "properties": {
         "primaryAccentColor": { "type": "string", "maxLength": 20, "description": "Hex color for primary accent" },
         "cardBorderRadius": { "type": "string", "enum": ["6px", "12px", "16px", "24px"], "description": "Global card border radius" },
+        "buttonBorderRadius": { "type": "string", "enum": ["6px", "10px", "12px", "16px"], "description": "Global button border radius" },
+        "cardPadding": { "type": "string", "enum": ["compact", "comfortable", "spacious"], "description": "Global card internal padding density" },
+        "sectionGap": { "type": "string", "enum": ["16px", "24px", "32px"], "description": "Global section vertical spacing" },
         "defaultInventoryViewMode": { "type": "string", "enum": ["grid", "list"], "description": "Default inventory view" },
         "cerfaAdjustments": { "type": "object", "description": "Global Cerfa 15776*02 alignment adjustments" },
+        "lightPalette": { "type": "object", "description": "Custom color palette tokens for Light theme" },
+        "darkPalette": { "type": "object", "description": "Custom color palette tokens for Dark theme" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" },
         "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }
       },
       "required": ["primaryAccentColor", "cardBorderRadius", "defaultInventoryViewMode"]
+    },
+    "UiCustomization": {
+      "title": "UiCustomization",
+      "description": "Global UI copywriting overrides and layout density configuration managed by SuperAdmin.",
+      "type": "object",
+      "properties": {
+        "overrides": { "type": "object", "description": "Dictionary of localization key overrides (fr/ru)" },
+        "layout": { "type": "object", "description": "Layout radius, padding, and spacing design tokens" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }
+      }
+    },
+    "GarageWorkspace": {
+      "title": "GarageWorkspace",
+      "description": "Independent garage workspace with legal entity type and tax regime settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Garage workspace ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "name": { "type": "string", "maxLength": 120, "description": "Garage or owner display name" },
+        "entityType": { "type": "string", "enum": ["morale", "physique"], "description": "Legal status" },
+        "city": { "type": "string", "maxLength": 100, "description": "City" },
+        "siret": { "type": "string", "maxLength": 20, "description": "SIRET number for companies" },
+        "taxRegime": { "type": "string", "enum": ["sarl", "micro", "custom", "none"], "description": "Tax regime for P&L" },
+        "taxRatePercent": { "type": "number", "description": "Default tax rate percentage" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "name", "entityType"]
+    },
+    "GarageSettings": {
+      "title": "GarageSettings",
+      "description": "Scoped garage settings including Cerfa profile, TVA mention, and tax regime.",
+      "type": "object",
+      "properties": {
+        "garageId": { "type": "string", "description": "Target garage ID" },
+        "entityType": { "type": "string", "enum": ["morale", "physique"], "description": "Legal entity type" },
+        "name": { "type": "string", "maxLength": 120, "description": "Garage name" },
+        "taxRegime": { "type": "string", "enum": ["sarl", "micro", "custom", "none"], "description": "Tax regime" },
+        "taxRatePercent": { "type": "number", "description": "Tax rate percentage" },
+        "currency": { "type": "string", "enum": ["EUR", "USD", "CHF", "GBP"], "description": "Currency" }
+      },
+      "required": ["name"]
     }
   },
   "firestore": {
@@ -136,6 +184,26 @@
     "/system_config/{configId}": {
       "schema": { "$ref": "#/entities/SystemConfig" },
       "description": "Global platform theme and template configuration."
+    },
+    "/garages/{garageId}": {
+      "schema": { "$ref": "#/entities/GarageWorkspace" },
+      "description": "Garage workspaces owned by authenticated users."
+    },
+    "/settings/branding": {
+      "schema": { "$ref": "#/entities/SystemConfig" },
+      "description": "Global branding and dual-theme color palette document."
+    },
+    "/settings/ui_customization": {
+      "schema": { "$ref": "#/entities/UiCustomization" },
+      "description": "Global UI copywriting overrides and component layout configuration."
+    },
+    "/settings/copywriting": {
+      "schema": { "$ref": "#/entities/UiCustomization" },
+      "description": "Global copywriting label overrides synchronized for all workspaces."
+    },
+    "/settings/{settingsId}": {
+      "schema": { "$ref": "#/entities/GarageSettings" },
+      "description": "Per-user per-garage settings documents."
     }
   }
 }

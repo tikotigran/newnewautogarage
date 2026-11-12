@@ -14,6 +14,11 @@ export const translations = {
     loading: 'Chargement...',
     signIn: 'Connexion',
     signOut: 'Déconnexion',
+    allGarages: 'Tous les garages',
+    headerTotalInStock: 'Total en stock :',
+    headerPrepRepair: '🛠️ Prép. / réparation :',
+    headerForSale: '🏷️ En vente :',
+    settingsLabel: 'Paramètres',
 
     // Fleet stats ribbon
     totalFleet: 'Total Parc :',
@@ -50,6 +55,22 @@ export const translations = {
     marginPercent: '{val}% marge',
     roiPercent: '{val}% ROI',
     manageDossier: 'Dossier & Travaux',
+    viewGrid: 'Grille',
+    viewList: 'Liste',
+    thVehicleYear: 'Véhicule / Année',
+    thPlate: 'Immatriculation',
+    thMileage: 'Kilométrage',
+    thPurchasePrice: 'Prix d’achat',
+    thSalePrice: 'Prix de vente',
+    dossierBtn: 'Dossier',
+    cardInvested: 'Investi',
+    cardTarget: 'Prix visé',
+    cardSold: 'Vendu',
+    selectGarageTitle: 'Sélectionner un garage',
+    selectGarageSubtitle: 'Gérez plusieurs établissements automobiles indépendants avec isolation complète des véhicules, frais et profils Cerfa.',
+    createGarageBtn: 'Créer un nouveau garage',
+    enterGarageBtn: 'Accéder au garage',
+    garagePrepRepair: '🛠️ Prép. / rép.',
 
     // Empty fleet
     emptyTitle: 'Votre parc est vide pour le moment',
@@ -61,6 +82,7 @@ export const translations = {
 
     // Vehicle Detail Studio
     backToFleet: 'Retour au parc',
+    statusLabel: 'Statut :',
     recordSaleBtn: 'Enregistrer la Vente',
     invoicePdfBtn: 'Facture PDF',
     editVehicleTitle: 'Modifier le véhicule',
@@ -82,6 +104,17 @@ export const translations = {
     inListing: 'En annonce',
     netProfitLabel: 'Bénéfice Net (P&L)',
 
+    // Sale Financial Report
+    saleReportTitle: 'Rapport financier de vente ({vehicle})',
+    saleReportRegime: 'Régime : {regime}',
+    saleReportSalePrice: 'Prix de vente :',
+    saleReportPurchase: 'Achat véhicule :',
+    saleReportRepairs: 'Réparations & pièces :',
+    saleReportExpenses: 'Frais généraux :',
+    saleReportGrossMargin: 'Marge brute (Brut) :',
+    saleReportTax: 'Impôt ({regime}) :',
+    saleReportNetProfit: 'Bénéfice net (Net) :',
+
     // Tabs
     tabOverview: 'Vue d\'ensemble & Photos',
     tabRepairs: 'Travaux & Réparations ({count})',
@@ -96,6 +129,8 @@ export const translations = {
     year: 'Année',
     mileage: 'Kilométrage',
     vinOrPlate: 'VIN / Immatriculation',
+    vinFieldLabel: 'VIN (E)',
+    plateFieldLabel: 'Immatriculation (A)',
     purchaseDate: 'Date d\'Acquisition',
     targetSalePriceInput: 'Prix Visé (€)',
 
@@ -286,6 +321,7 @@ export const translations = {
     analyticsShareOfTotal: '{val}% du total',
     analyticsShareOfCategory: '{val}% du poste',
     analyticsOpenDossier: 'Dossier',
+    analyticsRevenueTitle: 'Chiffre d’affaires réalisé',
   },
 
   ru: {
@@ -301,6 +337,11 @@ export const translations = {
     loading: 'Загрузка...',
     signIn: 'Войти',
     signOut: 'Выйти',
+    allGarages: 'Все гаражи',
+    headerTotalInStock: 'Всего в наличии:',
+    headerPrepRepair: '🛠️ В подготовке / ремонте:',
+    headerForSale: '🏷️ В продаже:',
+    settingsLabel: 'Настройки',
 
     // Fleet stats ribbon
     totalFleet: 'Всего авто :',
@@ -337,6 +378,22 @@ export const translations = {
     marginPercent: '{val}% маржа',
     roiPercent: '{val}% ROI',
     manageDossier: 'Досье и работы',
+    viewGrid: 'Сетка',
+    viewList: 'Список',
+    thVehicleYear: 'Автомобиль / Год',
+    thPlate: 'Госномер',
+    thMileage: 'Пробег',
+    thPurchasePrice: 'Закупка',
+    thSalePrice: 'Продажа',
+    dossierBtn: 'Досье',
+    cardInvested: 'Инвестиции',
+    cardTarget: 'Цель',
+    cardSold: 'Продано',
+    selectGarageTitle: 'Выберите гараж / рабочее пространство',
+    selectGarageSubtitle: 'Управляйте несколькими независимыми автосалонами с полной изоляцией инвентаря, расходов и бланков Cerfa.',
+    createGarageBtn: 'Создать новый гараж',
+    enterGarageBtn: 'Войти в гараж',
+    garagePrepRepair: '🛠️ Подгот. / рем.',
 
     // Empty fleet
     emptyTitle: 'Ваш автопарк пока пуст',
@@ -348,6 +405,7 @@ export const translations = {
 
     // Vehicle Detail Studio
     backToFleet: 'Назад к автопарку',
+    statusLabel: 'Статус :',
     recordSaleBtn: 'Оформить продажу',
     invoicePdfBtn: 'Счет-фактура PDF',
     editVehicleTitle: 'Редактировать автомобиль',
@@ -369,6 +427,17 @@ export const translations = {
     inListing: 'В объявлении',
     netProfitLabel: 'Чистая прибыль (P&L)',
 
+    // Sale Financial Report
+    saleReportTitle: 'Финансовый отчёт продажи ({vehicle})',
+    saleReportRegime: 'Режим: {regime}',
+    saleReportSalePrice: 'Цена продажи:',
+    saleReportPurchase: 'Закупка авто:',
+    saleReportRepairs: 'Ремонт и запчасти:',
+    saleReportExpenses: 'Прочие расходы:',
+    saleReportGrossMargin: 'Валовая маржа (Брутто):',
+    saleReportTax: 'Налог ({regime}):',
+    saleReportNetProfit: 'Чистая прибыль (Нетто):',
+
     // Tabs
     tabOverview: 'Обзор и фото',
     tabRepairs: 'Ремонт и чек-лист ({count})',
@@ -383,6 +452,8 @@ export const translations = {
     year: 'Год выпуска',
     mileage: 'Пробег',
     vinOrPlate: 'VIN / Госномер',
+    vinFieldLabel: 'VIN (E)',
+    plateFieldLabel: 'Госномер (A)',
     purchaseDate: 'Дата приобретения',
     targetSalePriceInput: 'Ожидаемая цена продажи (€)',
 
@@ -573,5 +644,6 @@ export const translations = {
     analyticsShareOfTotal: '{val}% от общих',
     analyticsShareOfCategory: '{val}% в категории',
     analyticsOpenDossier: 'Досье',
+    analyticsRevenueTitle: 'Выручка от продаж',
   },
 };

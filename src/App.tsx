@@ -25,6 +25,7 @@ import {
   subscribeGarages,
   createGarage,
   setActiveGarageId as persistActiveGarageId,
+  fetchGarageSettingsFromCloud,
   createVehicle,
   updateVehicle,
   deleteVehicle,
@@ -36,6 +37,7 @@ import {
   subscribeSystemThemeConfig,
 } from './services/adminService';
 import {
+  applySystemThemeVariables,
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_SYSTEM_THEME_CONFIG,
   isSuperAdminUser,
@@ -85,12 +87,13 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('theme-light', theme === 'light');
+    applySystemThemeVariables(systemConfig, theme);
     try {
       localStorage.setItem('autogarage_theme', theme);
     } catch {
       // ignore
     }
-  }, [theme]);
+  }, [theme, systemConfig]);
 
   // Sync /admin URL path
   const handleSetActiveView = (view: 'desktop' | 'analytics' | 'mobile' | 'admin') => {
@@ -194,6 +197,9 @@ export default function App() {
     setActiveGarageId(garageId);
     setSelectedVehicle(null);
     persistActiveGarageId(garageId);
+    if (garageId && user?.uid) {
+      fetchGarageSettingsFromCloud(user.uid, garageId).catch(() => {});
+    }
     if (garageId && activeView === 'admin') {
       handleSetActiveView('desktop');
     }
@@ -204,6 +210,8 @@ export default function App() {
     entityType: 'morale' | 'physique';
     city?: string;
     siret?: string;
+    taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+    taxRatePercent?: number;
   }) => {
     const created = await createGarage(effectiveUserId, input);
     handleSelectGarage(created.id);
@@ -295,9 +303,9 @@ export default function App() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4">
-        <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
-        <p className="text-sm font-semibold text-slate-400">
+      <div className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-[var(--foreground)] space-y-4">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--primary)]" />
+        <p className="text-sm font-semibold text-[var(--muted-foreground)]">
           Initialisation sécurisée d'AutoGarage Manager...
         </p>
       </div>
@@ -305,7 +313,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-foreground)]">
       {/* Top Navbar */}
       <Navbar
         vehicles={vehicles}
@@ -338,6 +346,8 @@ export default function App() {
             isSuperAdmin={isSuperAdmin}
             currentUserUid={user?.uid || userProfile?.uid}
             systemConfig={systemConfig}
+            theme={theme}
+            onThemeChange={setTheme}
             onBackToApp={() => handleSetActiveView('desktop')}
             onSignIn={() => setIsAuthModalOpen(true)}
             onOpenAlignerMode={() => setIsQuickAlignerOpen(true)}

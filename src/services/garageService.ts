@@ -8,6 +8,7 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { Vehicle, RepairTask, GeneralExpense, GarageSettings, GarageWorkspace } from '../types/garage';
@@ -73,12 +74,44 @@ export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
   taxRatePercent: 15,
 };
 
+export function getDefaultTaxRateForRegime(
+  regime?: 'sarl' | 'micro' | 'custom' | 'none'
+): number {
+  if (regime === 'micro') return 12.3;
+  if (regime === 'none') return 0;
+  return 15;
+}
+
 export function getGarageSettings(garageIdOverride?: string): GarageSettings {
   const targetId = garageIdOverride || getActiveGarageId() || DEFAULT_GARAGE_ID;
   try {
+    const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
+    const match = garages.find((g) => g.id === targetId);
+    const matchTaxRegime =
+      match?.taxRegime || (match?.entityType === 'physique' ? 'none' : DEFAULT_GARAGE_SETTINGS.taxRegime);
+    const matchTaxRate =
+      typeof match?.taxRatePercent === 'number' && !Number.isNaN(match.taxRatePercent)
+        ? match.taxRatePercent
+        : getDefaultTaxRateForRegime(matchTaxRegime);
+
     const scopedRaw = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${targetId}`);
     if (scopedRaw) {
-      return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId, ...JSON.parse(scopedRaw) };
+      const parsed = JSON.parse(scopedRaw) as Partial<GarageSettings>;
+      return {
+        ...DEFAULT_GARAGE_SETTINGS,
+        ...(match
+          ? {
+              name: match.name,
+              entityType: match.entityType,
+              city: match.city || DEFAULT_GARAGE_SETTINGS.city,
+              siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
+              taxRegime: matchTaxRegime,
+              taxRatePercent: matchTaxRate,
+            }
+          : {}),
+        ...parsed,
+        garageId: targetId,
+      };
     }
     if (targetId === DEFAULT_GARAGE_ID) {
       const legacyRaw = localStorage.getItem(LOCAL_SETTINGS_KEY);
@@ -86,9 +119,6 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
         return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId, ...JSON.parse(legacyRaw) };
       }
     }
-    // Check if garage workspace has a name/entityType
-    const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
-    const match = garages.find((g) => g.id === targetId);
     if (match) {
       return {
         ...DEFAULT_GARAGE_SETTINGS,
@@ -97,6 +127,8 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
         entityType: match.entityType,
         city: match.city || DEFAULT_GARAGE_SETTINGS.city,
         siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
+        taxRegime: matchTaxRegime,
+        taxRatePercent: matchTaxRate,
       };
     }
     return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId };
@@ -105,13 +137,50 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
   }
 }
 
+export async function fetchGarageSettingsFromCloud(
+  userId?: string,
+  garageIdOverride?: string
+): Promise<GarageSettings> {
+  const targetId = garageIdOverride || getActiveGarageId() || DEFAULT_GARAGE_ID;
+  const local = getGarageSettings(targetId);
+  if (auth.currentUser && userId) {
+    try {
+      const snap = await getDoc(doc(db, 'settings', `${userId}_${targetId}`));
+      if (snap.exists()) {
+        const merged: GarageSettings = {
+          ...DEFAULT_GARAGE_SETTINGS,
+          ...local,
+          ...(snap.data() as Partial<GarageSettings>),
+          garageId: targetId,
+        };
+        localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${targetId}`, JSON.stringify(merged));
+        window.dispatchEvent(new Event('autogarage_settings_updated'));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('fetchGarageSettingsFromCloud warning:', err);
+    }
+  }
+  return local;
+}
+
 export async function saveGarageSettings(
   settings: GarageSettings,
   userId?: string,
   garageIdOverride?: string
 ): Promise<void> {
   const targetId = garageIdOverride || settings.garageId || getActiveGarageId() || DEFAULT_GARAGE_ID;
-  const scopedSettings: GarageSettings = { ...settings, garageId: targetId };
+  const resolvedRegime = settings.taxRegime || 'sarl';
+  const resolvedRate =
+    typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
+      ? Math.max(0, settings.taxRatePercent)
+      : getDefaultTaxRateForRegime(resolvedRegime);
+  const scopedSettings: GarageSettings = {
+    ...settings,
+    garageId: targetId,
+    taxRegime: resolvedRegime,
+    taxRatePercent: resolvedRate,
+  };
   try {
     localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${targetId}`, JSON.stringify(scopedSettings));
     if (targetId === DEFAULT_GARAGE_ID) {
@@ -120,11 +189,12 @@ export async function saveGarageSettings(
     window.dispatchEvent(new Event('autogarage_settings_updated'));
     // Keep workspace metadata in sync
     const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
+    const now = new Date().toISOString();
+    const displayName =
+      scopedSettings.entityType === 'physique'
+        ? `${scopedSettings.firstName || ''} ${scopedSettings.lastName || ''}`.trim() || scopedSettings.name
+        : scopedSettings.name;
     if (garages.some((g) => g.id === targetId)) {
-      const displayName =
-        scopedSettings.entityType === 'physique'
-          ? `${scopedSettings.firstName || ''} ${scopedSettings.lastName || ''}`.trim() || scopedSettings.name
-          : scopedSettings.name;
       const updatedGarages = garages.map((g) =>
         g.id === targetId
           ? {
@@ -133,7 +203,9 @@ export async function saveGarageSettings(
               entityType: scopedSettings.entityType || g.entityType,
               city: scopedSettings.city || g.city,
               siret: scopedSettings.siret || g.siret,
-              updatedAt: new Date().toISOString(),
+              taxRegime: resolvedRegime,
+              taxRatePercent: resolvedRate,
+              updatedAt: now,
             }
           : g
       );
@@ -142,6 +214,22 @@ export async function saveGarageSettings(
     window.dispatchEvent(new Event('autogarage_settings_updated'));
     if (auth.currentUser && userId) {
       await setDoc(doc(db, 'settings', `${userId}_${targetId}`), scopedSettings, { merge: true });
+      if (garages.some((g) => g.id === targetId)) {
+        await setDoc(
+          doc(db, 'garages', targetId),
+          {
+            userId,
+            name: displayName || scopedSettings.name,
+            entityType: scopedSettings.entityType || 'morale',
+            city: scopedSettings.city || '',
+            siret: scopedSettings.entityType === 'morale' ? scopedSettings.siret || '' : '',
+            taxRegime: resolvedRegime,
+            taxRatePercent: resolvedRate,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
     }
   } catch (err) {
     console.warn('saveGarageSettings warning:', err);
@@ -277,10 +365,18 @@ export async function createGarage(
     entityType: 'morale' | 'physique';
     city?: string;
     siret?: string;
+    taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+    taxRatePercent?: number;
   }
 ): Promise<GarageWorkspace> {
   const id = generateId('garage');
   const now = new Date().toISOString();
+  const resolvedRegime = input.taxRegime || (input.entityType === 'physique' ? 'none' : 'sarl');
+  const resolvedTaxRate =
+    typeof input.taxRatePercent === 'number' && !Number.isNaN(input.taxRatePercent)
+      ? Math.max(0, input.taxRatePercent)
+      : getDefaultTaxRateForRegime(resolvedRegime);
+
   const newGarage: GarageWorkspace = {
     id,
     userId,
@@ -288,6 +384,8 @@ export async function createGarage(
     entityType: input.entityType,
     city: input.city?.trim() || '',
     siret: input.entityType === 'morale' ? input.siret?.trim() || '' : '',
+    taxRegime: resolvedRegime,
+    taxRatePercent: resolvedTaxRate,
     createdAt: now,
     updatedAt: now,
   };
@@ -295,16 +393,25 @@ export async function createGarage(
   const existing = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
   setLocalStore(LOCAL_GARAGES_KEY, [...existing, newGarage]);
 
+  const nameParts = newGarage.name.split(/\s+/).filter(Boolean);
+  const derivedFirstName = input.entityType === 'physique' ? nameParts[0] || newGarage.name : '';
+  const derivedLastName =
+    input.entityType === 'physique'
+      ? nameParts.slice(1).join(' ') || nameParts[0] || newGarage.name
+      : '';
+
   await saveGarageSettings(
     {
       ...DEFAULT_GARAGE_SETTINGS,
       garageId: id,
       entityType: input.entityType,
       name: newGarage.name,
-      city: newGarage.city || '',
+      city: newGarage.city || DEFAULT_GARAGE_SETTINGS.city,
       siret: newGarage.siret || '',
-      lastName: input.entityType === 'physique' ? newGarage.name : '',
-      firstName: '',
+      lastName: derivedLastName,
+      firstName: derivedFirstName,
+      taxRegime: resolvedRegime,
+      taxRatePercent: resolvedTaxRate,
     },
     userId,
     id
