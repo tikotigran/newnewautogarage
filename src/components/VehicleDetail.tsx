@@ -86,7 +86,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   userId,
   featureFlags = DEFAULT_FEATURE_FLAGS,
 }) => {
-  const { t, lang } = useI18n();
+  const { t, lang, getTextStyle } = useI18n();
   const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>('overview');
   const [repairs, setRepairs] = useState<RepairTask[]>([]);
   const [expenses, setExpenses] = useState<GeneralExpense[]>([]);
@@ -326,7 +326,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{t('recordSaleBtn')}</span>
+              <span style={getTextStyle('recordSaleBtn')}>{t('recordSaleBtn')}</span>
             </button>
           ) : (
             <button
@@ -334,7 +334,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{t('invoicePdfBtn')}</span>
+              <span style={getTextStyle('invoicePdfBtn')}>{t('invoicePdfBtn')}</span>
             </button>
           )}
 
@@ -364,10 +364,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       {featureFlags.pnlCalculator && (
         <div
           data-testid="vehicle-financial-dashboard"
-          className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm"
+          className="bg-[var(--ag-detail-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm"
         >
-          <div className="text-xs font-bold uppercase tracking-wider text-[var(--primary)] mb-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-[var(--ag-detail-heading)] mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5" style={getTextStyle('pnlBannerTitle')}>
               <TrendingUp className="w-4 h-4" />
               {t('pnlBannerTitle')}
             </span>
@@ -379,8 +379,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {/* 6 Key Financial Metric Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* 1. Prix d'achat */}
-            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+            <div className="bg-[var(--ag-metric-bg)] p-3 rounded-xl border border-[var(--border)]">
+              <span
+                style={getTextStyle('purchasePriceLabel')}
+                className="text-[11px] text-[var(--muted-foreground)] block mb-1"
+              >
                 {t('purchasePriceLabel')}
               </span>
               <div className="text-base sm:text-lg font-bold text-[var(--foreground)] tabular-nums">
@@ -392,8 +395,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* 2. Travaux Réparations (Pièces + MO) */}
-            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+            <div className="bg-[var(--ag-metric-bg)] p-3 rounded-xl border border-[var(--border)]">
+              <span
+                style={getTextStyle('workshopRepairsLabel')}
+                className="text-[11px] text-[var(--muted-foreground)] block mb-1"
+              >
                 {t('workshopRepairsLabel')}
               </span>
               <div className="text-base sm:text-lg font-bold text-[var(--warning)] tabular-nums">
@@ -405,8 +411,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* 3. Frais Généraux Non-Réparations */}
-            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-              <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
+            <div className="bg-[var(--ag-metric-bg)] p-3 rounded-xl border border-[var(--border)]">
+              <span
+                style={getTextStyle('generalExpensesLabel')}
+                className="text-[11px] text-[var(--muted-foreground)] block mb-1"
+              >
                 {t('generalExpensesLabel')}
               </span>
               <div className="text-base sm:text-lg font-bold text-[var(--foreground)] tabular-nums">
@@ -421,11 +430,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             <div
               className="p-3 rounded-xl border"
               style={{
-                backgroundColor: 'color-mix(in srgb, var(--primary) 10%, var(--card))',
+                backgroundColor: 'color-mix(in srgb, var(--primary) 12%, var(--ag-metric-bg))',
                 borderColor: 'color-mix(in srgb, var(--primary) 35%, var(--border))',
               }}
             >
-              <span className="text-[11px] text-[var(--primary)] font-semibold block mb-1">
+              <span
+                style={getTextStyle('totalCapitalInvestedLabel')}
+                className="text-[11px] text-[var(--primary)] font-semibold block mb-1"
+              >
                 {t('totalCapitalInvestedLabel')}
               </span>
               <div className="text-base sm:text-lg font-black text-[var(--primary)] tabular-nums">
@@ -437,7 +449,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* 5. Prix de Vente (Visé ou Réalisé) */}
-            <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+            <div className="bg-[var(--ag-metric-bg)] p-3 rounded-xl border border-[var(--border)]">
               <span className="text-[11px] text-[var(--muted-foreground)] block mb-1">
                 {isSold ? t('realizedSalePrice') : t('targetSalePrice')}
               </span>
@@ -457,26 +469,31 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             <div
               className={`p-3 rounded-xl border ${
                 !hasSalePrice
-                  ? 'bg-[var(--surface-muted)] border-[var(--border)] text-[var(--muted-foreground)]'
+                  ? 'bg-[var(--ag-metric-bg)] border-[var(--border)] text-[var(--muted-foreground)]'
                   : ''
               }`}
               style={
                 hasSalePrice
                   ? fin.netProfit >= 0
                     ? {
-                        backgroundColor: 'color-mix(in srgb, var(--success) 12%, var(--card))',
-                        borderColor: 'color-mix(in srgb, var(--success) 40%, var(--border))',
-                        color: 'var(--success)',
+                        backgroundColor: 'color-mix(in srgb, var(--ag-profit-color) 12%, var(--ag-metric-bg))',
+                        borderColor: 'color-mix(in srgb, var(--ag-profit-color) 40%, var(--border))',
+                        color: 'var(--ag-profit-color)',
                       }
                     : {
-                        backgroundColor: 'color-mix(in srgb, #ef4444 12%, var(--card))',
-                        borderColor: 'color-mix(in srgb, #ef4444 40%, var(--border))',
-                        color: '#ef4444',
+                        backgroundColor: 'color-mix(in srgb, var(--ag-expense-color) 12%, var(--ag-metric-bg))',
+                        borderColor: 'color-mix(in srgb, var(--ag-expense-color) 40%, var(--border))',
+                        color: 'var(--ag-expense-color)',
                       }
                   : undefined
               }
             >
-              <span className="text-[11px] font-semibold block mb-1">{t('netProfitLabel')}</span>
+              <span
+                style={getTextStyle('netProfitLabel')}
+                className="text-[11px] font-semibold block mb-1"
+              >
+                {t('netProfitLabel')}
+              </span>
               {hasSalePrice ? (
                 <>
                   <div className="text-base sm:text-lg font-black tabular-nums">
@@ -499,10 +516,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {saleReport && (
             <div
               data-testid="sale-financial-report"
-              className="mt-4 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] font-mono text-xs"
+              className="mt-4 bg-[var(--ag-receipt-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] font-mono text-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-[var(--border)]">
-                <span className="font-bold text-[var(--primary)]">
+                <span
+                  style={getTextStyle('saleReportTitle')}
+                  className="font-bold text-[var(--ag-detail-heading)]"
+                >
                   {t('saleReportTitle', { vehicle: `${vehicle.make} ${vehicle.model}` })}
                 </span>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
@@ -517,16 +537,22 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
                   <span>- {t('saleReportPurchase')}</span>
-                  <span className="font-semibold text-red-500">-{formatEuro(saleReport.purchasePrice)}</span>
+                  <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                    -{formatEuro(saleReport.purchasePrice)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
                   <span>- {t('saleReportRepairs')}</span>
-                  <span className="font-semibold text-red-500">-{formatEuro(saleReport.repairCostTotal)}</span>
+                  <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                    -{formatEuro(saleReport.repairCostTotal)}
+                  </span>
                 </div>
                 {saleReport.generalExpensesTotal > 0 && (
                   <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
                     <span>- {t('saleReportExpenses')}</span>
-                    <span className="font-semibold text-red-500">-{formatEuro(saleReport.generalExpensesTotal)}</span>
+                    <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                      -{formatEuro(saleReport.generalExpensesTotal)}
+                    </span>
                   </div>
                 )}
 
@@ -535,9 +561,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     = {t('saleReportGrossMargin')}
                   </span>
                   <span
-                    className={`font-bold ${
-                      saleReport.grossMargin >= 0 ? 'text-[var(--warning)]' : 'text-red-500'
-                    }`}
+                    className="font-bold"
+                    style={{
+                      color:
+                        saleReport.grossMargin >= 0
+                          ? 'var(--warning)'
+                          : 'var(--ag-expense-color)',
+                    }}
                   >
                     {formatEuro(saleReport.grossMargin)}
                   </span>
@@ -547,19 +577,34 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <span>
                     - {t('saleReportTax', { regime: saleReport.taxLabel })}
                   </span>
-                  <span className="font-semibold text-[var(--primary)]">
+                  <span
+                    className="font-semibold"
+                    style={{
+                      color:
+                        saleReport.taxAmount > 0
+                          ? 'var(--ag-expense-color)'
+                          : 'var(--muted-foreground)',
+                    }}
+                  >
                     {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-sm">
-                  <span className="font-bold text-[var(--foreground)]">
+                  <span
+                    style={getTextStyle('saleReportNetProfit')}
+                    className="font-bold text-[var(--foreground)]"
+                  >
                     = {t('saleReportNetProfit')}
                   </span>
                   <span
-                    className={`font-black ${
-                      saleReport.netProfitAfterTax >= 0 ? 'text-[var(--success)]' : 'text-red-500'
-                    }`}
+                    className="font-black"
+                    style={{
+                      color:
+                        saleReport.netProfitAfterTax >= 0
+                          ? 'var(--ag-profit-color)'
+                          : 'var(--ag-expense-color)',
+                    }}
                   >
                     {formatEuro(saleReport.netProfitAfterTax)}
                   </span>

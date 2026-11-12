@@ -18,6 +18,21 @@
   --ag-button-radius: 12px;
   --ag-card-padding: 20px;
   --ag-section-gap: 24px;
+  --ag-header-bg: #0f172a;
+  --ag-header-text: #f8fafc;
+  --ag-header-border: #1e293b;
+  --ag-nav-active-bg: #f59e0b;
+  --ag-nav-active-text: #020617;
+  --ag-detail-bg: #0f172a;
+  --ag-metric-bg: #1e293b;
+  --ag-receipt-bg: #020617;
+  --ag-detail-heading: #f59e0b;
+  --ag-profit-color: #34d399;
+  --ag-expense-color: #f87171;
+  --ag-table-header-bg: #020617;
+  --ag-table-row-hover: #1e293b;
+  --ag-chart-accent: #f59e0b;
+  --ag-modal-bg: #0f172a;
 }
 
 html.theme-light {

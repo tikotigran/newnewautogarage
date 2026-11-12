@@ -362,7 +362,7 @@ export const Settings: React.FC<SettingsProps> = ({
       aria-modal="true"
       aria-labelledby="settings-modal-title"
     >
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-5xl w-full shadow-2xl overflow-hidden flex flex-col h-[92vh] max-h-[820px]">
+      <div className="bg-[var(--ag-modal-bg)] border border-slate-800 rounded-3xl max-w-5xl w-full shadow-2xl overflow-hidden flex flex-col h-[92vh] max-h-[820px]">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70 shrink-0">
           <div className="flex items-center gap-3">

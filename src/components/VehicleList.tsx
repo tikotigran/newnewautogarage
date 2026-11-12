@@ -287,7 +287,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-[var(--background)] border-b border-[var(--border)] text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                  <tr className="bg-[var(--ag-table-header-bg)] border-b border-[var(--border)] text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
                     <th className="py-3 px-3 font-bold">Photo</th>
                     <th className="py-3 px-3 font-bold">{t('thVehicleYear')}</th>
                     <th className="py-3 px-3 font-bold">{t('thPlate')}</th>
@@ -310,7 +310,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                       <tr
                         key={v.id}
                         onClick={() => onSelectVehicle(v)}
-                        className="hover:bg-[var(--surface-muted)] transition cursor-pointer"
+                        className="hover:bg-[var(--ag-table-row-hover)] transition cursor-pointer"
                       >
                         <td className="py-2 px-3">
                           {hasPhoto ? (
@@ -382,9 +382,13 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                             {hasSalePrice ? (
                               <>
                                 <span
-                                  className={`font-mono font-extrabold ${
-                                    v.netProfit >= 0 ? 'text-[var(--success)]' : 'text-red-500'
-                                  }`}
+                                  className="font-mono font-extrabold"
+                                  style={{
+                                    color:
+                                      v.netProfit >= 0
+                                        ? 'var(--ag-profit-color)'
+                                        : 'var(--ag-expense-color)',
+                                  }}
                                 >
                                   {v.netProfit >= 0 ? '+' : ''}{formatEuro(v.netProfit)}
                                 </span>

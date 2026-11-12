@@ -56,6 +56,7 @@ import {
   DEFAULT_SYSTEM_THEME_CONFIG,
   getContrastForeground,
   getTranslationKeyCategory,
+  resolveLocalizedColor,
   resolveLocalizedLabel,
   resolveSystemThemeConfig,
   sortExpenseCategories,
@@ -141,6 +142,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [onlyModifiedTexts, setOnlyModifiedTexts] = useState(false);
   const [selectedTextCategory, setSelectedTextCategory] = useState<TranslationCategoryId>('all');
 
+  // Design Studio section & multi-page preview state (must stay above early return)
+  const [designSection, setDesignSection] = useState<
+    'all' | 'header' | 'cards' | 'vehicle_detail' | 'analytics_tables'
+  >('all');
+  const [previewPage, setPreviewPage] = useState<'card' | 'vehicle_detail' | 'header_table'>(
+    'vehicle_detail'
+  );
+  const [selectedPreviewKey, setSelectedPreviewKey] = useState<string | null>(null);
+
   useEffect(() => {
     setDraftConfig(resolveSystemThemeConfig(systemConfig));
   }, [systemConfig]);
@@ -217,7 +227,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return false;
       }
       const hasOverride = Boolean(
-        textOverrides[k]?.fr?.trim() || textOverrides[k]?.ru?.trim()
+        textOverrides[k]?.fr?.trim() ||
+          textOverrides[k]?.ru?.trim() ||
+          textOverrides[k]?.color?.trim()
       );
       if (onlyModifiedTexts && !hasOverride) return false;
       if (!q) return true;
@@ -277,10 +289,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setTimeout(() => setSaveNotice(null), 2500);
   };
 
-  const handleSaveGlobalConfig = async (nextConfig: SystemThemeConfig = draftConfig) => {
+  const cleanTextOverridesMap = (raw: GlobalTextOverrides): GlobalTextOverrides => {
+    const cleaned: GlobalTextOverrides = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const fr = v.fr || '';
+      const ru = v.ru || '';
+      const color = v.color?.trim() || '';
+      if (fr.trim() !== '' || ru.trim() !== '' || color !== '') {
+        cleaned[k] = {
+          fr,
+          ru,
+          ...(color ? { color } : {}),
+        };
+      }
+    }
+    return cleaned;
+  };
+
+  const handleSaveGlobalConfig = async (
+    nextConfig: SystemThemeConfig = draftConfig,
+    alsoSaveTextOverrides = false
+  ) => {
     const resolved = resolveSystemThemeConfig(nextConfig);
     setDraftConfig(resolved);
-    await saveSystemThemeConfig(resolved, currentUserUid);
+    if (alsoSaveTextOverrides) {
+      const cleaned = cleanTextOverridesMap(textOverrides);
+      setTextOverrides(cleaned);
+      await Promise.all([
+        saveSystemThemeConfig(resolved, currentUserUid),
+        saveGlobalTextOverrides(cleaned, currentUserUid),
+      ]);
+    } else {
+      await saveSystemThemeConfig(resolved, currentUserUid);
+    }
     applySystemThemeVariables(resolved, theme);
     // Sync default inventory view mode if user hasn't set one or wants global default
     try {
@@ -479,35 +520,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Global Text Overrides handlers
-  const handleTextOverrideChange = (key: string, field: 'fr' | 'ru', value: string) => {
+  const handleTextOverrideChange = (key: string, field: 'fr' | 'ru' | 'color', value: string) => {
     setTextOverrides((prev) => ({
       ...prev,
       [key]: {
         fr: field === 'fr' ? value : prev[key]?.fr ?? '',
         ru: field === 'ru' ? value : prev[key]?.ru ?? '',
+        color: field === 'color' ? value : prev[key]?.color ?? '',
       },
     }));
   };
 
   const handleSaveTextOverrides = async (nextOverrides: GlobalTextOverrides = textOverrides) => {
-    const cleaned: GlobalTextOverrides = {};
-    for (const [k, v] of Object.entries(nextOverrides)) {
-      if ((v.fr && v.fr.trim() !== '') || (v.ru && v.ru.trim() !== '')) {
-        cleaned[k] = { fr: v.fr || '', ru: v.ru || '' };
-      }
-    }
+    const cleaned = cleanTextOverridesMap(nextOverrides);
     setTextOverrides(cleaned);
     await saveGlobalTextOverrides(cleaned, currentUserUid);
-    showSavedFeedback(isRu ? 'Тексты применены глобально' : 'Textes appliqués globalement');
+    showSavedFeedback(isRu ? 'Тексты и цвета применены глобально' : 'Textes et couleurs appliqués');
   };
 
   const handleSaveUiAndTexts = async () => {
-    const cleaned: GlobalTextOverrides = {};
-    for (const [k, v] of Object.entries(textOverrides)) {
-      if ((v.fr && v.fr.trim() !== '') || (v.ru && v.ru.trim() !== '')) {
-        cleaned[k] = { fr: v.fr || '', ru: v.ru || '' };
-      }
-    }
+    const cleaned = cleanTextOverridesMap(textOverrides);
     setTextOverrides(cleaned);
     const resolvedLayout = resolveSystemThemeConfig(draftConfig);
     setDraftConfig(resolvedLayout);
@@ -836,29 +868,484 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* 3. DESIGN & BRANDING STUDIO (DUAL-THEME PALETTE ENGINE) */}
+        {/* 3. DESIGN & BRANDING STUDIO (SECTION-BY-SECTION DUAL-THEME ENGINE + MULTI-PAGE PREVIEW) */}
         {activeTab === 'design' && (() => {
           const resolvedDraft = resolveSystemThemeConfig(draftConfig);
           const lightPalette = resolvedDraft.lightPalette || DEFAULT_LIGHT_PALETTE;
           const darkPalette = resolvedDraft.darkPalette || DEFAULT_DARK_PALETTE;
 
-          const paletteTokenRows: {
-            key: keyof ThemePaletteTokens;
-            cssVar: string;
-            labelRu: string;
-            labelFr: string;
+          const tokenGroups: {
+            id: 'header' | 'cards' | 'vehicle_detail' | 'analytics_tables';
+            titleRu: string;
+            titleFr: string;
+            previewTarget: 'card' | 'vehicle_detail' | 'header_table';
+            rows: {
+              key: keyof ThemePaletteTokens;
+              cssVar: string;
+              labelRu: string;
+              labelFr: string;
+            }[];
           }[] = [
-            { key: 'background', cssVar: '--background', labelRu: 'Фон страницы (Canvas)', labelFr: 'Fond de page (Canvas)' },
-            { key: 'card', cssVar: '--card', labelRu: 'Фон карточек (Card)', labelFr: 'Surface des cartes (Card)' },
-            { key: 'surfaceMuted', cssVar: '--surface-muted', labelRu: 'Вторичная панель / инпут', labelFr: 'Surface secondaire / champ' },
-            { key: 'primary', cssVar: '--primary', labelRu: 'Основной акцент / кнопки', labelFr: 'Couleur principale / CTA' },
-            { key: 'foreground', cssVar: '--foreground', labelRu: 'Заголовки (Primary Text)', labelFr: 'Titres (Texte principal)' },
-            { key: 'secondaryForeground', cssVar: '--secondary-foreground', labelRu: 'Основной текст', labelFr: 'Texte courant' },
-            { key: 'mutedForeground', cssVar: '--muted-foreground', labelRu: 'Приглушённые подписи', labelFr: 'Textes secondaires' },
-            { key: 'border', cssVar: '--border', labelRu: 'Рамки и разделители', labelFr: 'Bordures & séparateurs' },
-            { key: 'success', cssVar: '--success', labelRu: 'Прибыль P&L / В продаже', labelFr: 'Profit P&L / En vente' },
-            { key: 'warning', cssVar: '--warning', labelRu: 'Статус подготовки / ремонта', labelFr: 'Statut préparation / atelier' },
+            {
+              id: 'header',
+              titleRu: 'Шапка и Навигация',
+              titleFr: 'En-tête & Navigation',
+              previewTarget: 'header_table',
+              rows: [
+                { key: 'headerBg', cssVar: '--ag-header-bg', labelRu: 'Фон верхней шапки', labelFr: 'Fond barre supérieure' },
+                { key: 'headerText', cssVar: '--ag-header-text', labelRu: 'Текст шапки и иконки', labelFr: 'Texte & icônes en-tête' },
+                { key: 'headerBorder', cssVar: '--ag-header-border', labelRu: 'Нижняя граница шапки', labelFr: 'Bordure inférieure' },
+                { key: 'navActiveBg', cssVar: '--ag-nav-active-bg', labelRu: 'Фон активной вкладки', labelFr: 'Fond onglet actif' },
+                { key: 'navActiveText', cssVar: '--ag-nav-active-text', labelRu: 'Текст активной вкладки', labelFr: 'Texte onglet actif' },
+              ],
+            },
+            {
+              id: 'cards',
+              titleRu: 'Карточки склада и Общий фон',
+              titleFr: 'Cartes d’inventaire & Fond',
+              previewTarget: 'card',
+              rows: [
+                { key: 'background', cssVar: '--background', labelRu: 'Фон страницы (Canvas)', labelFr: 'Fond de page (Canvas)' },
+                { key: 'card', cssVar: '--card', labelRu: 'Фон карточек (Card)', labelFr: 'Surface des cartes (Card)' },
+                { key: 'surfaceMuted', cssVar: '--surface-muted', labelRu: 'Вторичная панель / инпут', labelFr: 'Surface secondaire / champ' },
+                { key: 'primary', cssVar: '--primary', labelRu: 'Основной акцент / кнопки', labelFr: 'Couleur principale / CTA' },
+                { key: 'foreground', cssVar: '--foreground', labelRu: 'Заголовки (Primary Text)', labelFr: 'Titres (Texte principal)' },
+                { key: 'secondaryForeground', cssVar: '--secondary-foreground', labelRu: 'Основной текст', labelFr: 'Texte courant' },
+                { key: 'mutedForeground', cssVar: '--muted-foreground', labelRu: 'Приглушённые подписи', labelFr: 'Textes secondaires' },
+                { key: 'border', cssVar: '--border', labelRu: 'Рамки и разделители', labelFr: 'Bordures & séparateurs' },
+                { key: 'success', cssVar: '--success', labelRu: 'Успех / В продаже', labelFr: 'Succès / En vente' },
+                { key: 'warning', cssVar: '--warning', labelRu: 'Подготовка / Внимание', labelFr: 'Préparation / Alerte' },
+              ],
+            },
+            {
+              id: 'vehicle_detail',
+              titleRu: 'Страница авто и Финансовый отчёт',
+              titleFr: 'Fiche Véhicule & Rapport P&L',
+              previewTarget: 'vehicle_detail',
+              rows: [
+                { key: 'detailContainerBg', cssVar: '--ag-detail-bg', labelRu: 'Контейнер баланса P&L', labelFr: 'Fond bilan P&L véhicule' },
+                { key: 'detailHeadingColor', cssVar: '--ag-detail-heading', labelRu: 'Заголовок баланса и отчёта', labelFr: 'Titre bilan & rapport' },
+                { key: 'metricBoxBg', cssVar: '--ag-metric-bg', labelRu: 'Фон мини-карточек (Закупка/Ремонт)', labelFr: 'Fond blocs métriques' },
+                { key: 'saleReceiptBg', cssVar: '--ag-receipt-bg', labelRu: 'Фон чека продажи (Receipt)', labelFr: 'Fond reçu financier' },
+                { key: 'profitColor', cssVar: '--ag-profit-color', labelRu: 'Положительная прибыль (+€)', labelFr: 'Profit positif (+€)' },
+                { key: 'expenseColor', cssVar: '--ag-expense-color', labelRu: 'Затраты и налоги (-€)', labelFr: 'Coûts & taxes (-€)' },
+              ],
+            },
+            {
+              id: 'analytics_tables',
+              titleRu: 'Аналитика, Таблицы и Модалки',
+              titleFr: 'Analytique, Tableaux & Modales',
+              previewTarget: 'header_table',
+              rows: [
+                { key: 'tableHeaderBg', cssVar: '--ag-table-header-bg', labelRu: 'Шапка таблиц списка', labelFr: 'En-tête des tableaux' },
+                { key: 'tableRowHover', cssVar: '--ag-table-row-hover', labelRu: 'Подсветка строки при наведении', labelFr: 'Survol ligne tableau' },
+                { key: 'chartAccent', cssVar: '--ag-chart-accent', labelRu: 'Акцент графиков и KPI', labelFr: 'Accent graphiques & KPI' },
+                { key: 'modalBg', cssVar: '--ag-modal-bg', labelRu: 'Фон модальных окон', labelFr: 'Fond des fenêtres modales' },
+              ],
+            },
           ];
+
+          const visibleGroups =
+            designSection === 'all'
+              ? tokenGroups
+              : tokenGroups.filter((g) => g.id === designSection);
+
+          const renderPreviewLabelBtn = (
+            translationKey: keyof typeof translations.fr,
+            baseColor: string,
+            className = ''
+          ) => {
+            const label = resolveLocalizedLabel(
+              translationKey,
+              lang,
+              translations[lang][translationKey],
+              textOverrides
+            );
+            const customColor = resolveLocalizedColor(translationKey, textOverrides);
+            const isSelected = selectedPreviewKey === translationKey;
+            return (
+              <button
+                type="button"
+                onClick={() => setSelectedPreviewKey(translationKey)}
+                title={isRu ? `Нажмите для редактирования «${translationKey}»` : `Cliquer pour modifier «${translationKey}»`}
+                className={`text-left transition rounded px-1 -mx-1 hover:underline ${
+                  isSelected ? 'ring-1 ring-amber-400' : ''
+                } ${className}`}
+                style={{ color: customColor || baseColor }}
+              >
+                {label}
+              </button>
+            );
+          };
+
+          const renderMultiPagePreview = (palette: ThemePaletteTokens) => {
+            const detailHeading = palette.detailHeadingColor || palette.foreground;
+            const profitCol = palette.profitColor || palette.success;
+            const expenseCol = palette.expenseColor || '#ef4444';
+            const headerBg = palette.headerBg || palette.card;
+            const headerText = palette.headerText || palette.foreground;
+            const headerBorder = palette.headerBorder || palette.border;
+            const navActiveBg = palette.navActiveBg || palette.primary;
+            const navActiveText = palette.navActiveText || getContrastForeground(navActiveBg);
+            const detailBg = palette.detailContainerBg || palette.card;
+            const metricBg = palette.metricBoxBg || palette.surfaceMuted;
+            const receiptBg = palette.saleReceiptBg || palette.background;
+            const tableHeaderBg = palette.tableHeaderBg || palette.background;
+            const tableRowHover = palette.tableRowHover || palette.surfaceMuted;
+            const chartAccent = palette.chartAccent || palette.primary;
+            const modalBg = palette.modalBg || palette.card;
+
+            if (previewPage === 'card') {
+              return (
+                <div
+                  className="p-4 border space-y-3"
+                  style={{
+                    backgroundColor: palette.card,
+                    borderColor: palette.border,
+                    borderRadius: resolvedDraft.cardBorderRadius,
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold" style={{ color: palette.foreground }}>
+                          Peugeot 208 GT
+                        </span>
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                          style={{
+                            backgroundColor: palette.primary,
+                            color: palette.primaryForeground || getContrastForeground(palette.primary),
+                          }}
+                        >
+                          2022
+                        </span>
+                      </div>
+                      <p className="text-xs mt-0.5" style={{ color: palette.mutedForeground }}>
+                        1.2 PureTech 130ch · 34 200 km
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${palette.warning} 14%, transparent)`,
+                          borderColor: `color-mix(in srgb, ${palette.warning} 35%, transparent)`,
+                          color: palette.warning,
+                        }}
+                      >
+                        {isRu ? 'В подготовке' : 'Préparation'}
+                      </span>
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${palette.success} 14%, transparent)`,
+                          borderColor: `color-mix(in srgb, ${palette.success} 35%, transparent)`,
+                          color: palette.success,
+                        }}
+                      >
+                        {isRu ? 'В продаже' : 'En vente'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    className="p-2.5 rounded-xl border flex items-center justify-between"
+                    style={{ backgroundColor: palette.surfaceMuted, borderColor: palette.border }}
+                  >
+                    <span className="text-xs font-medium" style={{ color: palette.secondaryForeground }}>
+                      {isRu ? 'Цена продажи' : 'Prix affiché'}
+                    </span>
+                    <span className="text-sm font-bold tabular-nums" style={{ color: palette.foreground }}>
+                      16 900 €
+                    </span>
+                  </div>
+
+                  <div
+                    className="p-2.5 rounded-xl border flex items-center justify-between"
+                    style={{
+                      backgroundColor: `color-mix(in srgb, ${profitCol} 12%, transparent)`,
+                      borderColor: `color-mix(in srgb, ${profitCol} 32%, transparent)`,
+                    }}
+                  >
+                    {renderPreviewLabelBtn('netProfitLabel', palette.secondaryForeground, 'text-xs font-semibold')}
+                    <span className="text-sm font-bold tabular-nums" style={{ color: profitCol }}>
+                      +3 700 € · 21.9%
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-[11px]" style={{ color: palette.mutedForeground }}>
+                      VIN: VR3UPHNKSN...
+                    </span>
+                    <span
+                      className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap"
+                      style={{
+                        backgroundColor: palette.primary,
+                        color: palette.primaryForeground || getContrastForeground(palette.primary),
+                      }}
+                    >
+                      {isRu ? 'Открыть карту' : 'Voir fiche'}
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
+            if (previewPage === 'vehicle_detail') {
+              return (
+                <div className="space-y-3">
+                  {/* Financial Balance Container Preview */}
+                  <div
+                    className="p-3.5 border space-y-2.5"
+                    style={{
+                      backgroundColor: detailBg,
+                      borderColor: palette.border,
+                      borderRadius: resolvedDraft.cardBorderRadius,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      {renderPreviewLabelBtn('pnlBannerTitle', detailHeading, 'text-xs font-bold')}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreviewKey('recordSaleBtn')}
+                        className="px-2.5 py-1 text-[10px] font-bold whitespace-nowrap"
+                        style={{
+                          backgroundColor: palette.primary,
+                          color:
+                            resolveLocalizedColor('recordSaleBtn', textOverrides) ||
+                            palette.primaryForeground ||
+                            getContrastForeground(palette.primary),
+                          borderRadius: resolvedDraft.buttonBorderRadius || '10px',
+                        }}
+                      >
+                        {resolveLocalizedLabel(
+                          'recordSaleBtn',
+                          lang,
+                          translations[lang].recordSaleBtn,
+                          textOverrides
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div
+                        className="p-2 rounded-lg border"
+                        style={{ backgroundColor: metricBg, borderColor: palette.border }}
+                      >
+                        <div className="truncate">
+                          {renderPreviewLabelBtn(
+                            'purchasePriceLabel',
+                            palette.mutedForeground,
+                            'text-[10px] block'
+                          )}
+                        </div>
+                        <div className="text-xs font-bold tabular-nums mt-0.5" style={{ color: palette.foreground }}>
+                          3 000 €
+                        </div>
+                      </div>
+                      <div
+                        className="p-2 rounded-lg border"
+                        style={{ backgroundColor: metricBg, borderColor: palette.border }}
+                      >
+                        <div className="truncate">
+                          {renderPreviewLabelBtn(
+                            'workshopRepairsLabel',
+                            palette.mutedForeground,
+                            'text-[10px] block'
+                          )}
+                        </div>
+                        <div className="text-xs font-bold tabular-nums mt-0.5" style={{ color: palette.foreground }}>
+                          500 €
+                        </div>
+                      </div>
+                      <div
+                        className="p-2 rounded-lg border"
+                        style={{ backgroundColor: metricBg, borderColor: palette.border }}
+                      >
+                        <span className="text-[10px] block truncate" style={{ color: palette.mutedForeground }}>
+                          {isRu ? 'Продажа' : 'Vente'}
+                        </span>
+                        <div className="text-xs font-bold tabular-nums mt-0.5" style={{ color: palette.foreground }}>
+                          5 000 €
+                        </div>
+                      </div>
+                      <div
+                        className="p-2 rounded-lg border"
+                        style={{
+                          backgroundColor: `color-mix(in srgb, ${profitCol} 12%, ${metricBg})`,
+                          borderColor: `color-mix(in srgb, ${profitCol} 40%, ${palette.border})`,
+                        }}
+                      >
+                        <div className="truncate">
+                          {renderPreviewLabelBtn('netProfitLabel', profitCol, 'text-[10px] font-semibold block')}
+                        </div>
+                        <div className="text-xs font-black tabular-nums mt-0.5" style={{ color: profitCol }}>
+                          +1 275 €
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sale Report Receipt Preview */}
+                  <div
+                    className="p-3 border font-mono text-[11px] space-y-1.5"
+                    style={{
+                      backgroundColor: receiptBg,
+                      borderColor: palette.border,
+                      borderRadius: resolvedDraft.cardBorderRadius,
+                    }}
+                  >
+                    <div className="flex items-center justify-between pb-1.5 border-b" style={{ borderColor: palette.border }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreviewKey('saleReportTitle')}
+                        className="font-bold text-left hover:underline"
+                        style={{ color: resolveLocalizedColor('saleReportTitle', textOverrides) || detailHeading }}
+                      >
+                        {resolveLocalizedLabel(
+                          'saleReportTitle',
+                          lang,
+                          translations[lang].saleReportTitle,
+                          textOverrides
+                        ).replace('{vehicle}', 'Peugeot 207')}
+                      </button>
+                      <span style={{ color: palette.mutedForeground }}>SARL 15%</span>
+                    </div>
+                    <div className="flex justify-between tabular-nums">
+                      <span style={{ color: palette.secondaryForeground }}>+ {translations[lang].saleReportSalePrice}</span>
+                      <span className="font-bold" style={{ color: palette.foreground }}>5 000 €</span>
+                    </div>
+                    <div className="flex justify-between tabular-nums">
+                      <span style={{ color: palette.secondaryForeground }}>- {translations[lang].saleReportPurchase}</span>
+                      <span className="font-semibold" style={{ color: expenseCol }}>-3 000 €</span>
+                    </div>
+                    <div className="flex justify-between tabular-nums">
+                      <span style={{ color: palette.secondaryForeground }}>- {translations[lang].saleReportRepairs} / Tax</span>
+                      <span className="font-semibold" style={{ color: expenseCol }}>-725 €</span>
+                    </div>
+                    <div className="flex justify-between pt-1.5 border-t tabular-nums font-bold" style={{ borderColor: palette.border }}>
+                      {renderPreviewLabelBtn('saleReportNetProfit', palette.foreground, 'text-[11px] font-bold')}
+                      <span style={{ color: profitCol }}>+1 275 €</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // previewPage === 'header_table'
+            return (
+              <div className="space-y-3">
+                {/* Mini Navbar Preview */}
+                <div
+                  className="px-3 py-2 border flex items-center justify-between gap-2"
+                  style={{
+                    backgroundColor: headerBg,
+                    borderColor: headerBorder,
+                    color: headerText,
+                    borderRadius: resolvedDraft.cardBorderRadius,
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0"
+                      style={{
+                        backgroundColor: navActiveBg,
+                        color: navActiveText,
+                      }}
+                    >
+                      AG
+                    </span>
+                    {renderPreviewLabelBtn('appName', headerText, 'text-xs font-bold truncate')}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className="px-2 py-0.5 rounded-md text-[10px] font-bold"
+                      style={{ backgroundColor: navActiveBg, color: navActiveText }}
+                    >
+                      {isRu ? 'Склад (8)' : 'Parc (8)'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px]" style={{ color: headerText }}>
+                      {isRu ? 'Аналитика' : 'Analytique'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mini Table Preview */}
+                <div
+                  className="border overflow-hidden text-[11px]"
+                  style={{
+                    backgroundColor: palette.card,
+                    borderColor: palette.border,
+                    borderRadius: resolvedDraft.cardBorderRadius,
+                  }}
+                >
+                  <div
+                    className="grid grid-cols-3 px-3 py-1.5 font-semibold border-b"
+                    style={{
+                      backgroundColor: tableHeaderBg,
+                      borderColor: palette.border,
+                      color: palette.mutedForeground,
+                    }}
+                  >
+                    <span>{isRu ? 'Авто' : 'Véhicule'}</span>
+                    <span className="text-right">{isRu ? 'Ремонт' : 'Atelier'}</span>
+                    <span className="text-right">{isRu ? 'Прибыль' : 'Marge'}</span>
+                  </div>
+                  <div
+                    className="grid grid-cols-3 px-3 py-2 tabular-nums"
+                    style={{ backgroundColor: tableRowHover, color: palette.foreground }}
+                  >
+                    <span className="font-semibold truncate">Renault Clio V</span>
+                    <span className="text-right" style={{ color: expenseCol }}>-450 €</span>
+                    <span className="text-right font-bold" style={{ color: profitCol }}>+2 150 €</span>
+                  </div>
+                </div>
+
+                {/* Mini Analytics + Modal Row */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div
+                    className="p-2.5 border space-y-1.5"
+                    style={{
+                      backgroundColor: palette.card,
+                      borderColor: palette.border,
+                      borderRadius: resolvedDraft.cardBorderRadius,
+                    }}
+                  >
+                    <div className="truncate">
+                      {renderPreviewLabelBtn('analyticsTitle', palette.foreground, 'text-[10px] font-bold')}
+                    </div>
+                    <div className="flex items-end gap-1 h-7 pt-1">
+                      <div className="flex-1 rounded-t h-3" style={{ backgroundColor: chartAccent, opacity: 0.45 }} />
+                      <div className="flex-1 rounded-t h-5" style={{ backgroundColor: chartAccent, opacity: 0.7 }} />
+                      <div className="flex-1 rounded-t h-7" style={{ backgroundColor: chartAccent }} />
+                    </div>
+                  </div>
+                  <div
+                    className="p-2.5 border space-y-1"
+                    style={{
+                      backgroundColor: modalBg,
+                      borderColor: palette.border,
+                      borderRadius: resolvedDraft.cardBorderRadius,
+                    }}
+                  >
+                    <div className="text-[10px] font-bold" style={{ color: palette.foreground }}>
+                      {isRu ? 'Модальное окно' : 'Fenêtre Modale'}
+                    </div>
+                    <div className="text-[10px]" style={{ color: palette.mutedForeground }}>
+                      --ag-modal-bg
+                    </div>
+                    <span
+                      className="inline-block px-2 py-0.5 rounded text-[9px] font-bold"
+                      style={{ backgroundColor: palette.primary, color: palette.primaryForeground || '#fff' }}
+                    >
+                      OK
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          };
 
           const renderThemeColumn = (mode: 'light' | 'dark', palette: ThemePaletteTokens) => {
             const isLightCol = mode === 'light';
@@ -894,8 +1381,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <p className="text-[11px] text-slate-400">
                         {isLightCol
                           ? isRu
-                            ? 'Дневной режим интерфейса и карточек'
-                            : 'Mode jour pour les postes de travail lumineux'
+                            ? 'Дневной режим интерфейса и отчётов'
+                            : 'Mode jour pour postes lumineux'
                           : isRu
                             ? 'Ночной режим и контрастные акценты'
                             : 'Mode nuit et contrastes élevés'}
@@ -926,49 +1413,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
                 </div>
 
-                {/* Color Pickers & Hex Inputs */}
-                <div className="grid grid-cols-1 gap-2">
-                  {paletteTokenRows.map((row) => {
-                    const value = palette[row.key];
-                    const safePickerVal = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
-                    return (
-                      <div
-                        key={`${mode}-${row.key}`}
-                        className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-xs font-semibold text-white truncate">
-                            {isRu ? row.labelRu : row.labelFr}
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-500 shrink-0">
-                            {row.cssVar}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <input
-                            type="color"
-                            aria-label={`${mode} ${row.cssVar} color picker`}
-                            value={safePickerVal}
-                            onChange={(e) => handlePaletteTokenChange(mode, row.key, e.target.value)}
-                            className="w-7 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
-                          />
-                          <input
-                            type="text"
-                            aria-label={`${mode} ${row.cssVar} hex value`}
-                            value={value}
-                            maxLength={9}
-                            onChange={(e) => handlePaletteTokenChange(mode, row.key, e.target.value)}
-                            className="w-[82px] bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-200 tabular-nums focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
+                {/* Section-by-Section Color Pickers & Hex Inputs */}
+                <div className="space-y-4">
+                  {visibleGroups.map((group) => (
+                    <div key={`${mode}-${group.id}`} className="space-y-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-amber-400">
+                          {isRu ? group.titleRu : group.titleFr}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewPage(group.previewTarget)}
+                          className="text-[10px] font-semibold text-slate-400 hover:text-white transition"
+                        >
+                          {isRu ? 'Показать в превью' : 'Voir aperçu'}
+                        </button>
                       </div>
-                    );
-                  })}
+                      <div className="grid grid-cols-1 gap-1.5">
+                        {group.rows.map((row) => {
+                          const value = palette[row.key] || '#0f172a';
+                          const safePickerVal = /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#0f172a';
+                          return (
+                            <div
+                              key={`${mode}-${row.key}`}
+                              className="flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-xs font-semibold text-white truncate">
+                                  {isRu ? row.labelRu : row.labelFr}
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-500 shrink-0 hidden sm:inline">
+                                  {row.cssVar}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <input
+                                  type="color"
+                                  aria-label={`${mode} ${row.cssVar} color picker`}
+                                  value={safePickerVal}
+                                  onChange={(e) =>
+                                    handlePaletteTokenChange(mode, row.key, e.target.value)
+                                  }
+                                  className="w-7 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
+                                />
+                                <input
+                                  type="text"
+                                  aria-label={`${mode} ${row.cssVar} hex value`}
+                                  value={value}
+                                  maxLength={9}
+                                  onChange={(e) =>
+                                    handlePaletteTokenChange(mode, row.key, e.target.value)
+                                  }
+                                  className="w-[82px] bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-200 tabular-nums focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Live Theme Preview Card (Scoped CSS Custom Properties) */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                {/* Live Multi-Page Preview Container */}
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-slate-400">
                       {isLightCol
                         ? isRu
@@ -978,160 +1487,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           ? 'Предпросмотр тёмной темы'
                           : 'Aperçu Thème Sombre'}
                     </span>
-                    <span className="text-[10px] font-mono text-slate-500 tabular-nums">
-                      {palette.background} · {palette.card} · {palette.primary}
+                    <span className="text-[10px] font-mono text-slate-500 tabular-nums truncate">
+                      {palette.background} · {palette.detailContainerBg || palette.card} · {palette.primary}
                     </span>
                   </div>
 
                   <div
                     data-branding-preview="true"
-                    className="p-4 border transition-all"
+                    className="p-3.5 border transition-all"
                     style={
                       {
-                        '--background': palette.background,
-                        '--card': palette.card,
-                        '--surface-muted': palette.surfaceMuted,
-                        '--primary': palette.primary,
-                        '--primary-foreground': palette.primaryForeground || getContrastForeground(palette.primary),
-                        '--foreground': palette.foreground,
-                        '--secondary-foreground': palette.secondaryForeground,
-                        '--muted-foreground': palette.mutedForeground,
-                        '--border': palette.border,
-                        '--success': palette.success,
-                        '--warning': palette.warning,
-                        '--ag-card-radius': resolvedDraft.cardBorderRadius,
+                        '--preview-bg': palette.background,
+                        '--preview-fg': palette.foreground,
+                        '--preview-border': palette.border,
                         backgroundColor: palette.background,
                         borderColor: palette.border,
                         borderRadius: resolvedDraft.cardBorderRadius,
                       } as React.CSSProperties
                     }
                   >
-                    <div
-                      className="p-4 border space-y-3"
-                      style={{
-                        backgroundColor: palette.card,
-                        borderColor: palette.border,
-                        borderRadius: resolvedDraft.cardBorderRadius,
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="text-sm font-bold"
-                              style={{ color: palette.foreground }}
-                            >
-                              Peugeot 208 GT
-                            </span>
-                            <span
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-md"
-                              style={{
-                                backgroundColor: palette.primary,
-                                color: palette.primaryForeground || getContrastForeground(palette.primary),
-                              }}
-                            >
-                              2022
-                            </span>
-                          </div>
-                          <p
-                            className="text-xs mt-0.5"
-                            style={{ color: palette.mutedForeground }}
-                          >
-                            1.2 PureTech 130ch · 34 200 km
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
-                          <span
-                            className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
-                            style={{
-                              backgroundColor: `color-mix(in srgb, ${palette.warning} 14%, transparent)`,
-                              borderColor: `color-mix(in srgb, ${palette.warning} 35%, transparent)`,
-                              color: palette.warning,
-                            }}
-                          >
-                            {isRu ? 'В подготовке' : 'Préparation'}
-                          </span>
-                          <span
-                            className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
-                            style={{
-                              backgroundColor: `color-mix(in srgb, ${palette.success} 14%, transparent)`,
-                              borderColor: `color-mix(in srgb, ${palette.success} 35%, transparent)`,
-                              color: palette.success,
-                            }}
-                          >
-                            {isRu ? 'В продаже' : 'En vente'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div
-                        className="p-2.5 rounded-xl border flex items-center justify-between"
-                        style={{
-                          backgroundColor: palette.surfaceMuted,
-                          borderColor: palette.border,
-                        }}
-                      >
-                        <span
-                          className="text-xs font-medium"
-                          style={{ color: palette.secondaryForeground }}
-                        >
-                          {isRu ? 'Цена продажи' : 'Prix affiché'}
-                        </span>
-                        <span
-                          className="text-sm font-bold tabular-nums"
-                          style={{ color: palette.foreground }}
-                        >
-                          16 900 €
-                        </span>
-                      </div>
-
-                      <div
-                        className="p-2.5 rounded-xl border flex items-center justify-between"
-                        style={{
-                          backgroundColor: `color-mix(in srgb, ${palette.success} 12%, transparent)`,
-                          borderColor: `color-mix(in srgb, ${palette.success} 32%, transparent)`,
-                        }}
-                      >
-                        <span
-                          className="text-xs font-semibold"
-                          style={{ color: palette.secondaryForeground }}
-                        >
-                          {isRu ? 'Чистая прибыль (P&L)' : 'Marge Nette (P&L)'}
-                        </span>
-                        <span
-                          className="text-sm font-bold tabular-nums"
-                          style={{ color: palette.success }}
-                        >
-                          +3 700 € · 21.9%
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <span
-                          className="text-[11px]"
-                          style={{ color: palette.mutedForeground }}
-                        >
-                          VIN: VR3UPHNKSN...
-                        </span>
-                        <span
-                          className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap"
-                          style={{
-                            backgroundColor: palette.primary,
-                            color: palette.primaryForeground || getContrastForeground(palette.primary),
-                          }}
-                        >
-                          {isRu ? 'Открыть карту' : 'Voir fiche'}
-                        </span>
-                      </div>
-                    </div>
+                    {renderMultiPagePreview(palette)}
                   </div>
                 </div>
               </div>
             );
           };
 
+          const selectedTypedKey = selectedPreviewKey as keyof typeof translations.fr | null;
+          const selectedOverrideEntry = selectedTypedKey
+            ? textOverrides[selectedTypedKey]
+            : undefined;
+
           return (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {/* Studio Header */}
               <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div className="min-w-0">
@@ -1140,8 +1528,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </h1>
                   <p className="text-xs text-slate-400 mt-1">
                     {isRu
-                      ? 'Живая настройка палитр светлой и тёмной темы через CSS-переменные и глобальная синхронизация'
-                      : 'Personnalisation en temps réel des palettes clair/sombre par variables CSS et synchronisation globale'}
+                      ? 'Посекционная настройка цветов для шапки, карточек, страницы авто, чека P&L, таблиц и модальных окон'
+                      : 'Contrôle complet des couleurs par section : en-tête, cartes, fiche véhicule, reçu P&L, tableaux et modales'}
                   </p>
                 </div>
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
@@ -1173,7 +1561,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSaveGlobalConfig(resolvedDraft)}
+                    onClick={() => handleSaveGlobalConfig(resolvedDraft, true)}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap shrink-0"
                   >
                     <Check className="w-3.5 h-3.5" />
@@ -1228,6 +1616,168 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   })}
                 </div>
               </div>
+
+              {/* Section Filter & Multi-Page Preview Switcher Bar */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-400 mr-1">
+                    {isRu ? 'Секция:' : 'Section :'}
+                  </span>
+                  {(
+                    [
+                      { id: 'all', labelRu: 'Все секции', labelFr: 'Toutes', target: null },
+                      { id: 'header', labelRu: 'Шапка и Навигация', labelFr: 'En-tête & Nav', target: 'header_table' },
+                      { id: 'cards', labelRu: 'Карточки склада', labelFr: 'Cartes Stock', target: 'card' },
+                      { id: 'vehicle_detail', labelRu: 'Страница авто и Чек', labelFr: 'Fiche & Reçu P&L', target: 'vehicle_detail' },
+                      { id: 'analytics_tables', labelRu: 'Аналитика, Таблицы и Модалки', labelFr: 'Analytique & Modales', target: 'header_table' },
+                    ] as const
+                  ).map((sec) => {
+                    const active = designSection === sec.id;
+                    return (
+                      <button
+                        key={sec.id}
+                        type="button"
+                        onClick={() => {
+                          setDesignSection(sec.id);
+                          if (sec.target) setPreviewPage(sec.target);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition whitespace-nowrap ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 border-amber-500 font-bold'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {isRu ? sec.labelRu : sec.labelFr}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                  <span className="text-[11px] font-bold text-slate-400 mr-1">
+                    {isRu ? 'Превью экрана:' : 'Aperçu écran :'}
+                  </span>
+                  {(
+                    [
+                      { id: 'card', labelRu: 'Карточка авто', labelFr: 'Carte Stock' },
+                      { id: 'vehicle_detail', labelRu: 'Страница авто и Чек', labelFr: 'Fiche & Reçu P&L' },
+                      { id: 'header_table', labelRu: 'Шапка и Таблица', labelFr: 'En-tête & Tableau' },
+                    ] as const
+                  ).map((pg) => {
+                    const active = previewPage === pg.id;
+                    return (
+                      <button
+                        key={pg.id}
+                        type="button"
+                        onClick={() => setPreviewPage(pg.id)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition whitespace-nowrap ${
+                          active
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 font-bold'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {isRu ? pg.labelRu : pg.labelFr}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Linked Text + Color Quick Editor (activated by clicking any label inside previews) */}
+              {selectedTypedKey && (
+                <div className="bg-slate-900 border border-amber-500/40 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Type className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-bold text-white">
+                        {isRu ? 'Быстрое редактирование текста и цвета:' : 'Édition rapide texte & couleur :'}
+                      </span>
+                      <span className="text-xs font-mono text-amber-400">{selectedTypedKey}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPreviewKey(null)}
+                      className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800"
+                    >
+                      {isRu ? 'Закрыть' : 'Fermer'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                    <div className="md:col-span-4">
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        FR
+                      </label>
+                      <input
+                        type="text"
+                        aria-label={`Quick edit ${selectedTypedKey} FR`}
+                        value={selectedOverrideEntry?.fr ?? ''}
+                        onChange={(e) =>
+                          handleTextOverrideChange(selectedTypedKey, 'fr', e.target.value)
+                        }
+                        placeholder={translations.fr[selectedTypedKey]}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="md:col-span-4">
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        RU
+                      </label>
+                      <input
+                        type="text"
+                        aria-label={`Quick edit ${selectedTypedKey} RU`}
+                        value={selectedOverrideEntry?.ru ?? ''}
+                        onChange={(e) =>
+                          handleTextOverrideChange(selectedTypedKey, 'ru', e.target.value)
+                        }
+                        placeholder={translations.ru[selectedTypedKey]}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        {isRu ? 'Цвет текста' : 'Couleur'}
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          aria-label={`Quick edit ${selectedTypedKey} color`}
+                          value={
+                            selectedOverrideEntry?.color &&
+                            /^#[0-9a-fA-F]{6}$/.test(selectedOverrideEntry.color)
+                              ? selectedOverrideEntry.color
+                              : '#f8fafc'
+                          }
+                          onChange={(e) =>
+                            handleTextOverrideChange(selectedTypedKey, 'color', e.target.value)
+                          }
+                          className="w-8 h-8 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
+                        />
+                        {selectedOverrideEntry?.color && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleTextOverrideChange(selectedTypedKey, 'color', '')
+                            }
+                            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+                            title={isRu ? 'Сбросить цвет' : 'Réinitialiser couleur'}
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveTextOverrides(textOverrides)}
+                        className="w-full py-1.5 px-3 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap"
+                      >
+                        {isRu ? 'Сохранить' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Dual-Column Light & Dark Theme Palettes */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1303,13 +1853,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </p>
                   <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 space-y-1 tabular-nums">
                     <div>
-                      --background: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).background}</span> · --card: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).card}</span>
+                      --ag-header-bg: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).headerBg}</span> · --ag-detail-bg: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).detailContainerBg}</span>
                     </div>
                     <div>
-                      --primary: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).primary}</span> · --foreground: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).foreground}</span>
+                      --ag-receipt-bg: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).saleReceiptBg}</span> · --ag-profit-color: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).profitColor}</span>
                     </div>
                     <div>
-                      --border: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).border}</span> · --success: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).success}</span>
+                      --ag-modal-bg: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).modalBg}</span> · --ag-chart-accent: <span className="text-slate-200">{(theme === 'light' ? lightPalette : darkPalette).chartAccent}</span>
                     </div>
                   </div>
                 </div>
@@ -2032,14 +2582,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }}
                 >
                   <div
-                    className="bg-[var(--card)] border border-[var(--border)] shadow-sm"
+                    className="bg-[var(--ag-detail-bg)] border border-[var(--border)] shadow-sm"
                     style={{
                       borderRadius: draftConfig.cardBorderRadius,
                       padding: CARD_PADDING_VALUES[draftConfig.cardPadding || 'comfortable'],
                     }}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                      <span className="text-xs font-bold text-[var(--foreground)]">
+                      <span
+                        className="text-xs font-bold text-[var(--ag-detail-heading)]"
+                        style={
+                          resolveLocalizedColor('pnlBannerTitle', textOverrides)
+                            ? { color: resolveLocalizedColor('pnlBannerTitle', textOverrides) }
+                            : undefined
+                        }
+                      >
                         {resolveLocalizedLabel(
                           'pnlBannerTitle',
                           lang,
@@ -2049,7 +2606,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </span>
                       <span
                         className="px-3 py-1 text-[11px] font-bold bg-[var(--primary)] text-[var(--primary-foreground)]"
-                        style={{ borderRadius: draftConfig.buttonBorderRadius || '12px' }}
+                        style={{
+                          borderRadius: draftConfig.buttonBorderRadius || '12px',
+                          ...(resolveLocalizedColor('recordSaleBtn', textOverrides)
+                            ? { color: resolveLocalizedColor('recordSaleBtn', textOverrides) }
+                            : {}),
+                        }}
                       >
                         {resolveLocalizedLabel(
                           'recordSaleBtn',
@@ -2061,8 +2623,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
-                      <div className="p-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
-                        <div className="text-[10px] text-[var(--muted-foreground)] truncate">
+                      <div className="p-2.5 rounded-lg bg-[var(--ag-metric-bg)] border border-[var(--border)]">
+                        <div
+                          className="text-[10px] text-[var(--muted-foreground)] truncate"
+                          style={
+                            resolveLocalizedColor('purchasePriceLabel', textOverrides)
+                              ? { color: resolveLocalizedColor('purchasePriceLabel', textOverrides) }
+                              : undefined
+                          }
+                        >
                           {resolveLocalizedLabel(
                             'purchasePriceLabel',
                             lang,
@@ -2074,8 +2643,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           3 000 €
                         </div>
                       </div>
-                      <div className="p-2.5 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)]">
-                        <div className="text-[10px] text-[var(--muted-foreground)] truncate">
+                      <div className="p-2.5 rounded-lg bg-[var(--ag-metric-bg)] border border-[var(--border)]">
+                        <div
+                          className="text-[10px] text-[var(--muted-foreground)] truncate"
+                          style={
+                            resolveLocalizedColor('workshopRepairsLabel', textOverrides)
+                              ? { color: resolveLocalizedColor('workshopRepairsLabel', textOverrides) }
+                              : undefined
+                          }
+                        >
                           {resolveLocalizedLabel(
                             'workshopRepairsLabel',
                             lang,
@@ -2087,8 +2663,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           500 €
                         </div>
                       </div>
-                      <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
-                        <div className="text-[10px] text-emerald-500 truncate font-semibold">
+                      <div
+                        className="p-2.5 rounded-lg border"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--ag-profit-color) 12%, var(--ag-metric-bg))',
+                          borderColor: 'color-mix(in srgb, var(--ag-profit-color) 40%, var(--border))',
+                        }}
+                      >
+                        <div
+                          className="text-[10px] truncate font-semibold"
+                          style={{
+                            color:
+                              resolveLocalizedColor('netProfitLabel', textOverrides) ||
+                              'var(--ag-profit-color)',
+                          }}
+                        >
                           {resolveLocalizedLabel(
                             'netProfitLabel',
                             lang,
@@ -2096,7 +2685,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             textOverrides
                           )}
                         </div>
-                        <div className="text-xs font-bold text-emerald-500 tabular-nums mt-0.5">
+                        <div
+                          className="text-xs font-bold tabular-nums mt-0.5"
+                          style={{ color: 'var(--ag-profit-color)' }}
+                        >
                           +1 275 €
                         </div>
                       </div>
@@ -2105,14 +2697,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   {/* Mini Sale Ledger Preview */}
                   <div
-                    className="bg-[var(--card)] border border-[var(--border)]"
+                    className="bg-[var(--ag-receipt-bg)] border border-[var(--border)]"
                     style={{
                       borderRadius: draftConfig.cardBorderRadius,
                       padding: CARD_PADDING_VALUES[draftConfig.cardPadding || 'comfortable'],
                     }}
                   >
                     <div className="flex items-center justify-between gap-2 pb-2 border-b border-[var(--border)] mb-2">
-                      <span className="text-[11px] font-bold text-[var(--foreground)]">
+                      <span
+                        className="text-[11px] font-bold text-[var(--ag-detail-heading)]"
+                        style={
+                          resolveLocalizedColor('saleReportTitle', textOverrides)
+                            ? { color: resolveLocalizedColor('saleReportTitle', textOverrides) }
+                            : undefined
+                        }
+                      >
                         {resolveLocalizedLabel(
                           'saleReportTitle',
                           lang,
@@ -2140,7 +2739,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-[var(--foreground)]">
+                      <span
+                        className="text-[var(--foreground)]"
+                        style={
+                          resolveLocalizedColor('saleReportNetProfit', textOverrides)
+                            ? { color: resolveLocalizedColor('saleReportNetProfit', textOverrides) }
+                            : undefined
+                        }
+                      >
                         {resolveLocalizedLabel(
                           'saleReportNetProfit',
                           lang,
@@ -2148,7 +2754,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           textOverrides
                         )}
                       </span>
-                      <span className="text-emerald-500 tabular-nums">+1 275 €</span>
+                      <span className="tabular-nums" style={{ color: 'var(--ag-profit-color)' }}>
+                        +1 275 €
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -2207,16 +2815,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <table className="w-full table-fixed text-left border-collapse text-xs">
                 <thead className="sticky top-0 bg-slate-950 z-10 border-b border-slate-800">
                   <tr className="text-[11px] font-semibold text-slate-400">
-                    <th className="py-3 px-3 w-44">{isRu ? 'Ключ' : 'Clé'}</th>
+                    <th className="py-3 px-3 w-40">{isRu ? 'Ключ' : 'Clé'}</th>
                     <th className="py-3 px-3">{isRu ? 'Французский (FR)' : 'Français (FR)'}</th>
                     <th className="py-3 px-3">{isRu ? 'Русский (RU)' : 'Russe (RU)'}</th>
-                    <th className="py-3 px-3 text-right w-16">{isRu ? 'Сброс' : 'Reset'}</th>
+                    <th className="py-3 px-3 w-36">{isRu ? 'Цвет текста' : 'Couleur'}</th>
+                    <th className="py-3 px-3 text-right w-14">{isRu ? 'Сброс' : 'Reset'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
                   {allTranslationKeys.map((key) => {
                     const custom = textOverrides[key];
-                    const isModified = Boolean(custom?.fr?.trim() || custom?.ru?.trim());
+                    const hasCustomColor = Boolean(custom?.color?.trim());
+                    const isModified = Boolean(
+                      custom?.fr?.trim() || custom?.ru?.trim() || hasCustomColor
+                    );
+                    const safeColorVal =
+                      custom?.color && /^#[0-9a-fA-F]{6}$/.test(custom.color)
+                        ? custom.color
+                        : '#f8fafc';
                     const catId = getTranslationKeyCategory(key);
                     const catObj = TRANSLATION_CATEGORIES.find((c) => c.id === catId);
                     return (
@@ -2244,6 +2860,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             onChange={(e) => handleTextOverrideChange(key, 'fr', e.target.value)}
                             placeholder={translations.fr[key]}
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            style={hasCustomColor ? { color: custom?.color } : undefined}
                           />
                           <div className="text-[10px] text-slate-500 truncate">
                             {translations.fr[key]}
@@ -2257,9 +2874,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             onChange={(e) => handleTextOverrideChange(key, 'ru', e.target.value)}
                             placeholder={translations.ru[key]}
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            style={hasCustomColor ? { color: custom?.color } : undefined}
                           />
                           <div className="text-[10px] text-slate-500 truncate">
                             {translations.ru[key]}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 align-top">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="color"
+                              aria-label={`${key} color`}
+                              value={safeColorVal}
+                              onChange={(e) =>
+                                handleTextOverrideChange(key, 'color', e.target.value)
+                              }
+                              className="w-7 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
+                            />
+                            <input
+                              type="text"
+                              aria-label={`${key} color hex`}
+                              value={custom?.color ?? ''}
+                              maxLength={9}
+                              placeholder="Auto"
+                              onChange={(e) =>
+                                handleTextOverrideChange(key, 'color', e.target.value)
+                              }
+                              className="w-[74px] bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-500 tabular-nums focus:outline-none focus:border-amber-500"
+                            />
+                            {hasCustomColor && (
+                              <button
+                                type="button"
+                                onClick={() => handleTextOverrideChange(key, 'color', '')}
+                                title={isRu ? 'Сбросить цвет' : 'Réinitialiser couleur'}
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td className="py-2.5 px-3 align-top text-right">

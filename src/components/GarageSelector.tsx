@@ -234,7 +234,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
             if (e.target === e.currentTarget) setIsCreateOpen(false);
           }}
         >
-          <div className="w-full max-w-md bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl overflow-hidden">
+          <div className="w-full max-w-md bg-[var(--ag-modal-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
               <h2 id="create-garage-title" className="text-base font-bold text-[var(--foreground)]">
                 {isRu ? 'Новый гараж / автосалон' : 'Créer un nouveau garage'}

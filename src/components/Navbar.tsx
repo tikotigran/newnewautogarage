@@ -66,7 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectGarage,
   featureFlags = DEFAULT_FEATURE_FLAGS,
 }) => {
-  const { lang, setLang, t } = useI18n();
+  const { lang, setLang, t, getTextStyle } = useI18n();
 
   // Context-aware operational stock indicator: strictly active/in-stock vehicle breakdown
   // (all monetary totals and P&L margins are restricted to the dedicated Analytics page)
@@ -93,7 +93,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-[var(--card)]/95 backdrop-blur-md border-b border-[var(--border)] text-[var(--foreground)] shadow-lg">
+    <header
+      data-testid="main-navbar"
+      className="sticky top-0 z-40 bg-[var(--ag-header-bg)] border-b border-[var(--ag-header-border)] text-[var(--ag-header-text)] shadow-lg"
+    >
       {/* Compact Top Main Navigation */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 gap-3">
@@ -109,10 +112,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Car className="w-4 h-4" />
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base sm:text-lg tracking-tight whitespace-nowrap text-[var(--foreground)]">
+                <span
+                  style={getTextStyle('appName')}
+                  className="font-extrabold text-base sm:text-lg tracking-tight whitespace-nowrap text-[var(--ag-header-text)]"
+                >
                   {t('appName')}
                 </span>
-                <span className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30">
+                <span
+                  style={getTextStyle('proDealer')}
+                  className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30"
+                >
                   {t('proDealer')}
                 </span>
               </div>
@@ -120,8 +129,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Persistent Multi-Garage Switcher */}
             {featureFlags.multiGarage && garages.length > 0 && onSelectGarage && (
-              <div className="hidden sm:flex items-center gap-1.5 ml-1 pl-2.5 border-l border-slate-700/80">
-                <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <div className="hidden sm:flex items-center gap-1.5 ml-1 pl-2.5 border-l border-[var(--ag-header-border)]">
+                <Building2 className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
                 <select
                   aria-label={lang === 'ru' ? 'Переключить гараж' : 'Changer de garage'}
                   value={activeGarageId || ''}
@@ -144,15 +153,15 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Right Controls: Unified Utility Toolbar + Primary Actions */}
           <div className="flex items-center gap-2 shrink-0">
             {/* Unified Utility Toolbar: Admin Dev Tools + Analytics + FR/RU + Theme */}
-            <div className="hidden lg:flex items-center bg-slate-800/90 p-0.5 rounded-xl border border-slate-700/80">
+            <div className="hidden lg:flex items-center bg-[var(--surface-muted)] p-0.5 rounded-xl border border-[var(--ag-header-border)]">
               {isSuperAdmin && (
                 <button
                   type="button"
                   onClick={() => setActiveView('desktop')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
                     activeView === 'desktop'
-                      ? 'bg-amber-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
                   }`}
                   title={t('studioView')}
                 >
@@ -166,13 +175,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setActiveView(activeView === 'analytics' ? 'desktop' : 'analytics')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
                     activeView === 'analytics'
-                      ? 'bg-amber-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
                   }`}
                   title={t('analyticsNav')}
                 >
                   <BarChart3 className="w-3.5 h-3.5" />
-                  <span>{t('analyticsNav')}</span>
+                  <span style={activeView === 'analytics' ? undefined : getTextStyle('analyticsNav')}>
+                    {t('analyticsNav')}
+                  </span>
                 </button>
               )}
               {isSuperAdmin && (
@@ -181,8 +192,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setActiveView('mobile')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
                     activeView === 'mobile'
-                      ? 'bg-amber-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
                   }`}
                   title={t('mobileView')}
                 >
@@ -192,7 +203,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
 
               {(isSuperAdmin || featureFlags.expenseAnalytics) && (
-                <span className="w-px h-4 bg-slate-700 mx-1" aria-hidden="true" />
+                <span className="w-px h-4 bg-[var(--ag-header-border)] mx-1" aria-hidden="true" />
               )}
 
               <button
@@ -201,7 +212,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
                   lang === 'fr'
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
                 }`}
                 title="Passer en Français"
               >
@@ -213,26 +224,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
                   lang === 'ru'
                     ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
                 }`}
                 title="Переключить на русский язык"
               >
                 RU
               </button>
 
-              <span className="w-px h-4 bg-slate-700 mx-1" aria-hidden="true" />
+              <span className="w-px h-4 bg-[var(--ag-header-border)] mx-1" aria-hidden="true" />
 
               <button
                 type="button"
                 onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
                 aria-label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
                 title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-                className="p-1.5 rounded-lg text-slate-300 hover:text-amber-400 hover:bg-slate-700/60 transition"
+                className="p-1.5 rounded-lg text-[var(--ag-header-text)] hover:bg-[var(--background)]/50 transition"
               >
                 {theme === 'dark' ? (
                   <Sun className="w-3.5 h-3.5 text-amber-400" />
                 ) : (
-                  <Moon className="w-3.5 h-3.5 text-blue-400" />
+                  <Moon className="w-3.5 h-3.5 text-blue-500" />
                 )}
               </button>
             </div>
@@ -242,7 +253,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={onSeedData}
                 disabled={isSeeding}
-                className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition-colors"
+                className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap bg-[var(--surface-muted)] hover:opacity-90 text-[var(--primary)] border border-[var(--border)] transition-colors"
                 title="Charger un parc exemple"
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -257,7 +268,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold whitespace-nowrap bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm transition-all transform active:scale-95"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
-                <span>{t('newVehicle')}</span>
+                <span style={getTextStyle('newVehicle')}>{t('newVehicle')}</span>
               </button>
             )}
 
@@ -269,7 +280,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="SuperAdmin Console"
                 className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold border transition ${
                   activeView === 'admin'
-                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
                     : 'bg-[var(--surface-muted)] text-[var(--primary)] border-[var(--border)]'
                 }`}
               >
@@ -338,7 +349,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Context-Aware Fleet Performance Metrics Ribbon */}
       <div
         data-testid="header-analytics-ribbon"
-        className="bg-[var(--background)] border-t border-[var(--border)] px-4 sm:px-6 lg:px-8 py-1.5 text-xs"
+        className="bg-[var(--background)] border-t border-[var(--ag-header-border)] px-4 sm:px-6 lg:px-8 py-1.5 text-xs"
       >
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-y-1 gap-x-4">
           <div className="flex items-center gap-5 flex-wrap">
@@ -352,28 +363,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </span>
             <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-[var(--muted-foreground)]">
+              <span style={getTextStyle('headerTotalInStock')} className="text-[var(--muted-foreground)]">
                 {t('headerTotalInStock')}
               </span>
               <span className="font-bold text-[var(--foreground)] tabular-nums">{inStock}</span>
             </div>
             <div className="hidden sm:flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-[var(--muted-foreground)]">
+              <span style={getTextStyle('headerPrepRepair')} className="text-[var(--muted-foreground)]">
                 {t('headerPrepRepair')}
               </span>
               <span className="font-bold text-[var(--warning)] tabular-nums">{prepOrRepairCount}</span>
             </div>
             <div className="hidden sm:flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-[var(--muted-foreground)]">
+              <span style={getTextStyle('headerForSale')} className="text-[var(--muted-foreground)]">
                 {t('headerForSale')}
               </span>
-              <span className="font-bold text-[var(--success)] tabular-nums">{forSaleCount}</span>
+              <span className="font-bold text-[var(--ag-profit-color)] tabular-nums">{forSaleCount}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)] whitespace-nowrap">
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse"></span>
+              <span className="w-2 h-2 rounded-full bg-[var(--ag-profit-color)] animate-pulse"></span>
               {t('liveSync')}
             </span>
           </div>

@@ -13,6 +13,7 @@ import {
   getContrastForeground,
   getTranslationKeyCategory,
   isSuperAdminUser,
+  resolveLocalizedColor,
   resolveLocalizedLabel,
   resolveSystemThemeConfig,
   sortExpenseCategories,
@@ -114,6 +115,16 @@ test('resolveLocalizedLabel returns override when set and falls back to baseText
   assert.equal(resolveLocalizedLabel('newVehicle', 'fr', 'Nouveau Véhicule', overrides), 'Nouveau Véhicule');
 });
 
+test('resolveLocalizedColor returns trimmed hex override when present and undefined when blank or absent', () => {
+  const overrides = {
+    pnlBannerTitle: { fr: 'Bilan', ru: 'Баланс', color: ' #38bdf8 ' },
+    saleReportTitle: { fr: 'Rapport', ru: 'Отчёт', color: '   ' },
+  };
+  assert.equal(resolveLocalizedColor('pnlBannerTitle', overrides), '#38bdf8');
+  assert.equal(resolveLocalizedColor('saleReportTitle', overrides), undefined);
+  assert.equal(resolveLocalizedColor('missingKey', overrides), undefined);
+});
+
 test('getContrastForeground selects readable dark or white ink based on background luminance', () => {
   assert.equal(getContrastForeground('#f59e0b'), '#0f172a');
   assert.equal(getContrastForeground('#ffffff'), '#0f172a');
@@ -161,11 +172,27 @@ test('applySystemThemeVariables injects mode-specific CSS custom properties onto
     assert.equal(store.get('--card'), preset.lightPalette.card);
     assert.equal(store.get('--primary'), preset.lightPalette.primary);
     assert.equal(store.get('--ag-card-radius'), '24px');
+    assert.equal(store.get('--ag-header-bg'), preset.lightPalette.headerBg);
+    assert.equal(store.get('--ag-nav-active-bg'), preset.lightPalette.navActiveBg);
+    assert.equal(store.get('--ag-detail-bg'), preset.lightPalette.detailContainerBg);
+    assert.equal(store.get('--ag-metric-bg'), preset.lightPalette.metricBoxBg);
+    assert.equal(store.get('--ag-receipt-bg'), preset.lightPalette.saleReceiptBg);
+    assert.equal(store.get('--ag-profit-color'), preset.lightPalette.profitColor);
+    assert.equal(store.get('--ag-expense-color'), preset.lightPalette.expenseColor);
+    assert.equal(store.get('--ag-table-header-bg'), preset.lightPalette.tableHeaderBg);
+    assert.equal(store.get('--ag-modal-bg'), preset.lightPalette.modalBg);
 
     applySystemThemeVariables(customConfig, 'dark');
     assert.equal(store.get('--background'), preset.darkPalette.background);
     assert.equal(store.get('--card'), preset.darkPalette.card);
     assert.equal(store.get('--primary'), preset.darkPalette.primary);
+    assert.equal(store.get('--ag-header-bg'), preset.darkPalette.headerBg);
+    assert.equal(store.get('--ag-nav-active-bg'), preset.darkPalette.navActiveBg);
+    assert.equal(store.get('--ag-detail-bg'), preset.darkPalette.detailContainerBg);
+    assert.equal(store.get('--ag-metric-bg'), preset.darkPalette.metricBoxBg);
+    assert.equal(store.get('--ag-receipt-bg'), preset.darkPalette.saleReceiptBg);
+    assert.equal(store.get('--ag-detail-heading'), preset.darkPalette.detailHeadingColor);
+    assert.equal(store.get('--ag-chart-accent'), preset.darkPalette.chartAccent);
 
     const layoutConfig = {
       ...customConfig,

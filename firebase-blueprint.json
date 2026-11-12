@@ -113,8 +113,8 @@
         "sectionGap": { "type": "string", "enum": ["16px", "24px", "32px"], "description": "Global section vertical spacing" },
         "defaultInventoryViewMode": { "type": "string", "enum": ["grid", "list"], "description": "Default inventory view" },
         "cerfaAdjustments": { "type": "object", "description": "Global Cerfa 15776*02 alignment adjustments" },
-        "lightPalette": { "type": "object", "description": "Custom color palette tokens for Light theme" },
-        "darkPalette": { "type": "object", "description": "Custom color palette tokens for Dark theme" },
+        "lightPalette": { "type": "object", "description": "Custom base and section-level color palette tokens for Light theme (header, cards, vehicle detail, receipt, tables, modals)" },
+        "darkPalette": { "type": "object", "description": "Custom base and section-level color palette tokens for Dark theme (header, cards, vehicle detail, receipt, tables, modals)" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" },
         "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }
       },
@@ -122,10 +122,10 @@
     },
     "UiCustomization": {
       "title": "UiCustomization",
-      "description": "Global UI copywriting overrides and layout density configuration managed by SuperAdmin.",
+      "description": "Global UI copywriting overrides (with optional text colors) and layout density configuration managed by SuperAdmin.",
       "type": "object",
       "properties": {
-        "overrides": { "type": "object", "description": "Dictionary of localization key overrides (fr/ru)" },
+        "overrides": { "type": "object", "description": "Dictionary of localization key overrides (fr/ru/color)" },
         "layout": { "type": "object", "description": "Layout radius, padding, and spacing design tokens" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" },
         "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }

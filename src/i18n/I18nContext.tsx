@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { translations, Language } from './translations';
 import { GlobalTextOverrides } from '../types/garage';
 import { subscribeGlobalTextOverrides } from '../services/adminService';
-import { resolveLocalizedLabel } from '../utils/adminUtils';
+import { resolveLocalizedColor, resolveLocalizedLabel } from '../utils/adminUtils';
 
 interface I18nContextType {
   lang: Language;
   setLang: (lang: Language) => void;
   t: (key: keyof typeof translations.fr, params?: Record<string, string | number>) => string;
+  getTextColor: (key: keyof typeof translations.fr) => string | undefined;
+  getTextStyle: (key: keyof typeof translations.fr) => React.CSSProperties | undefined;
 }
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
@@ -55,8 +57,17 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return text;
   };
 
+  const getTextColor = (key: keyof typeof translations.fr): string | undefined => {
+    return resolveLocalizedColor(key as string, textOverrides);
+  };
+
+  const getTextStyle = (key: keyof typeof translations.fr): React.CSSProperties | undefined => {
+    const color = resolveLocalizedColor(key as string, textOverrides);
+    return color ? { color } : undefined;
+  };
+
   return (
-    <I18nContext.Provider value={{ lang, setLang, t }}>
+    <I18nContext.Provider value={{ lang, setLang, t, getTextColor, getTextStyle }}>
       {children}
     </I18nContext.Provider>
   );

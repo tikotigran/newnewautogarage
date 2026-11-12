@@ -273,6 +273,22 @@ export interface ThemePaletteTokens {
   border: string;
   success: string;
   warning: string;
+  // Section-by-section tokens
+  headerBg?: string;
+  headerText?: string;
+  headerBorder?: string;
+  navActiveBg?: string;
+  navActiveText?: string;
+  detailContainerBg?: string;
+  metricBoxBg?: string;
+  saleReceiptBg?: string;
+  detailHeadingColor?: string;
+  profitColor?: string;
+  expenseColor?: string;
+  tableHeaderBg?: string;
+  tableRowHover?: string;
+  chartAccent?: string;
+  modalBg?: string;
 }
 
 export type CardPaddingDensity = 'compact' | 'comfortable' | 'spacious';
@@ -323,7 +339,10 @@ export interface FeatureFlagsConfig {
   repairChecklist: boolean;
 }
 
-export type GlobalTextOverrides = Record<string, { fr?: string; ru?: string }>;
+export type GlobalTextOverrides = Record<
+  string,
+  { fr?: string; ru?: string; color?: string }
+>;
 
 
 

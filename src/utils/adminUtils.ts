@@ -49,6 +49,21 @@ export const DEFAULT_LIGHT_PALETTE: ThemePaletteTokens = {
   border: '#cbd5e1',
   success: '#059669',
   warning: '#d97706',
+  headerBg: '#ffffff',
+  headerText: '#0f172a',
+  headerBorder: '#cbd5e1',
+  navActiveBg: '#f59e0b',
+  navActiveText: '#0f172a',
+  detailContainerBg: '#ffffff',
+  metricBoxBg: '#e2e8f0',
+  saleReceiptBg: '#f8fafc',
+  detailHeadingColor: '#0f172a',
+  profitColor: '#059669',
+  expenseColor: '#dc2626',
+  tableHeaderBg: '#e2e8f0',
+  tableRowHover: '#f1f5f9',
+  chartAccent: '#f59e0b',
+  modalBg: '#ffffff',
 };
 
 export const DEFAULT_DARK_PALETTE: ThemePaletteTokens = {
@@ -63,6 +78,21 @@ export const DEFAULT_DARK_PALETTE: ThemePaletteTokens = {
   border: '#1e293b',
   success: '#34d399',
   warning: '#fbbf24',
+  headerBg: '#0f172a',
+  headerText: '#f8fafc',
+  headerBorder: '#1e293b',
+  navActiveBg: '#f59e0b',
+  navActiveText: '#020617',
+  detailContainerBg: '#0f172a',
+  metricBoxBg: '#1e293b',
+  saleReceiptBg: '#020617',
+  detailHeadingColor: '#f59e0b',
+  profitColor: '#34d399',
+  expenseColor: '#f87171',
+  tableHeaderBg: '#020617',
+  tableRowHover: '#1e293b',
+  chartAccent: '#f59e0b',
+  modalBg: '#0f172a',
 };
 
 export const CARD_PADDING_VALUES: Record<CardPaddingDensity, string> = {
@@ -127,6 +157,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#2563eb',
       primaryForeground: '#ffffff',
       border: '#d0d9e8',
+      headerBg: '#ffffff',
+      headerBorder: '#d0d9e8',
+      navActiveBg: '#2563eb',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#ffffff',
+      metricBoxBg: '#e5ebf5',
+      saleReceiptBg: '#f4f6fb',
+      detailHeadingColor: '#1e40af',
+      tableHeaderBg: '#e5ebf5',
+      tableRowHover: '#eff4fc',
+      chartAccent: '#2563eb',
+      modalBg: '#ffffff',
     },
     darkPalette: {
       ...DEFAULT_DARK_PALETTE,
@@ -136,6 +178,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#3b82f6',
       primaryForeground: '#ffffff',
       border: '#1e2c4f',
+      headerBg: '#0d152a',
+      headerBorder: '#1e2c4f',
+      navActiveBg: '#3b82f6',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#0d152a',
+      metricBoxBg: '#16223f',
+      saleReceiptBg: '#060b19',
+      detailHeadingColor: '#60a5fa',
+      tableHeaderBg: '#060b19',
+      tableRowHover: '#16223f',
+      chartAccent: '#3b82f6',
+      modalBg: '#0d152a',
     },
   },
   {
@@ -152,6 +206,19 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primaryForeground: '#ffffff',
       border: '#c7d9d0',
       success: '#047857',
+      headerBg: '#ffffff',
+      headerBorder: '#c7d9d0',
+      navActiveBg: '#059669',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#ffffff',
+      metricBoxBg: '#e1ebe6',
+      saleReceiptBg: '#f3f7f5',
+      detailHeadingColor: '#065f46',
+      profitColor: '#047857',
+      tableHeaderBg: '#e1ebe6',
+      tableRowHover: '#ecf4f0',
+      chartAccent: '#059669',
+      modalBg: '#ffffff',
     },
     darkPalette: {
       ...DEFAULT_DARK_PALETTE,
@@ -162,6 +229,19 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primaryForeground: '#022c22',
       border: '#19352c',
       success: '#34d399',
+      headerBg: '#0a1814',
+      headerBorder: '#19352c',
+      navActiveBg: '#10b981',
+      navActiveText: '#022c22',
+      detailContainerBg: '#0a1814',
+      metricBoxBg: '#132822',
+      saleReceiptBg: '#030d0a',
+      detailHeadingColor: '#34d399',
+      profitColor: '#34d399',
+      tableHeaderBg: '#030d0a',
+      tableRowHover: '#132822',
+      chartAccent: '#10b981',
+      modalBg: '#0a1814',
     },
   },
   {
@@ -177,6 +257,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#e11d48',
       primaryForeground: '#ffffff',
       border: '#dcd5da',
+      headerBg: '#ffffff',
+      headerBorder: '#dcd5da',
+      navActiveBg: '#e11d48',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#ffffff',
+      metricBoxBg: '#ede9ec',
+      saleReceiptBg: '#f8f7f8',
+      detailHeadingColor: '#be123c',
+      tableHeaderBg: '#ede9ec',
+      tableRowHover: '#f4f1f3',
+      chartAccent: '#e11d48',
+      modalBg: '#ffffff',
     },
     darkPalette: {
       ...DEFAULT_DARK_PALETTE,
@@ -186,6 +278,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#f43f5e',
       primaryForeground: '#ffffff',
       border: '#27272f',
+      headerBg: '#141418',
+      headerBorder: '#27272f',
+      navActiveBg: '#f43f5e',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#141418',
+      metricBoxBg: '#222228',
+      saleReceiptBg: '#09090b',
+      detailHeadingColor: '#fb7185',
+      tableHeaderBg: '#09090b',
+      tableRowHover: '#222228',
+      chartAccent: '#f43f5e',
+      modalBg: '#141418',
     },
   },
   {
@@ -201,6 +305,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#7c3aed',
       primaryForeground: '#ffffff',
       border: '#d6d0ec',
+      headerBg: '#ffffff',
+      headerBorder: '#d6d0ec',
+      navActiveBg: '#7c3aed',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#ffffff',
+      metricBoxBg: '#e7e4f5',
+      saleReceiptBg: '#f5f4fb',
+      detailHeadingColor: '#6d28d9',
+      tableHeaderBg: '#e7e4f5',
+      tableRowHover: '#efedf8',
+      chartAccent: '#7c3aed',
+      modalBg: '#ffffff',
     },
     darkPalette: {
       ...DEFAULT_DARK_PALETTE,
@@ -210,6 +326,18 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
       primary: '#8b5cf6',
       primaryForeground: '#ffffff',
       border: '#261e47',
+      headerBg: '#120d24',
+      headerBorder: '#261e47',
+      navActiveBg: '#8b5cf6',
+      navActiveText: '#ffffff',
+      detailContainerBg: '#120d24',
+      metricBoxBg: '#1d1638',
+      saleReceiptBg: '#090614',
+      detailHeadingColor: '#a78bfa',
+      tableHeaderBg: '#090614',
+      tableRowHover: '#1d1638',
+      chartAccent: '#8b5cf6',
+      modalBg: '#120d24',
     },
   },
 ];
@@ -233,25 +361,71 @@ export function getContrastForeground(hex: string): string {
   return luminance > 0.52 ? '#0f172a' : '#ffffff';
 }
 
+function hydrateSectionTokens(
+  baseDefaults: ThemePaletteTokens,
+  rawPalette: Partial<ThemePaletteTokens> | undefined,
+  mode: 'light' | 'dark',
+  baseAccent: string
+): ThemePaletteTokens {
+  const primary = rawPalette?.primary || baseAccent;
+  const primaryForeground =
+    rawPalette?.primaryForeground || getContrastForeground(primary);
+  const card = rawPalette?.card || baseDefaults.card;
+  const background = rawPalette?.background || baseDefaults.background;
+  const surfaceMuted = rawPalette?.surfaceMuted || baseDefaults.surfaceMuted;
+  const foreground = rawPalette?.foreground || baseDefaults.foreground;
+  const border = rawPalette?.border || baseDefaults.border;
+  const success = rawPalette?.success || baseDefaults.success;
+
+  return {
+    ...baseDefaults,
+    primary,
+    primaryForeground,
+    ...(rawPalette || {}),
+    headerBg: rawPalette?.headerBg || card,
+    headerText: rawPalette?.headerText || foreground,
+    headerBorder: rawPalette?.headerBorder || border,
+    navActiveBg: rawPalette?.navActiveBg || primary,
+    navActiveText:
+      rawPalette?.navActiveText ||
+      getContrastForeground(rawPalette?.navActiveBg || primary),
+    detailContainerBg: rawPalette?.detailContainerBg || card,
+    metricBoxBg: rawPalette?.metricBoxBg || surfaceMuted,
+    saleReceiptBg:
+      rawPalette?.saleReceiptBg ||
+      (mode === 'light' ? '#f8fafc' : background),
+    detailHeadingColor:
+      rawPalette?.detailHeadingColor ||
+      (mode === 'light' ? foreground : primary),
+    profitColor: rawPalette?.profitColor || success,
+    expenseColor: rawPalette?.expenseColor || baseDefaults.expenseColor || '#ef4444',
+    tableHeaderBg:
+      rawPalette?.tableHeaderBg ||
+      (mode === 'light' ? surfaceMuted : background),
+    tableRowHover:
+      rawPalette?.tableRowHover ||
+      (mode === 'light' ? background : surfaceMuted),
+    chartAccent: rawPalette?.chartAccent || primary,
+    modalBg: rawPalette?.modalBg || card,
+  };
+}
+
 export function resolveSystemThemeConfig(
   raw?: Partial<SystemThemeConfig> | null
 ): SystemThemeConfig {
   const baseAccent = raw?.primaryAccentColor || DEFAULT_SYSTEM_THEME_CONFIG.primaryAccentColor;
-  const lightPalette: ThemePaletteTokens = {
-    ...DEFAULT_LIGHT_PALETTE,
-    primary: baseAccent,
-    ...(raw?.lightPalette || {}),
-  };
-  lightPalette.primaryForeground =
-    raw?.lightPalette?.primaryForeground || getContrastForeground(lightPalette.primary);
-
-  const darkPalette: ThemePaletteTokens = {
-    ...DEFAULT_DARK_PALETTE,
-    primary: baseAccent,
-    ...(raw?.darkPalette || {}),
-  };
-  darkPalette.primaryForeground =
-    raw?.darkPalette?.primaryForeground || getContrastForeground(darkPalette.primary);
+  const lightPalette = hydrateSectionTokens(
+    DEFAULT_LIGHT_PALETTE,
+    raw?.lightPalette,
+    'light',
+    baseAccent
+  );
+  const darkPalette = hydrateSectionTokens(
+    DEFAULT_DARK_PALETTE,
+    raw?.darkPalette,
+    'dark',
+    baseAccent
+  );
 
   return {
     ...DEFAULT_SYSTEM_THEME_CONFIG,
@@ -378,6 +552,29 @@ export function applySystemThemeVariables(
     CARD_PADDING_VALUES[resolved.cardPadding || 'comfortable'] || '20px'
   );
   root.style.setProperty('--ag-section-gap', resolved.sectionGap || '24px');
+
+  // Section-by-section CSS custom properties
+  root.style.setProperty('--ag-header-bg', palette.headerBg || palette.card);
+  root.style.setProperty('--ag-header-text', palette.headerText || palette.foreground);
+  root.style.setProperty('--ag-header-border', palette.headerBorder || palette.border);
+  root.style.setProperty('--ag-nav-active-bg', palette.navActiveBg || palette.primary);
+  root.style.setProperty(
+    '--ag-nav-active-text',
+    palette.navActiveText || getContrastForeground(palette.navActiveBg || palette.primary)
+  );
+  root.style.setProperty('--ag-detail-bg', palette.detailContainerBg || palette.card);
+  root.style.setProperty('--ag-metric-bg', palette.metricBoxBg || palette.surfaceMuted);
+  root.style.setProperty('--ag-receipt-bg', palette.saleReceiptBg || palette.background);
+  root.style.setProperty(
+    '--ag-detail-heading',
+    palette.detailHeadingColor || (mode === 'light' ? palette.foreground : palette.primary)
+  );
+  root.style.setProperty('--ag-profit-color', palette.profitColor || palette.success);
+  root.style.setProperty('--ag-expense-color', palette.expenseColor || '#ef4444');
+  root.style.setProperty('--ag-table-header-bg', palette.tableHeaderBg || palette.background);
+  root.style.setProperty('--ag-table-row-hover', palette.tableRowHover || palette.surfaceMuted);
+  root.style.setProperty('--ag-chart-accent', palette.chartAccent || palette.primary);
+  root.style.setProperty('--ag-modal-bg', palette.modalBg || palette.card);
 }
 
 import {
@@ -424,6 +621,16 @@ export function resolveLocalizedLabel(
     }
   }
   return baseText;
+}
+
+export function resolveLocalizedColor(
+  key: string,
+  overrides: GlobalTextOverrides
+): string | undefined {
+  const entry = overrides[key];
+  const color = entry?.color?.trim();
+  if (!color) return undefined;
+  return color;
 }
 
 export type TranslationCategoryId =

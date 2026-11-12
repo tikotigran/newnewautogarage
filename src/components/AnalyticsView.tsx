@@ -43,7 +43,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   onSelectVehicle,
   featureFlags = DEFAULT_FEATURE_FLAGS,
 }) => {
-  const { lang, t } = useI18n();
+  const { lang, t, getTextStyle } = useI18n();
   const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>('all');
   const [selectedCategoryId, setSelectedCategoryId] = useState<AnalyticsExpenseCategoryId | null>(null);
   const [fleetData, setFleetData] = useState<{
@@ -162,8 +162,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
         <div>
           <div className="flex items-center gap-2.5">
-            <BarChart3 className="w-5 h-5 text-[var(--primary)] shrink-0" />
-            <h1 className="text-xl font-bold text-[var(--foreground)] tracking-tight">
+            <BarChart3 className="w-5 h-5 shrink-0" style={{ color: 'var(--ag-chart-accent)' }} />
+            <h1
+              style={getTextStyle('analyticsTitle')}
+              className="text-xl font-bold text-[var(--foreground)] tracking-tight"
+            >
               {t('analyticsTitle')}
             </h1>
           </div>
@@ -202,10 +205,18 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="analytics-pnl-summary">
           <div className="bg-[var(--card)] border border-emerald-500/30 rounded-[var(--ag-card-radius)] p-4">
             <p className="text-xs text-[var(--muted-foreground)] font-medium flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-[var(--success)]" />
-              <span>{t('realizedProfit')}</span>
+              <TrendingUp className="w-3.5 h-3.5" style={{ color: 'var(--ag-profit-color)' }} />
+              <span style={getTextStyle('realizedProfit')}>{t('realizedProfit')}</span>
             </p>
-            <p className={`text-2xl font-bold tabular-nums mt-1 ${pnlSummary.realizedProfit >= 0 ? 'text-[var(--success)]' : 'text-red-500'}`}>
+            <p
+              className="text-2xl font-bold tabular-nums mt-1"
+              style={{
+                color:
+                  pnlSummary.realizedProfit >= 0
+                    ? 'var(--ag-profit-color)'
+                    : 'var(--ag-expense-color)',
+              }}
+            >
               {pnlSummary.realizedProfit >= 0 ? '+' : ''}{formatEuro(pnlSummary.realizedProfit)}
             </p>
             <p className="text-xs text-[var(--muted-foreground)] mt-1 tabular-nums">
@@ -229,7 +240,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4">
             <p className="text-xs text-[var(--muted-foreground)] font-medium">{t('capitalInvested')}</p>
-            <p className="text-2xl font-bold text-[var(--primary)] tabular-nums mt-1">
+            <p
+              className="text-2xl font-bold tabular-nums mt-1"
+              style={{ color: 'var(--ag-chart-accent)' }}
+            >
               {formatEuro(pnlSummary.activeInvested)}
             </p>
             <p className="text-xs text-[var(--muted-foreground)] mt-1 tabular-nums">
@@ -255,7 +269,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
           <p className="text-xs text-[var(--muted-foreground)] font-medium">{t('analyticsImpactedVehicles')}</p>
-          <p className="text-2xl font-bold text-[var(--primary)] tabular-nums mt-1">
+          <p className="text-2xl font-bold tabular-nums mt-1" style={{ color: 'var(--ag-chart-accent)' }}>
             {analytics.impactedVehiclesCount} <span className="text-sm font-normal text-[var(--muted-foreground)]">/ {vehicles.length}</span>
           </p>
           <p className="text-xs text-[var(--muted-foreground)] mt-1">
@@ -335,8 +349,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     aria-pressed={isSelected}
                     className={`w-full text-left py-3 px-3 -mx-3 rounded-[var(--ag-button-radius)] transition-colors flex flex-col gap-2 ${
                       isSelected
-                        ? 'bg-[var(--surface-muted)] ring-1 ring-[var(--primary)]'
-                        : 'hover:bg-[var(--surface-muted)]/60'
+                        ? 'bg-[var(--surface-muted)] ring-1 ring-[var(--ag-chart-accent)]'
+                        : 'hover:bg-[var(--ag-table-row-hover)]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-3">
