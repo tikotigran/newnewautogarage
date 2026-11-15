@@ -19,6 +19,9 @@ export interface VehicleDocument {
   type: string;
 }
 
+export type LayoutMode = 'classic' | 'sidebar';
+export type UserLayoutPreference = 'global' | LayoutMode;
+
 export interface GarageSettings {
   garageId?: string;
   entityType?: 'morale' | 'physique';
@@ -39,6 +42,7 @@ export interface GarageSettings {
   tvaMention?: string;
   defaultCerfaTemplate?: string;
   theme?: 'dark' | 'light';
+  layoutMode?: UserLayoutPreference;
   defaultMarginPercent?: number;
   taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
   taxRatePercent?: number;
@@ -74,6 +78,13 @@ export interface Vehicle {
   mileage: number;
   vin: string;
   registrationNumber?: string;
+  fuelType?: string;
+  gearbox?: string;
+  typeVariantVersion?: string; // (D.2) Type, variante, version
+  nationalGenre?: string;      // (J.1) Genre national
+  bodyType?: string;           // (J.3) Carrosserie
+  formulaNumber?: string;      // Numéro de formule
+  certificateDate?: string;    // (I) Date du certificat d'immatriculation
   purchaseDate: string;
   purchasePrice: number;
   targetSalePrice: number;
@@ -302,6 +313,7 @@ export interface SystemThemeConfig {
   cardPadding?: CardPaddingDensity;
   sectionGap?: SectionGapSize;
   defaultInventoryViewMode: 'grid' | 'list';
+  layoutMode?: LayoutMode;
   cerfaAdjustments: CerfaGlobalAdjustments;
   lightPalette?: ThemePaletteTokens;
   darkPalette?: ThemePaletteTokens;
@@ -344,5 +356,232 @@ export type GlobalTextOverrides = Record<
   { fr?: string; ru?: string; color?: string }
 >;
 
+export type SupplierType =
+  | 'private_seller'
+  | 'dealership'
+  | 'auction'
+  | 'parts_supplier'
+  | 'workshop'
+  | 'transport_company';
 
+export type PurchasePaymentMethod =
+  | 'bank_transfer'
+  | 'card'
+  | 'cash'
+  | 'check'
+  | 'financing'
+  | 'other';
+
+export type PurchaseCategory =
+  | 'vehicle'
+  | 'parts'
+  | 'repair'
+  | 'transport'
+  | 'other';
+
+export interface PurchaseDocument {
+  id: string;
+  name: string;
+  url: string;
+  date: string;
+  kind: 'invoice' | 'vehicle_doc' | 'other';
+}
+
+export interface Supplier {
+  id: string;
+  userId: string;
+  garageId?: string;
+  name: string;
+  type: SupplierType;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  address?: string;
+  siret?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Purchase {
+  id: string;
+  userId: string;
+  garageId?: string;
+  supplierId: string;
+  supplierName: string;
+  supplierType: SupplierType;
+  vehicleId?: string;
+  vehicleLabel?: string;
+  category: PurchaseCategory;
+  description: string;
+  amount: number;
+  date: string;
+  paymentMethod: PurchasePaymentMethod;
+  invoiceNumber?: string;
+  invoiceProofName?: string;
+  invoiceProofUrl?: string;
+  vehicleDocuments: PurchaseDocument[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GarageDocumentCategory =
+  | 'carte_grise'
+  | 'certificat_cession'
+  | 'controle_technique'
+  | 'facture_achat'
+  | 'facture_reparation'
+  | 'facture_vente'
+  | 'photos_vehicule'
+  | 'contrats'
+  | 'justificatif_paiement'
+  | 'documents_administratifs';
+
+export type DocumentBindingType = 'vehicle' | 'client';
+
+export type DocumentHistoryAction =
+  | 'uploaded'
+  | 'updated'
+  | 'downloaded'
+  | 'linked'
+  | 'deleted';
+
+export interface DocumentHistoryEvent {
+  id: string;
+  userId: string;
+  garageId?: string;
+  documentId: string;
+  documentTitle: string;
+  category: GarageDocumentCategory;
+  action: DocumentHistoryAction;
+  timestamp: string;
+  actorEmail?: string;
+  vehicleId?: string;
+  vehicleLabel?: string;
+  clientName?: string;
+  details?: string;
+}
+
+export interface GarageDocument {
+  id: string;
+  userId: string;
+  garageId?: string;
+  title: string;
+  category: GarageDocumentCategory;
+  bindingType: DocumentBindingType;
+  vehicleId?: string;
+  vehicleLabel?: string;
+  clientName?: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  fileUrl: string;
+  documentDate: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type UserActivityAction =
+  | 'export_csv'
+  | 'export_excel'
+  | 'export_pdf'
+  | 'export_facturx'
+  | 'backup_created'
+  | 'backup_restored'
+  | 'vehicle_created'
+  | 'vehicle_updated'
+  | 'vehicle_sold'
+  | 'vehicle_deleted'
+  | 'supplier_created'
+  | 'purchase_created'
+  | 'document_uploaded'
+  | 'settings_updated'
+  | 'auth_login';
+
+export interface UserActivityLog {
+  id: string;
+  userId: string;
+  garageId?: string;
+  actorEmail: string;
+  action: UserActivityAction;
+  entityType?: ChangeLogEntityType;
+  entityId?: string;
+  targetLabel: string;
+  details?: string;
+  timestamp: string;
+}
+
+export type ChangeLogOperation = 'create' | 'update' | 'delete' | 'restore';
+
+export type ChangeLogEntityType =
+  | 'vehicle'
+  | 'repair'
+  | 'expense'
+  | 'supplier'
+  | 'purchase'
+  | 'document'
+  | 'settings'
+  | 'backup';
+
+export interface ChangeLogFieldDiff {
+  field: string;
+  oldValue: string;
+  newValue: string;
+}
+
+export interface ChangeLogEntry {
+  id: string;
+  userId: string;
+  garageId?: string;
+  actorEmail: string;
+  operation: ChangeLogOperation;
+  entityType: ChangeLogEntityType;
+  entityId: string;
+  entityLabel: string;
+  changes: ChangeLogFieldDiff[];
+  timestamp: string;
+}
+
+export type BackupRestoreMode = 'merge' | 'replace';
+
+export interface FullGarageBackupV2 {
+  version: 2;
+  exportedAt: string;
+  garageId?: string;
+  actorEmail?: string;
+  vehicles: Vehicle[];
+  repairs: RepairTask[];
+  expenses: GeneralExpense[];
+  suppliers: Supplier[];
+  purchases: Purchase[];
+  documents: GarageDocument[];
+  documentHistory: DocumentHistoryEvent[];
+  settings: GarageSettings;
+}
+
+export interface BackupSnapshotCounts {
+  vehicles: number;
+  repairs: number;
+  expenses: number;
+  suppliers: number;
+  purchases: number;
+  documents: number;
+}
+
+export interface BackupSnapshotRecord {
+  id: string;
+  userId: string;
+  garageId?: string;
+  label: string;
+  actorEmail: string;
+  createdAt: string;
+  sizeBytes: number;
+  counts: BackupSnapshotCounts;
+  payloadJson?: string;
+}
 

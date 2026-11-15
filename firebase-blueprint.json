@@ -112,6 +112,7 @@
         "cardPadding": { "type": "string", "enum": ["compact", "comfortable", "spacious"], "description": "Global card internal padding density" },
         "sectionGap": { "type": "string", "enum": ["16px", "24px", "32px"], "description": "Global section vertical spacing" },
         "defaultInventoryViewMode": { "type": "string", "enum": ["grid", "list"], "description": "Default inventory view" },
+        "layoutMode": { "type": "string", "enum": ["classic", "sidebar"], "description": "Global default application layout mode" },
         "cerfaAdjustments": { "type": "object", "description": "Global Cerfa 15776*02 alignment adjustments" },
         "lightPalette": { "type": "object", "description": "Custom base and section-level color palette tokens for Light theme (header, cards, vehicle detail, receipt, tables, modals)" },
         "darkPalette": { "type": "object", "description": "Custom base and section-level color palette tokens for Dark theme (header, cards, vehicle detail, receipt, tables, modals)" },
@@ -151,7 +152,7 @@
     },
     "GarageSettings": {
       "title": "GarageSettings",
-      "description": "Scoped garage settings including Cerfa profile, TVA mention, and tax regime.",
+      "description": "Scoped garage settings including Cerfa profile, TVA mention, layout preference, and tax regime.",
       "type": "object",
       "properties": {
         "garageId": { "type": "string", "description": "Target garage ID" },
@@ -159,9 +160,264 @@
         "name": { "type": "string", "maxLength": 120, "description": "Garage name" },
         "taxRegime": { "type": "string", "enum": ["sarl", "micro", "custom", "none"], "description": "Tax regime" },
         "taxRatePercent": { "type": "number", "description": "Tax rate percentage" },
-        "currency": { "type": "string", "enum": ["EUR", "USD", "CHF", "GBP"], "description": "Currency" }
+        "currency": { "type": "string", "enum": ["EUR", "USD", "CHF", "GBP"], "description": "Currency" },
+        "layoutMode": { "type": "string", "enum": ["global", "classic", "sidebar"], "description": "User layout preference" }
       },
       "required": ["name"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Vehicle or service supplier (private seller, dealership, auction, parts supplier, workshop, transport company).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique supplier ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "name": { "type": "string", "maxLength": 120, "description": "Supplier name or company" },
+        "type": {
+          "type": "string",
+          "enum": ["private_seller", "dealership", "auction", "parts_supplier", "workshop", "transport_company"],
+          "description": "Supplier channel category"
+        },
+        "contactPerson": { "type": "string", "maxLength": 120, "description": "Contact person name" },
+        "phone": { "type": "string", "maxLength": 40, "description": "Phone number" },
+        "email": { "type": "string", "maxLength": 160, "description": "Contact email" },
+        "city": { "type": "string", "maxLength": 100, "description": "City" },
+        "address": { "type": "string", "maxLength": 240, "description": "Street address" },
+        "siret": { "type": "string", "maxLength": 30, "description": "Company SIRET / Tax ID" },
+        "notes": { "type": "string", "maxLength": 1000, "description": "Notes" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "name", "type"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "Purchase transaction for a vehicle, parts, repair service, or transport linked to a supplier.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique purchase ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "supplierId": { "type": "string", "maxLength": 128, "description": "Supplier document ID" },
+        "supplierName": { "type": "string", "maxLength": 120, "description": "Supplier display name" },
+        "supplierType": {
+          "type": "string",
+          "enum": ["private_seller", "dealership", "auction", "parts_supplier", "workshop", "transport_company"],
+          "description": "Supplier channel type"
+        },
+        "vehicleId": { "type": "string", "maxLength": 128, "description": "Optional linked vehicle ID" },
+        "vehicleLabel": { "type": "string", "maxLength": 160, "description": "Linked vehicle make/model/plate" },
+        "category": {
+          "type": "string",
+          "enum": ["vehicle", "parts", "repair", "transport", "other"],
+          "description": "Purchase category"
+        },
+        "description": { "type": "string", "maxLength": 240, "description": "Item or vehicle purchased" },
+        "amount": { "type": "number", "description": "Purchase price in EUR" },
+        "date": { "type": "string", "maxLength": 30, "description": "Purchase date (YYYY-MM-DD)" },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["bank_transfer", "card", "cash", "check", "financing", "other"],
+          "description": "Payment method used"
+        },
+        "invoiceNumber": { "type": "string", "maxLength": 80, "description": "Invoice or receipt reference" },
+        "invoiceProofName": { "type": "string", "maxLength": 160, "description": "Attached invoice filename" },
+        "invoiceProofUrl": { "type": "string", "description": "Attached invoice URL or data URI" },
+        "vehicleDocuments": { "type": "array", "description": "Attached vehicle documents (max 20)" },
+        "notes": { "type": "string", "maxLength": 1000, "description": "Additional purchase notes" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "supplierId", "supplierName", "supplierType", "category", "description", "amount", "date", "paymentMethod", "vehicleDocuments"]
+    },
+    "GarageDocument": {
+      "title": "GarageDocument",
+      "description": "Stored PDF or image document bound to a vehicle or client across 10 automotive categories.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique document ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "title": { "type": "string", "maxLength": 160, "description": "Document display title" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "carte_grise",
+            "certificat_cession",
+            "controle_technique",
+            "facture_achat",
+            "facture_reparation",
+            "facture_vente",
+            "photos_vehicule",
+            "contrats",
+            "justificatif_paiement",
+            "documents_administratifs"
+          ],
+          "description": "Document category"
+        },
+        "bindingType": {
+          "type": "string",
+          "enum": ["vehicle", "client"],
+          "description": "Primary entity binding"
+        },
+        "vehicleId": { "type": "string", "maxLength": 128, "description": "Linked vehicle ID" },
+        "vehicleLabel": { "type": "string", "maxLength": 160, "description": "Linked vehicle summary label" },
+        "clientName": { "type": "string", "maxLength": 140, "description": "Linked client full name" },
+        "clientEmail": { "type": "string", "maxLength": 160, "description": "Linked client email" },
+        "clientPhone": { "type": "string", "maxLength": 40, "description": "Linked client phone" },
+        "fileName": { "type": "string", "maxLength": 200, "description": "Original file name" },
+        "mimeType": { "type": "string", "maxLength": 100, "description": "MIME type (application/pdf or image/*)" },
+        "fileSize": { "type": "number", "description": "File size in bytes" },
+        "fileUrl": { "type": "string", "maxLength": 900000, "description": "Data URI or stored file URL" },
+        "documentDate": { "type": "string", "maxLength": 30, "description": "Document date (YYYY-MM-DD)" },
+        "notes": { "type": "string", "maxLength": 1000, "description": "Optional notes" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["userId", "title", "category", "bindingType", "fileName", "mimeType", "fileSize", "fileUrl", "documentDate"]
+    },
+    "DocumentHistoryEvent": {
+      "title": "DocumentHistoryEvent",
+      "description": "Audit log entry tracking document uploads, updates, downloads, and deletions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Event ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "documentId": { "type": "string", "maxLength": 128, "description": "Target document ID" },
+        "documentTitle": { "type": "string", "maxLength": 160, "description": "Target document title" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "carte_grise",
+            "certificat_cession",
+            "controle_technique",
+            "facture_achat",
+            "facture_reparation",
+            "facture_vente",
+            "photos_vehicule",
+            "contrats",
+            "justificatif_paiement",
+            "documents_administratifs"
+          ],
+          "description": "Document category"
+        },
+        "action": {
+          "type": "string",
+          "enum": ["uploaded", "updated", "downloaded", "linked", "deleted"],
+          "description": "Action recorded"
+        },
+        "timestamp": { "type": "string", "maxLength": 40, "description": "ISO event timestamp" },
+        "actorEmail": { "type": "string", "maxLength": 160, "description": "Actor email if available" },
+        "vehicleId": { "type": "string", "maxLength": 128, "description": "Linked vehicle ID" },
+        "vehicleLabel": { "type": "string", "maxLength": 160, "description": "Linked vehicle label" },
+        "clientName": { "type": "string", "maxLength": 140, "description": "Linked client name" },
+        "details": { "type": "string", "maxLength": 300, "description": "Optional action details" }
+      },
+      "required": ["userId", "documentId", "documentTitle", "category", "action", "timestamp"]
+    },
+    "UserActivityLog": {
+      "title": "UserActivityLog",
+      "description": "Audit log of user actions across exports, backups, vehicles, suppliers, documents, and settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Log entry ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "actorEmail": { "type": "string", "maxLength": 160, "description": "User email or identifier" },
+        "action": {
+          "type": "string",
+          "enum": [
+            "export_csv",
+            "export_excel",
+            "export_pdf",
+            "export_facturx",
+            "backup_created",
+            "backup_restored",
+            "vehicle_created",
+            "vehicle_updated",
+            "vehicle_sold",
+            "vehicle_deleted",
+            "supplier_created",
+            "purchase_created",
+            "document_uploaded",
+            "settings_updated",
+            "auth_login"
+          ],
+          "description": "Recorded action type"
+        },
+        "entityType": { "type": "string", "maxLength": 40, "description": "Target entity type" },
+        "entityId": { "type": "string", "maxLength": 128, "description": "Target entity ID" },
+        "targetLabel": { "type": "string", "maxLength": 200, "description": "Human-readable target label" },
+        "details": { "type": "string", "maxLength": 500, "description": "Additional action details" },
+        "timestamp": { "type": "string", "maxLength": 50, "description": "ISO timestamp" }
+      },
+      "required": ["userId", "actorEmail", "action", "targetLabel", "timestamp"]
+    },
+    "ChangeLogEntry": {
+      "title": "ChangeLogEntry",
+      "description": "Structured entity change log recording field-level before/after diffs.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Change log entry ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "actorEmail": { "type": "string", "maxLength": 160, "description": "Actor email" },
+        "operation": {
+          "type": "string",
+          "enum": ["create", "update", "delete", "restore"],
+          "description": "Mutation operation"
+        },
+        "entityType": {
+          "type": "string",
+          "enum": ["vehicle", "repair", "expense", "supplier", "purchase", "document", "settings", "backup"],
+          "description": "Target entity category"
+        },
+        "entityId": { "type": "string", "maxLength": 128, "description": "Target entity ID" },
+        "entityLabel": { "type": "string", "maxLength": 200, "description": "Entity display label" },
+        "changes": {
+          "type": "array",
+          "description": "Field-level diff records",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "oldValue": { "type": "string" },
+              "newValue": { "type": "string" }
+            }
+          }
+        },
+        "timestamp": { "type": "string", "maxLength": 50, "description": "ISO timestamp" }
+      },
+      "required": ["userId", "actorEmail", "operation", "entityType", "entityId", "entityLabel", "changes", "timestamp"]
+    },
+    "BackupSnapshotRecord": {
+      "title": "BackupSnapshotRecord",
+      "description": "Named garage backup restore point metadata and bounded JSON snapshot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Snapshot ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
+        "label": { "type": "string", "maxLength": 160, "description": "User-facing restore point label" },
+        "actorEmail": { "type": "string", "maxLength": 160, "description": "Creator email" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "ISO creation timestamp" },
+        "sizeBytes": { "type": "number", "description": "Payload size in bytes" },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "vehicles": { "type": "number" },
+            "repairs": { "type": "number" },
+            "expenses": { "type": "number" },
+            "suppliers": { "type": "number" },
+            "purchases": { "type": "number" },
+            "documents": { "type": "number" }
+          }
+        },
+        "payloadJson": { "type": "string", "maxLength": 850000, "description": "Serialized backup JSON payload" }
+      },
+      "required": ["userId", "label", "actorEmail", "createdAt", "sizeBytes", "counts"]
     }
   },
   "firestore": {
@@ -204,6 +460,34 @@
     "/settings/{settingsId}": {
       "schema": { "$ref": "#/entities/GarageSettings" },
       "description": "Per-user per-garage settings documents."
+    },
+    "/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Suppliers directory owned by authenticated garage users."
+    },
+    "/purchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/Purchase" },
+      "description": "Purchase transactions and sourcing records linked to suppliers and vehicles."
+    },
+    "/garage_documents/{documentId}": {
+      "schema": { "$ref": "#/entities/GarageDocument" },
+      "description": "Central document vault storing PDFs and images bound to vehicles and clients."
+    },
+    "/document_history/{eventId}": {
+      "schema": { "$ref": "#/entities/DocumentHistoryEvent" },
+      "description": "Audit log of document uploads, updates, downloads, and deletions."
+    },
+    "/user_activity_logs/{logId}": {
+      "schema": { "$ref": "#/entities/UserActivityLog" },
+      "description": "Audit trail of user actions and export/backup operations."
+    },
+    "/change_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ChangeLogEntry" },
+      "description": "Structured entity change log recording field-level before/after diffs."
+    },
+    "/backup_snapshots/{snapshotId}": {
+      "schema": { "$ref": "#/entities/BackupSnapshotRecord" },
+      "description": "Named garage backup restore points."
     }
   }
 }

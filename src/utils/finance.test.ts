@@ -5,7 +5,9 @@ import {
   calculateExpenseTotals,
   calculateSaleTaxReport,
   calculateVehicleFinancials,
+  canDisplaySaleFinancialReport,
   getEffectiveSalePrice,
+  getRealizedSalePrice,
   hasDefinedSalePrice,
   roundToTwo,
 } from './finance';
@@ -133,4 +135,39 @@ test('calculateSaleTaxReport computes gross margin, tax from settings, and net p
   assert.equal(lossReport.grossMargin, -700);
   assert.equal(lossReport.taxAmount, 0);
   assert.equal(lossReport.netProfitAfterTax, -700);
+});
+
+test('canDisplaySaleFinancialReport and getRealizedSalePrice strictly require status === sold and salePrice > 0', () => {
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'preparation', buyerInfo: { salePrice: 5000 } }),
+    false
+  );
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'repair', buyerInfo: { salePrice: 5000 } }),
+    false
+  );
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'for_sale', buyerInfo: { salePrice: 5000 } }),
+    false
+  );
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'sold', buyerInfo: { salePrice: 0 } }),
+    false
+  );
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'sold' }),
+    false
+  );
+  assert.equal(
+    getRealizedSalePrice({ status: 'for_sale', buyerInfo: { salePrice: 5000 } }),
+    0
+  );
+  assert.equal(
+    canDisplaySaleFinancialReport({ status: 'sold', buyerInfo: { salePrice: 5000 } }),
+    true
+  );
+  assert.equal(
+    getRealizedSalePrice({ status: 'sold', buyerInfo: { salePrice: 5000 } }),
+    5000
+  );
 });

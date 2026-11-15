@@ -11,6 +11,7 @@ import {
 import { GarageWorkspace, Vehicle } from '../types/garage';
 import { computeGarageCardStats, filterVehiclesByGarage } from '../utils/garageUtils';
 import { useI18n } from '../i18n/I18nContext';
+import { ThemedSelect } from './ThemedSelect';
 
 interface GarageSelectorProps {
   garages: GarageWorkspace[];
@@ -288,29 +289,32 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   {isRu ? 'Юридический статус / Налоговый режим' : 'Statut juridique / Régime fiscal'}
                 </label>
                 <div className="flex items-center gap-2">
-                  <select
+                  <ThemedSelect<'sarl' | 'micro' | 'custom' | 'none'>
                     id="new-garage-tax-regime"
+                    testId="new-garage-tax-regime-select"
+                    ariaLabel={isRu ? 'Юридический статус / Налоговый режим' : 'Statut juridique / Régime fiscal'}
                     value={taxRegime}
-                    onChange={(e) =>
-                      handleTaxRegimeChange(
-                        e.target.value as 'sarl' | 'micro' | 'custom' | 'none'
-                      )
-                    }
-                    className="flex-1 min-w-0 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
-                  >
-                    <option value="sarl">
-                      {isRu ? 'SARL / SAS - IS 15% от маржи' : 'SARL / SAS - IS 15% sur la marge'}
-                    </option>
-                    <option value="micro">
-                      {isRu ? 'Micro-entreprise - 12.3% от оборота' : 'Micro-entreprise - 12.3% du CA'}
-                    </option>
-                    <option value="custom">
-                      {isRu ? 'Своя пользовательская ставка' : 'Taux personnalisé'}
-                    </option>
-                    <option value="none">
-                      {isRu ? 'Частное лицо / Без налога 0%' : 'Particulier / Sans impôt 0%'}
-                    </option>
-                  </select>
+                    onChange={(val) => handleTaxRegimeChange(val)}
+                    options={[
+                      {
+                        value: 'sarl',
+                        label: isRu ? 'SARL / SAS - IS 15% от маржи' : 'SARL / SAS - IS 15% sur la marge',
+                      },
+                      {
+                        value: 'micro',
+                        label: isRu ? 'Micro-entreprise - 12.3% от оборота' : 'Micro-entreprise - 12.3% du CA',
+                      },
+                      {
+                        value: 'custom',
+                        label: isRu ? 'Своя пользовательская ставка' : 'Taux personnalisé',
+                      },
+                      {
+                        value: 'none',
+                        label: isRu ? 'Частное лицо / Без налога 0%' : 'Particulier / Sans impôt 0%',
+                      },
+                    ]}
+                    triggerClassName="flex-1 min-w-0 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)]"
+                  />
                   {taxRegime === 'custom' && (
                     <div className="relative w-24 shrink-0">
                       <input

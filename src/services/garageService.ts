@@ -964,9 +964,12 @@ export async function syncVehicleFinancials(
 export async function seedDemoGarageData(
   userId: string,
   garageId: string = DEFAULT_GARAGE_ID
-): Promise<void> {
+): Promise<Vehicle[]> {
+  const createdVehicles: Vehicle[] = [];
+  const now = new Date().toISOString();
+
   // Vehicle 1: Peugeot 208 GT - In preparation
-  const v1Id = await createVehicle({
+  const v1Payload = {
     userId,
     garageId,
     make: 'Peugeot',
@@ -978,7 +981,7 @@ export async function seedDemoGarageData(
     purchaseDate: '2026-10-15',
     purchasePrice: 11200,
     targetSalePrice: 14900,
-    status: 'preparation',
+    status: 'preparation' as const,
     photos: [
       'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
       'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
@@ -993,7 +996,9 @@ export async function seedDemoGarageData(
     totalInvested: 11200,
     netProfit: 3700,
     marginPercentage: 24.83,
-  });
+  };
+  const v1Id = await createVehicle(v1Payload);
+  if (v1Id) createdVehicles.push({ ...v1Payload, id: v1Id, createdAt: now, updatedAt: now });
 
   if (v1Id) {
     await addRepairTask(v1Id, userId, {
@@ -1027,7 +1032,7 @@ export async function seedDemoGarageData(
   }
 
   // Vehicle 2: Renault Clio V - In repair
-  const v2Id = await createVehicle({
+  const v2Payload = {
     userId,
     garageId,
     make: 'Renault',
@@ -1039,7 +1044,7 @@ export async function seedDemoGarageData(
     purchaseDate: '2026-09-28',
     purchasePrice: 8900,
     targetSalePrice: 12200,
-    status: 'repair',
+    status: 'repair' as const,
     photos: [
       'https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1200&q=80',
     ],
@@ -1050,7 +1055,9 @@ export async function seedDemoGarageData(
     totalInvested: 8900,
     netProfit: 3300,
     marginPercentage: 27.05,
-  });
+  };
+  const v2Id = await createVehicle(v2Payload);
+  if (v2Id) createdVehicles.push({ ...v2Payload, id: v2Id, createdAt: now, updatedAt: now });
 
   if (v2Id) {
     await addRepairTask(v2Id, userId, {
@@ -1077,7 +1084,7 @@ export async function seedDemoGarageData(
   }
 
   // Vehicle 3: Volkswagen Golf VII - For Sale (En vente)
-  const v3Id = await createVehicle({
+  const v3Payload = {
     userId,
     garageId,
     make: 'Volkswagen',
@@ -1089,7 +1096,7 @@ export async function seedDemoGarageData(
     purchaseDate: '2026-08-10',
     purchasePrice: 10400,
     targetSalePrice: 13990,
-    status: 'for_sale',
+    status: 'for_sale' as const,
     photos: [
       'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
     ],
@@ -1100,7 +1107,9 @@ export async function seedDemoGarageData(
     totalInvested: 10400,
     netProfit: 3590,
     marginPercentage: 25.66,
-  });
+  };
+  const v3Id = await createVehicle(v3Payload);
+  if (v3Id) createdVehicles.push({ ...v3Payload, id: v3Id, createdAt: now, updatedAt: now });
 
   if (v3Id) {
     await addRepairTask(v3Id, userId, {
@@ -1130,7 +1139,7 @@ export async function seedDemoGarageData(
   }
 
   // Vehicle 4: Audi A3 Sportback - Sold (Vendu) with Buyer Details and final P&L
-  const v4Id = await createVehicle({
+  const v4Payload = {
     userId,
     garageId,
     make: 'Audi',
@@ -1142,7 +1151,7 @@ export async function seedDemoGarageData(
     purchaseDate: '2026-07-05',
     purchasePrice: 18500,
     targetSalePrice: 22900,
-    status: 'sold',
+    status: 'sold' as const,
     photos: [
       'https://images.unsplash.com/photo-1603584173870-7f23fdae1b7a?auto=format&fit=crop&w=1200&q=80',
     ],
@@ -1161,7 +1170,9 @@ export async function seedDemoGarageData(
     totalInvested: 19420,
     netProfit: 3080,
     marginPercentage: 13.69,
-  });
+  };
+  const v4Id = await createVehicle(v4Payload);
+  if (v4Id) createdVehicles.push({ ...v4Payload, id: v4Id, createdAt: now, updatedAt: now });
 
   if (v4Id) {
     await addRepairTask(v4Id, userId, {
@@ -1197,4 +1208,6 @@ export async function seedDemoGarageData(
       date: '2026-10-24',
     });
   }
+
+  return createdVehicles;
 }

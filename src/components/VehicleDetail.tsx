@@ -40,7 +40,15 @@ import {
   FeatureFlagsConfig,
   TASK_PRESETS,
 } from '../types/garage';
-import { formatEuro, formatDate, calculateVehicleFinancials, calculateSaleTaxReport, getEffectiveSalePrice } from '../utils/finance';
+import { ThemedSelect } from './ThemedSelect';
+import {
+  formatEuro,
+  formatDate,
+  calculateVehicleFinancials,
+  calculateSaleTaxReport,
+  getRealizedSalePrice,
+  canDisplaySaleFinancialReport,
+} from '../utils/finance';
 import {
   subscribeRepairs,
   subscribeExpenses,
@@ -92,6 +100,33 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [expenses, setExpenses] = useState<GeneralExpense[]>([]);
   const [isLoadingSubdata, setIsLoadingSubdata] = useState(true);
   const [showCerfaWizard, setShowCerfaWizard] = useState(false);
+
+  // Inline Carte Grise / Cerfa technical editor state
+  const [isEditingSpecs, setIsEditingSpecs] = useState(false);
+  const [specVin, setSpecVin] = useState(vehicle.vin || '');
+  const [specMileage, setSpecMileage] = useState<number | ''>(vehicle.mileage ?? 0);
+  const [specFuel, setSpecFuel] = useState(vehicle.fuelType || '');
+  const [specGearbox, setSpecGearbox] = useState(vehicle.gearbox || '');
+  const [specD2, setSpecD2] = useState(vehicle.typeVariantVersion || '');
+  const [specJ1, setSpecJ1] = useState(vehicle.nationalGenre || 'VP');
+  const [specJ3, setSpecJ3] = useState(vehicle.bodyType || '');
+  const [specFormula, setSpecFormula] = useState(vehicle.formulaNumber || '');
+  const [specCertDate, setSpecCertDate] = useState(vehicle.certificateDate || '');
+  const [specSaving, setSpecSaving] = useState(false);
+  const [specError, setSpecError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSpecVin(vehicle.vin || '');
+    setSpecMileage(vehicle.mileage ?? 0);
+    setSpecFuel(vehicle.fuelType || '');
+    setSpecGearbox(vehicle.gearbox || '');
+    setSpecD2(vehicle.typeVariantVersion || '');
+    setSpecJ1(vehicle.nationalGenre || 'VP');
+    setSpecJ3(vehicle.bodyType || '');
+    setSpecFormula(vehicle.formulaNumber || '');
+    setSpecCertDate(vehicle.certificateDate || '');
+    setSpecError(null);
+  }, [vehicle]);
 
   // New repair task form state
   const [showAddTask, setShowAddTask] = useState(false);
@@ -169,11 +204,15 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   }, [vehicle.garageId]);
 
   const isSold = vehicle.status === 'sold';
-  const effectiveSalePrice = getEffectiveSalePrice(vehicle);
-  const hasSalePrice = effectiveSalePrice > 0;
-  const saleReport = hasSalePrice
+  const realizedSalePrice = getRealizedSalePrice(vehicle);
+  const hasRealizedSale = canDisplaySaleFinancialReport(vehicle);
+  const displaySalePrice = isSold
+    ? realizedSalePrice
+    : Number(vehicle.targetSalePrice) || 0;
+  const hasDisplaySalePrice = displaySalePrice > 0;
+  const saleReport = hasRealizedSale
     ? calculateSaleTaxReport({
-        salePrice: effectiveSalePrice,
+        salePrice: realizedSalePrice,
         purchasePrice: vehicle.purchasePrice,
         repairCostTotal: fin.repairCostTotal,
         generalExpensesTotal: fin.generalExpensesTotal,
@@ -294,7 +333,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <span>·</span>
                 </>
               )}
-              <span>VIN : {vehicle.vin}</span>
+              <span>VIN : {vehicle.vin || '—'}</span>
               <span>·</span>
               <span>{vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km</span>
               <span>·</span>
@@ -308,16 +347,19 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           {/* Dynamic Lifecycle Status Selector */}
           <div className="flex items-center bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)]">
             <span className="text-[11px] text-[var(--muted-foreground)] px-2 font-medium">{t('statusLabel')}</span>
-            <select
+            <ThemedSelect<VehicleStatus>
+              testId="vehicle-detail-status-select"
+              ariaLabel={t('statusLabel')}
               value={vehicle.status}
-              onChange={(e) => handleStatusChange(e.target.value as VehicleStatus)}
-              className="text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2.5 py-1.5 border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer"
-            >
-              <option value="preparation">🛠️ {t('statusPreparation')}</option>
-              <option value="repair">🔧 {t('statusRepair')}</option>
-              <option value="for_sale">🏷️ {t('statusForSale')}</option>
-              <option value="sold">✅ {t('statusSold')}</option>
-            </select>
+              onChange={(val) => handleStatusChange(val)}
+              options={[
+                { value: 'preparation', label: `🛠️ ${t('statusPreparation')}` },
+                { value: 'repair', label: `🔧 ${t('statusRepair')}` },
+                { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
+                { value: 'sold', label: `✅ ${t('statusSold')}` },
+              ]}
+              triggerClassName="text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2.5 py-1.5 border border-[var(--border)]"
+            />
           </div>
 
           {!isSold ? (
@@ -455,25 +497,26 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               </span>
               <div
                 className={`text-base sm:text-lg font-bold tabular-nums ${
-                  hasSalePrice ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
+                  hasDisplaySalePrice ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'
                 }`}
               >
-                {hasSalePrice ? formatEuro(effectiveSalePrice) : '—'}
+                {hasDisplaySalePrice ? formatEuro(displaySalePrice) : '—'}
               </div>
               <span className="text-[10px] text-[var(--muted-foreground)]">
                 {isSold ? t('soldTo', { name: vehicle.buyerInfo?.fullName || 'Client' }) : t('inListing')}
               </span>
             </div>
 
-            {/* 6. Bénéfice Net (Marge P&L & ROI) */}
+            {/* 6. Bénéfice Net (Marge P&L & ROI - Uniquement après vente validée) */}
             <div
+              data-testid="vehicle-net-profit-card"
               className={`p-3 rounded-xl border ${
-                !hasSalePrice
+                !hasRealizedSale
                   ? 'bg-[var(--ag-metric-bg)] border-[var(--border)] text-[var(--muted-foreground)]'
                   : ''
               }`}
               style={
-                hasSalePrice
+                hasRealizedSale
                   ? fin.netProfit >= 0
                     ? {
                         backgroundColor: 'color-mix(in srgb, var(--ag-profit-color) 12%, var(--ag-metric-bg))',
@@ -494,7 +537,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               >
                 {t('netProfitLabel')}
               </span>
-              {hasSalePrice ? (
+              {hasRealizedSale ? (
                 <>
                   <div className="text-base sm:text-lg font-black tabular-nums">
                     {fin.netProfit >= 0 ? '+' : ''}
@@ -505,15 +548,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </span>
                 </>
               ) : (
-                <div className="text-base sm:text-lg font-mono font-bold text-[var(--muted-foreground)]">
-                  —
-                </div>
+                <>
+                  <div className="text-base sm:text-lg font-mono font-bold text-[var(--muted-foreground)]">
+                    —
+                  </div>
+                  <span className="text-[10px] text-[var(--muted-foreground)] block">
+                    {t('netProfitPendingHint')}
+                  </span>
+                </>
               )}
             </div>
           </div>
 
-          {/* Structured Sale Financial Report (Gross Margin -> Tax by Settings -> Net Profit) */}
-          {saleReport && (
+          {/* Structured Sale Financial Report (ONLY when status === 'sold' AND salePrice > 0) */}
+          {saleReport ? (
             <div
               data-testid="sale-financial-report"
               className="mt-4 bg-[var(--ag-receipt-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] font-mono text-xs"
@@ -611,6 +659,23 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 </div>
               </div>
             </div>
+          ) : (
+            <div
+              data-testid="sale-report-pending"
+              className="mt-4 bg-[var(--ag-receipt-bg)] border border-dashed border-[var(--border)] rounded-[var(--ag-card-radius)] px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs"
+            >
+              <div className="flex items-center gap-2.5 text-[var(--muted-foreground)] min-w-0">
+                <Receipt className="w-4 h-4 shrink-0 text-[var(--primary)]" />
+                <span>{t('saleReportPendingNotice')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenSellModal(vehicle)}
+                className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] transition whitespace-nowrap shrink-0"
+              >
+                {t('recordSaleBtn')}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -685,9 +750,6 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 ) : (
                   <VehiclePhotoPlaceholder variant="detail" />
                 )}
-                <div className="absolute top-4 right-4 bg-[var(--card)]/90 backdrop-blur-md px-3 py-1.5 rounded-xl text-xs font-mono font-bold text-[var(--foreground)] border border-[var(--border)]">
-                  {vehicle.photos.length} Photo{vehicle.photos.length > 1 ? 's' : ''}
-                </div>
               </div>
 
               {/* Thumbnails */}
@@ -705,58 +767,284 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               )}
             </div>
 
-            {/* Technical Specifications Summary Card */}
+            {/* Technical Specifications & Carte Grise Summary Card */}
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
-              <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
-                <Gauge className="w-4 h-4 text-[var(--primary)]" />
-                {t('techSpecTitle')}
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('make')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.make}</span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('model')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.model}</span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('year')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{vehicle.year}</span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('mileage')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
-                    {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
+                  <Gauge className="w-4 h-4 text-[var(--primary)]" />
+                  {t('techSpecTitle')}
+                </h3>
+                <button
+                  type="button"
+                  data-testid="vehicle-detail-edit-carte-grise"
+                  onClick={() => {
+                    setSpecError(null);
+                    setIsEditingSpecs((prev) => !prev);
+                  }}
+                  className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--primary)] border border-[var(--border)] transition flex items-center gap-1.5"
+                >
+                  <Edit className="w-3.5 h-3.5" />
+                  <span>
+                    {isEditingSpecs
+                      ? lang === 'ru'
+                        ? 'Закрыть редактор'
+                        : 'Fermer l’édition'
+                      : lang === 'ru'
+                      ? 'Дополнить данные (Cerfa / ПТС)'
+                      : 'Compléter Carte Grise (Cerfa)'}
                   </span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('vinFieldLabel')}</span>
-                  <span className="text-[var(--primary)] font-mono font-bold text-xs break-all">{vehicle.vin}</span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('plateFieldLabel')}</span>
-                  <span className="text-blue-500 font-mono font-bold text-sm">
-                    {vehicle.registrationNumber || '—'}
-                  </span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('purchaseDate')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{formatDate(vehicle.purchaseDate)}</span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('purchasePriceLabel')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
-                    {formatEuro(vehicle.purchasePrice)}
-                  </span>
-                </div>
-                <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                  <span className="text-[var(--muted-foreground)] block">{t('targetSalePriceInput')}</span>
-                  <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
-                    {vehicle.targetSalePrice > 0 ? formatEuro(vehicle.targetSalePrice) : '—'}
-                  </span>
-                </div>
+                </button>
               </div>
+
+              {isEditingSpecs ? (
+                <form
+                  data-testid="vehicle-detail-specs-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const cleanedVin = specVin.replace(/\s+/g, '').toUpperCase();
+                    if (cleanedVin.length > 0 && !/^[A-HJ-NPR-Z0-9]{17}$/.test(cleanedVin)) {
+                      setSpecError(
+                        lang === 'ru'
+                          ? 'VIN должен содержать ровно 17 символов (без I, O, Q).'
+                          : 'Le VIN doit contenir exactement 17 caractères (hors I, O, Q).'
+                      );
+                      return;
+                    }
+                    setSpecSaving(true);
+                    setSpecError(null);
+                    try {
+                      await updateVehicle(vehicle.id, {
+                        vin: cleanedVin,
+                        mileage: specMileage === '' ? 0 : Math.max(0, Number(specMileage)),
+                        fuelType: specFuel.trim(),
+                        gearbox: specGearbox.trim(),
+                        typeVariantVersion: specD2.trim(),
+                        nationalGenre: specJ1.trim() || 'VP',
+                        bodyType: specJ3.trim().toUpperCase(),
+                        formulaNumber: specFormula.replace(/\s+/g, '').toUpperCase(),
+                        certificateDate: specCertDate.trim(),
+                      });
+                      setIsEditingSpecs(false);
+                    } catch (err: unknown) {
+                      setSpecError(err instanceof Error ? err.message : 'Erreur de sauvegarde');
+                    } finally {
+                      setSpecSaving(false);
+                    }
+                  }}
+                  className="space-y-4 bg-[var(--background)]/50 border border-[var(--border)] rounded-2xl p-4"
+                >
+                  {specError && (
+                    <div className="p-2.5 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400">
+                      {specError}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label htmlFor="detail-spec-vin" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        VIN (E)
+                      </label>
+                      <input
+                        id="detail-spec-vin"
+                        type="text"
+                        maxLength={17}
+                        value={specVin}
+                        onChange={(e) => setSpecVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                        placeholder="VF3UPHNK0MT129841"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-mileage" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('mileage')} (km)
+                      </label>
+                      <input
+                        id="detail-spec-mileage"
+                        type="number"
+                        min={0}
+                        value={specMileage}
+                        onChange={(e) => setSpecMileage(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-fuel" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('fuelTypeLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-fuel"
+                        type="text"
+                        value={specFuel}
+                        onChange={(e) => setSpecFuel(e.target.value)}
+                        placeholder="Essence / Diesel"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-gearbox" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('gearboxLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-gearbox"
+                        type="text"
+                        value={specGearbox}
+                        onChange={(e) => setSpecGearbox(e.target.value)}
+                        placeholder="Manuelle / Automatique"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-d2" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('d2TypeLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-d2"
+                        type="text"
+                        value={specD2}
+                        onChange={(e) => setSpecD2(e.target.value)}
+                        placeholder="UPHNK-01"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-j1" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('j1GenreLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-j1"
+                        type="text"
+                        value={specJ1}
+                        onChange={(e) => setSpecJ1(e.target.value.toUpperCase())}
+                        placeholder="VP / CTTE"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-j3" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('j3BodyLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-j3"
+                        type="text"
+                        value={specJ3}
+                        onChange={(e) => setSpecJ3(e.target.value.toUpperCase())}
+                        placeholder="CI / BREAK"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-formula" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('formulaNumberLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-formula"
+                        type="text"
+                        value={specFormula}
+                        onChange={(e) => setSpecFormula(e.target.value.toUpperCase())}
+                        placeholder="2021AB12345"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="detail-spec-certdate" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('certificateDateLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-certdate"
+                        type="date"
+                        value={specCertDate}
+                        onChange={(e) => setSpecCertDate(e.target.value)}
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSpecs(false)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    >
+                      {t('cancelBtn')}
+                    </button>
+                    <button
+                      type="submit"
+                      data-testid="vehicle-detail-specs-save"
+                      disabled={specSaving}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow"
+                    >
+                      {specSaving ? t('loading') : t('updateVehicleBtn')}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('make')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.make}</span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('model')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.model}</span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('year')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{vehicle.year}</span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('mileage')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
+                      {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('vinFieldLabel')}</span>
+                    <span className="text-[var(--primary)] font-mono font-bold text-xs break-all">
+                      {vehicle.vin || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('plateFieldLabel')}</span>
+                    <span className="text-blue-500 font-mono font-bold text-sm">
+                      {vehicle.registrationNumber || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('fuelTypeLabel')} / {t('gearboxLabel')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-xs">
+                      {[vehicle.fuelType, vehicle.gearbox].filter(Boolean).join(' • ') || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">D.2 / J.1 / J.3</span>
+                    <span className="text-[var(--foreground)] font-mono font-bold text-xs break-all">
+                      {[vehicle.typeVariantVersion, vehicle.nationalGenre, vehicle.bodyType]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('formulaNumberLabel')}</span>
+                    <span className="text-[var(--foreground)] font-mono font-bold text-xs break-all">
+                      {vehicle.formulaNumber || '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('certificateDateLabel')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-xs tabular-nums">
+                      {vehicle.certificateDate ? formatDate(vehicle.certificateDate) : '—'}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('purchaseDate')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{formatDate(vehicle.purchaseDate)}</span>
+                  </div>
+                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
+                    <span className="text-[var(--muted-foreground)] block">{t('purchasePriceLabel')}</span>
+                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
+                      {formatEuro(vehicle.purchasePrice)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1014,18 +1302,22 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
+                  <label htmlFor="new-repair-status-select" className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('taskStatusLabel')}
                   </label>
-                  <select
+                  <ThemedSelect<RepairTaskStatus>
+                    id="new-repair-status-select"
+                    testId="new-repair-status-select"
+                    ariaLabel={t('taskStatusLabel')}
                     value={taskStatus}
-                    onChange={(e) => setTaskStatus(e.target.value as RepairTaskStatus)}
-                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)] cursor-pointer"
-                  >
-                    <option value="todo">{t('taskTodo')}</option>
-                    <option value="in_progress">{t('taskInProgress')}</option>
-                    <option value="done">{t('taskDone')}</option>
-                  </select>
+                    onChange={(val) => setTaskStatus(val)}
+                    options={[
+                      { value: 'todo', label: t('taskTodo') },
+                      { value: 'in_progress', label: t('taskInProgress') },
+                      { value: 'done', label: t('taskDone') },
+                    ]}
+                    triggerClassName="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)]"
+                  />
                 </div>
               </div>
 
@@ -1091,25 +1383,28 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
                         {/* Status Toggle Badge */}
                         <td className="py-3.5 px-4">
-                          <select
+                          <ThemedSelect<RepairTaskStatus>
+                            testId={`repair-status-select-${task.id}`}
+                            ariaLabel={`${t('thStatus')} - ${task.title}`}
                             value={task.status}
-                            onChange={(e) =>
+                            onChange={(nextStatus) =>
                               updateRepairTask(vehicle.id, task.id, {
-                                status: e.target.value as RepairTaskStatus,
+                                status: nextStatus,
                               })
                             }
-                            className={`text-xs font-bold rounded-lg px-2.5 py-1 border cursor-pointer ${
+                            options={[
+                              { value: 'todo', label: t('taskTodo') },
+                              { value: 'in_progress', label: t('taskInProgress') },
+                              { value: 'done', label: t('taskDone') },
+                            ]}
+                            triggerClassName={`text-xs font-bold rounded-lg px-2.5 py-1 border ${
                               task.status === 'done'
-                                ? 'bg-emerald-500/10 text-[var(--success)] border-emerald-500/30'
+                                ? 'bg-emerald-500/15 text-[var(--success)] border-emerald-500/35'
                                 : task.status === 'in_progress'
-                                ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
-                                : 'bg-amber-500/10 text-[var(--warning)] border-amber-500/30'
+                                ? 'bg-blue-500/15 text-blue-500 border-blue-500/35'
+                                : 'bg-amber-500/15 text-[var(--warning)] border-amber-500/35'
                             }`}
-                          >
-                            <option value="todo">{t('taskTodo')}</option>
-                            <option value="in_progress">{t('taskInProgress')}</option>
-                            <option value="done">{t('taskDone')}</option>
-                          </select>
+                          />
                         </td>
 
                         {/* Parts Cost Input */}
@@ -1248,27 +1543,27 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               {/* Category & Amount */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
+                  <label htmlFor="new-expense-category-select" className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('expenseCategoryLabel')}
                   </label>
-                  <select
+                  <ThemedSelect
+                    id="new-expense-category-select"
+                    testId="new-expense-category-select"
+                    ariaLabel={t('expenseCategoryLabel')}
                     value={expenseCategory}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
+                    onChange={(nextId) => {
                       setExpenseCategory(nextId);
                       const found = dynamicCategories.find((c) => c.id === nextId);
                       if (found?.defaultAmount && found.defaultAmount > 0 && expenseAmount === '') {
                         setExpenseAmount(found.defaultAmount);
                       }
                     }}
-                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-blue-500 cursor-pointer"
-                  >
-                    {dynamicCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {lang === 'ru' ? cat.labelRu : cat.labelFr}
-                      </option>
-                    ))}
-                  </select>
+                    options={dynamicCategories.map((cat) => ({
+                      value: cat.id,
+                      label: lang === 'ru' ? cat.labelRu : cat.labelFr,
+                    }))}
+                    triggerClassName="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)]"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">

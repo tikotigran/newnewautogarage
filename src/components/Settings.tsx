@@ -27,10 +27,13 @@ import {
   List,
   KeyRound,
   Menu,
+  PanelLeft,
+  PanelTop,
 } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebase';
-import { GarageSettings, Vehicle } from '../types/garage';
+import { GarageSettings, LayoutMode, UserLayoutPreference, Vehicle } from '../types/garage';
+import { ThemedSelect } from './ThemedSelect';
 import {
   DEFAULT_GARAGE_SETTINGS,
   getGarageSettings,
@@ -41,6 +44,8 @@ import {
   importGarageDatabase,
   clearLocalGarageCache,
 } from '../services/garageService';
+import { logEntityChange, logUserActivity } from '../services/auditAndBackupService';
+import { computeEntityFieldDiffs } from '../utils/exportBackup';
 import { getSystemThemeConfig } from '../services/adminService';
 import { useI18n } from '../i18n/I18nContext';
 import {
@@ -63,6 +68,11 @@ interface SettingsProps {
   onOpenAlignerMode?: () => void;
   userEmail?: string | null;
   userRole?: string;
+  layoutPreference?: UserLayoutPreference;
+  effectiveLayoutMode?: LayoutMode;
+  globalLayoutMode?: LayoutMode;
+  onLayoutPreferenceChange?: (pref: UserLayoutPreference) => void;
+  variant?: 'modal' | 'page';
 }
 
 const STREET_TYPES = [
@@ -91,6 +101,11 @@ export const Settings: React.FC<SettingsProps> = ({
   onOpenAlignerMode,
   userEmail,
   userRole = 'user',
+  layoutPreference = 'global',
+  effectiveLayoutMode = 'classic',
+  globalLayoutMode = 'classic',
+  onLayoutPreferenceChange,
+  variant = 'modal',
 }) => {
   const { lang, setLang } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>('company');
@@ -110,8 +125,10 @@ export const Settings: React.FC<SettingsProps> = ({
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const isPage = variant === 'page';
+
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen || isPage) {
       const current = getGarageSettings();
       const resolvedRegime = current.taxRegime || 'sarl';
       const resolvedRate =
@@ -149,9 +166,9 @@ export const Settings: React.FC<SettingsProps> = ({
         });
       }
     }
-  }, [isOpen, theme, userId]);
+  }, [isOpen, isPage, theme, userId]);
 
-  if (!isOpen) return null;
+  if (!isPage && !isOpen) return null;
 
   const isRu = lang === 'ru';
   const systemConfig = getSystemThemeConfig();
@@ -188,9 +205,38 @@ export const Settings: React.FC<SettingsProps> = ({
       taxRegime: resolvedRegime,
       taxRatePercent: resolvedTaxRate,
       theme,
+      layoutMode: layoutPreference,
     };
 
+    const prevSettings = getGarageSettings();
     await saveGarageSettings(updatedSettings, userId);
+    const diffs = computeEntityFieldDiffs(
+      prevSettings as unknown as Record<string, unknown>,
+      updatedSettings as unknown as Record<string, unknown>,
+      ['name', 'siret', 'streetName', 'postalCode', 'city', 'email', 'taxRegime', 'taxRatePercent', 'tvaMention', 'currency']
+    );
+    void logUserActivity({
+      userId,
+      garageId: updatedSettings.garageId,
+      actorEmail: userEmail,
+      action: 'settings_updated',
+      entityType: 'settings',
+      entityId: updatedSettings.garageId || 'garage_default',
+      targetLabel: updatedSettings.name,
+      details: `${diffs.length} champ(s) modifié(s)`,
+    });
+    if (diffs.length > 0) {
+      void logEntityChange({
+        userId,
+        garageId: updatedSettings.garageId,
+        actorEmail: userEmail,
+        operation: 'update',
+        entityType: 'settings',
+        entityId: updatedSettings.garageId || 'garage_default',
+        entityLabel: updatedSettings.name,
+        changes: diffs,
+      });
+    }
     if (onSettingsSaved) onSettingsSaved(updatedSettings);
     setStatusMessage({
       type: 'success',
@@ -251,6 +297,15 @@ export const Settings: React.FC<SettingsProps> = ({
     a.download = `AutoGarage_Backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    void logUserActivity({
+      userId,
+      garageId: settings.garageId,
+      actorEmail: userEmail,
+      action: 'backup_created',
+      entityType: 'backup',
+      targetLabel: `AutoGarage_Backup_${new Date().toISOString().split('T')[0]}.json`,
+      details: `${vehicles.length} véhicules`,
+    });
     setStatusMessage({
       type: 'success',
       text: isRu ? 'Резервная копия JSON скачана.' : 'Sauvegarde JSON téléchargée avec succès.',
@@ -266,6 +321,14 @@ export const Settings: React.FC<SettingsProps> = ({
     a.download = `AutoGarage_Vehicules_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    void logUserActivity({
+      userId,
+      garageId: settings.garageId,
+      actorEmail: userEmail,
+      action: 'export_csv',
+      targetLabel: `AutoGarage_Vehicules_${new Date().toISOString().split('T')[0]}.csv`,
+      details: `${vehicles.length} véhicules`,
+    });
     setStatusMessage({
       type: 'success',
       text: isRu ? 'Таблица CSV экспортирована.' : 'Export CSV des véhicules téléchargé.',
@@ -355,168 +418,24 @@ export const Settings: React.FC<SettingsProps> = ({
   const labelClass = 'block text-xs font-semibold text-slate-300 mb-1';
   const siretDigits = (settings.siret || '').replace(/\s+/g, '');
 
-  return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-modal-title"
-    >
-      <div className="bg-[var(--ag-modal-bg)] border border-slate-800 rounded-3xl max-w-5xl w-full shadow-2xl overflow-hidden flex flex-col h-[92vh] max-h-[820px]">
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70 shrink-0">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label={isRu ? 'Меню настроек' : 'Menu des paramètres'}
-              className="md:hidden p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white transition"
-            >
-              <Menu className="w-4 h-4" />
-            </button>
-            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
-              <Building2 className="w-4 h-4" />
-            </div>
-            <div>
-              <h2 id="settings-modal-title" className="text-base sm:text-lg font-bold text-white">
-                {isRu ? 'Настройки AutoGarage Manager' : 'Paramètres AutoGarage Manager'}
-              </h2>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
-                {isRu
-                  ? 'Профиль гаража, бланки Cerfa, финансы, внешний вид и безопасность'
-                  : 'Profil garage, modèles Cerfa, finances, apparence et sécurité'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Fermer les paramètres"
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Mobile/Tablet Compact Icon Bar */}
-        <div className="md:hidden px-3 py-2 bg-slate-950/50 border-b border-slate-800 flex items-center gap-1.5 overflow-x-auto shrink-0">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setMobileMenuOpen(false);
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
-                  active
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'bg-slate-900 text-slate-300 border border-slate-800'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
-                <span>{item.shortLabel}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 2-Column Body: Left Sidebar + Right Content Panel */}
-        <div className="flex-1 flex flex-col md:flex-row min-h-0 relative overflow-hidden">
-          {/* Mobile Slide-Out Drawer */}
-          {mobileMenuOpen && (
-            <div className="md:hidden absolute inset-0 z-20 flex">
-              <aside className="w-64 bg-slate-900 border-r border-slate-800 p-4 space-y-2 shadow-2xl">
-                <p className="text-[11px] font-bold tracking-wider text-amber-400 px-2 pb-2 border-b border-slate-800">
-                  {isRu ? 'РАЗДЕЛЫ НАСТРОЕК' : 'SECTIONS'}
-                </p>
-                <nav className="space-y-1" aria-label="Settings mobile navigation">
-                  {navItems.map((item) => {
-                    const Icon = item.icon;
-                    const active = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveTab(item.id);
-                          setMobileMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
-                          active
-                            ? 'bg-amber-500 text-slate-950 shadow-sm'
-                            : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </aside>
-              <div
-                className="flex-1 bg-slate-950/60"
-                onClick={() => setMobileMenuOpen(false)}
-              />
-            </div>
+  const mainContent = (
+    <>
+      {statusMessage && (
+        <div
+          className={`rounded-xl p-3.5 text-xs flex items-center gap-2.5 border ${
+            statusMessage.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/10 border-red-500/30 text-red-300'
+          }`}
+        >
+          {statusMessage.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
           )}
-
-          {/* Desktop Fixed Left Sidebar (Matching SuperAdmin Panel UX) */}
-          <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-slate-900/95 border-r border-slate-800 p-4 space-y-4 overflow-y-auto">
-            <div className="px-2 pb-2 border-b border-slate-800">
-              <p className="text-[11px] font-bold tracking-wider text-amber-400">
-                {isRu ? 'КОНФИГУРАЦИЯ' : 'CONFIGURATION'}
-              </p>
-              <p className="text-xs font-bold text-white mt-0.5 truncate">
-                {settings.name || 'AutoGarage Manager'}
-              </p>
-            </div>
-
-            <nav className="space-y-1 flex-1" aria-label="Settings navigation">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveTab(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
-                      active
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </aside>
-
-          {/* Right Content Area */}
-          <section className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-6 space-y-5 bg-slate-950/30">
-            {statusMessage && (
-              <div
-                className={`rounded-xl p-3.5 text-xs flex items-center gap-2.5 border ${
-                  statusMessage.type === 'success'
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                    : 'bg-red-500/10 border-red-500/30 text-red-300'
-                }`}
-              >
-                {statusMessage.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                )}
-                <span>{statusMessage.text}</span>
-              </div>
-            )}
+          <span>{statusMessage.text}</span>
+        </div>
+      )}
 
             {/* 1. GARAGE PROFILE / EI */}
             {activeTab === 'company' && (
@@ -765,18 +684,15 @@ export const Settings: React.FC<SettingsProps> = ({
                     <label htmlFor="settings-street-type" className={labelClass}>
                       Type de voie
                     </label>
-                    <select
+                    <ThemedSelect
                       id="settings-street-type"
+                      testId="settings-street-type-select"
+                      ariaLabel="Type de voie"
                       value={settings.streetType || 'Rue'}
-                      onChange={(e) => setSettings({ ...settings, streetType: e.target.value })}
-                      className={inputClass}
-                    >
-                      {STREET_TYPES.map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => setSettings({ ...settings, streetType: val })}
+                      options={STREET_TYPES.map((st) => ({ value: st, label: st }))}
+                      triggerClassName={inputClass}
+                    />
                   </div>
 
                   <div className="col-span-2 sm:col-span-3">
@@ -928,18 +844,22 @@ export const Settings: React.FC<SettingsProps> = ({
                     <label htmlFor="settings-cerfa-template" className={labelClass}>
                       {isRu ? 'Активный шаблон PDF' : 'Modèle de document actif'}
                     </label>
-                    <select
+                    <ThemedSelect
                       id="settings-cerfa-template"
+                      testId="settings-cerfa-template-select"
+                      ariaLabel={isRu ? 'Активный шаблон PDF' : 'Modèle de document actif'}
                       value={settings.defaultCerfaTemplate || 'cerfa_15776_02'}
-                      onChange={(e) =>
-                        setSettings({ ...settings, defaultCerfaTemplate: e.target.value })
+                      onChange={(val) =>
+                        setSettings({ ...settings, defaultCerfaTemplate: val })
                       }
-                      className={inputClass}
-                    >
-                      <option value="cerfa_15776_02">
-                        Cerfa N° 15776*02 — Certificat de cession d'un véhicule d'occasion (Officiel)
-                      </option>
-                    </select>
+                      options={[
+                        {
+                          value: 'cerfa_15776_02',
+                          label: "Cerfa N° 15776*02 — Certificat de cession d'un véhicule d'occasion (Officiel)",
+                        },
+                      ]}
+                      triggerClassName={inputClass}
+                    />
                   </div>
                 </div>
 
@@ -1038,22 +958,25 @@ export const Settings: React.FC<SettingsProps> = ({
                       <label htmlFor="settings-currency" className={labelClass}>
                         {isRu ? 'Валюта расчётов' : 'Devise principale'}
                       </label>
-                      <select
+                      <ThemedSelect<NonNullable<GarageSettings['currency']>>
                         id="settings-currency"
+                        testId="settings-currency-select"
+                        ariaLabel={isRu ? 'Валюта расчётов' : 'Devise principale'}
                         value={settings.currency || 'EUR'}
-                        onChange={(e) =>
+                        onChange={(val) =>
                           setSettings({
                             ...settings,
-                            currency: e.target.value as GarageSettings['currency'],
+                            currency: val,
                           })
                         }
-                        className={inputClass}
-                      >
-                        <option value="EUR">EUR (€) — Euro</option>
-                        <option value="CHF">CHF — Franc suisse</option>
-                        <option value="GBP">GBP (£) — Livre sterling</option>
-                        <option value="USD">USD ($) — Dollar US</option>
-                      </select>
+                        options={[
+                          { value: 'EUR', label: 'EUR (€) — Euro' },
+                          { value: 'CHF', label: 'CHF — Franc suisse' },
+                          { value: 'GBP', label: 'GBP (£) — Livre sterling' },
+                          { value: 'USD', label: 'USD ($) — Dollar US' },
+                        ]}
+                        triggerClassName={inputClass}
+                      />
                     </div>
                   </div>
 
@@ -1076,11 +999,12 @@ export const Settings: React.FC<SettingsProps> = ({
                       <label htmlFor="settings-tax-regime" className={labelClass}>
                         {isRu ? 'Налоговый режим (для отчёта P&L)' : 'Régime fiscal (Calcul P&L)'}
                       </label>
-                      <select
+                      <ThemedSelect<'sarl' | 'micro' | 'custom' | 'none'>
                         id="settings-tax-regime"
+                        testId="settings-tax-regime-select"
+                        ariaLabel={isRu ? 'Налоговый режим (для отчёта P&L)' : 'Régime fiscal (Calcul P&L)'}
                         value={settings.taxRegime || 'sarl'}
-                        onChange={(e) => {
-                          const nextRegime = e.target.value as 'sarl' | 'micro' | 'custom' | 'none';
+                        onChange={(nextRegime) => {
                           const defaultRate =
                             nextRegime === 'sarl'
                               ? 15
@@ -1095,21 +1019,26 @@ export const Settings: React.FC<SettingsProps> = ({
                             taxRatePercent: defaultRate,
                           });
                         }}
-                        className={inputClass}
-                      >
-                        <option value="sarl">
-                          {isRu ? 'SARL / SAS (IS 15%)' : 'SARL / SAS (IS 15%)'}
-                        </option>
-                        <option value="micro">
-                          {isRu ? 'Micro-entreprise (12.3%)' : 'Micro-entreprise (12.3%)'}
-                        </option>
-                        <option value="custom">
-                          {isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)'}
-                        </option>
-                        <option value="none">
-                          {isRu ? 'Без налога (0%)' : 'Exonéré / 0%'}
-                        </option>
-                      </select>
+                        options={[
+                          {
+                            value: 'sarl',
+                            label: isRu ? 'SARL / SAS (IS 15%)' : 'SARL / SAS (IS 15%)',
+                          },
+                          {
+                            value: 'micro',
+                            label: isRu ? 'Micro-entreprise (12.3%)' : 'Micro-entreprise (12.3%)',
+                          },
+                          {
+                            value: 'custom',
+                            label: isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)',
+                          },
+                          {
+                            value: 'none',
+                            label: isRu ? 'Без налога (0%)' : 'Exonéré / 0%',
+                          },
+                        ]}
+                        triggerClassName={inputClass}
+                      />
                     </div>
 
                     <div>
@@ -1273,6 +1202,83 @@ export const Settings: React.FC<SettingsProps> = ({
                   </div>
                 </div>
 
+                {/* Layout Switcher: Classic Top-Nav vs Modern Sidebar Layout */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-white">
+                      <PanelLeft className="w-4 h-4 text-amber-400" />
+                      <span>
+                        {isRu
+                          ? 'Новый дизайн / Макет интерфейса (Layout)'
+                          : 'Nouveau Design / Disposition de l’interface'}
+                      </span>
+                    </div>
+                    {layoutPreference !== 'global' && onLayoutPreferenceChange && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onLayoutPreferenceChange('global');
+                          setStatusMessage({
+                            type: 'success',
+                            text: isRu
+                              ? 'Сброшено к глобальному макету платформы.'
+                              : 'Réinitialisé sur la disposition globale.',
+                          });
+                        }}
+                        className="text-[11px] font-semibold text-amber-400 hover:underline"
+                      >
+                        {isRu
+                          ? `По умолчанию (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`
+                          : `Par défaut (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classique'})`}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      data-testid="settings-layout-classic"
+                      onClick={() => {
+                        onLayoutPreferenceChange?.('classic');
+                        setStatusMessage({
+                          type: 'success',
+                          text: isRu
+                            ? 'Включён классический макет (Top-Nav).'
+                            : 'Disposition classique (Top-Nav) activée.',
+                        });
+                      }}
+                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                        effectiveLayoutMode === 'classic'
+                          ? 'bg-amber-500 text-slate-950 border-amber-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <PanelTop className="w-4 h-4" />
+                      <span>{isRu ? 'Классическая шапка' : 'En-tête Classique'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="settings-layout-sidebar"
+                      onClick={() => {
+                        onLayoutPreferenceChange?.('sidebar');
+                        setStatusMessage({
+                          type: 'success',
+                          text: isRu
+                            ? 'Включён новый дизайн (Sidebar Layout).'
+                            : 'Nouveau design (Sidebar Layout) activé.',
+                        });
+                      }}
+                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                        effectiveLayoutMode === 'sidebar'
+                          ? 'bg-amber-500 text-slate-950 border-amber-500'
+                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <PanelLeft className="w-4 h-4" />
+                      <span>{isRu ? 'Новый дизайн (Sidebar)' : 'Nouveau Design (Sidebar)'}</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Compact Grid / List Default View */}
                 <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                   <div className="text-xs font-bold text-white">
@@ -1401,6 +1407,243 @@ export const Settings: React.FC<SettingsProps> = ({
                 </div>
               </div>
             )}
+    </>
+  );
+
+  if (isPage) {
+    return (
+      <div data-testid="settings-page-view" className="space-y-5">
+        {/* Full-Page Header */}
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg sm:text-xl font-extrabold text-[var(--foreground)]">
+                  {isRu ? 'Настройки гаража' : 'Paramètres du Garage'}
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[220px]">
+                  {settings.name || 'AutoGarage Manager'}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                {isRu
+                  ? 'Реквизиты компании, налоговый режим (SARL/Micro/Custom), валюта, заметки TVA и резервное копирование'
+                  : 'Coordonnées entreprise, régime fiscal (SARL/Micro/Personnalisé), devise, mention TVA et sauvegarde'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            data-testid="settings-page-save-top"
+            onClick={() => handleSaveSettings()}
+            className="px-5 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md hover:opacity-95 transition flex items-center gap-2 shrink-0"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
+          </button>
+        </div>
+
+        {/* Full-Width Horizontal Section Navigation */}
+        <div
+          role="tablist"
+          aria-label="Settings sections"
+          className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-2 flex flex-wrap items-center gap-1.5"
+        >
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                data-testid={`settings-page-tab-${item.id}`}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-semibold transition whitespace-nowrap ${
+                  active
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                    : 'text-[var(--secondary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
+                }`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Full-Width Natural-Scrolling Workspace Content */}
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 sm:p-6 space-y-5">
+          {mainContent}
+
+          <div className="pt-4 border-t border-[var(--border)] flex items-center justify-end">
+            <button
+              type="button"
+              data-testid="settings-page-save-bottom"
+              onClick={() => handleSaveSettings()}
+              className="px-6 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md hover:opacity-95 transition flex items-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+    >
+      <div className="bg-[var(--ag-modal-bg)] border border-slate-800 rounded-3xl max-w-5xl w-full shadow-2xl overflow-hidden flex flex-col h-[92vh] max-h-[820px]">
+        {/* Header */}
+        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/70 shrink-0">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={isRu ? 'Меню настроек' : 'Menu des paramètres'}
+              className="md:hidden p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white transition"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 id="settings-modal-title" className="text-base sm:text-lg font-bold text-white">
+                {isRu ? 'Настройки AutoGarage Manager' : 'Paramètres AutoGarage Manager'}
+              </h2>
+              <p className="text-[11px] text-slate-400 hidden sm:block">
+                {isRu
+                  ? 'Профиль гаража, бланки Cerfa, финансы, внешний вид и безопасность'
+                  : 'Profil garage, modèles Cerfa, finances, apparence et sécurité'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fermer les paramètres"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Mobile/Tablet Compact Icon Bar */}
+        <div className="md:hidden px-3 py-2 bg-slate-950/50 border-b border-slate-800 flex items-center gap-1.5 overflow-x-auto shrink-0">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                  active
+                    ? 'bg-amber-500 text-slate-950 shadow-sm'
+                    : 'bg-slate-900 text-slate-300 border border-slate-800'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{item.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 2-Column Body: Left Sidebar + Right Content Panel */}
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 relative overflow-hidden">
+          {/* Mobile Slide-Out Drawer */}
+          {mobileMenuOpen && (
+            <div className="md:hidden absolute inset-0 z-20 flex">
+              <aside className="w-64 bg-slate-900 border-r border-slate-800 p-4 space-y-2 shadow-2xl">
+                <p className="text-[11px] font-bold tracking-wider text-amber-400 px-2 pb-2 border-b border-slate-800">
+                  {isRu ? 'РАЗДЕЛЫ НАСТРОЕК' : 'SECTIONS'}
+                </p>
+                <nav className="space-y-1" aria-label="Settings mobile navigation">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const active = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </aside>
+              <div
+                className="flex-1 bg-slate-950/60"
+                onClick={() => setMobileMenuOpen(false)}
+              />
+            </div>
+          )}
+
+          {/* Desktop Fixed Left Sidebar (Matching SuperAdmin Panel UX) */}
+          <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-slate-900/95 border-r border-slate-800 p-4 space-y-4 overflow-y-auto">
+            <div className="px-2 pb-2 border-b border-slate-800">
+              <p className="text-[11px] font-bold tracking-wider text-amber-400">
+                {isRu ? 'КОНФИГУРАЦИЯ' : 'CONFIGURATION'}
+              </p>
+              <p className="text-xs font-bold text-white mt-0.5 truncate">
+                {settings.name || 'AutoGarage Manager'}
+              </p>
+            </div>
+
+            <nav className="space-y-1 flex-1" aria-label="Settings navigation">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                      active
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* Right Content Area */}
+          <section className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-6 space-y-5 bg-slate-950/30">
+            {mainContent}
           </section>
         </div>
 

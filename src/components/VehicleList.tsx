@@ -19,6 +19,7 @@ import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { VehicleCard } from './VehicleCard';
 import { useI18n } from '../i18n/I18nContext';
 import { formatEuro, getEffectiveSalePrice } from '../utils/finance';
+import { ThemedSelect } from './ThemedSelect';
 
 interface VehicleListProps {
   vehicles: Vehicle[];
@@ -139,26 +140,29 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </div>
 
           {/* Sort & View Mode Switcher */}
-          <div className="flex items-center justify-between sm:justify-end gap-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--muted-foreground)] flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-xs text-[var(--muted-foreground)] flex items-center gap-1 shrink-0">
                 <ArrowUpDown className="w-3.5 h-3.5" />
-                {t('sortBy')}
+                <span className="hidden sm:inline">{t('sortBy')}</span>
               </span>
-              <select
+              <ThemedSelect
+                testId="vehicle-list-sort-select"
+                ariaLabel={t('sortBy')}
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-3 py-2 focus:outline-none focus:border-[var(--primary)] cursor-pointer"
-              >
-                <option value="date">{t('sortRecent')}</option>
-                {featureFlags.pnlCalculator && <option value="margin">{t('sortMargin')}</option>}
-                <option value="price">{t('sortPrice')}</option>
-                <option value="mileage">{t('sortMileage')}</option>
-              </select>
+                onChange={(val) => setSortBy(val as any)}
+                options={[
+                  { value: 'date', label: t('sortRecent') },
+                  ...(featureFlags.pnlCalculator ? [{ value: 'margin', label: t('sortMargin') }] : []),
+                  { value: 'price', label: t('sortPrice') },
+                  { value: 'mileage', label: t('sortMileage') },
+                ]}
+                triggerClassName="text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 sm:px-3 py-2 max-w-[175px] sm:max-w-none"
+              />
             </div>
 
             {/* Grid / List View Switcher */}
-            <div className="flex items-center bg-[var(--background)] p-0.5 rounded-[var(--ag-button-radius)] border border-[var(--border)]">
+            <div className="flex items-center bg-[var(--background)] p-0.5 rounded-[var(--ag-button-radius)] border border-[var(--border)] shrink-0">
               <button
                 type="button"
                 onClick={() => handleViewModeChange('grid')}
@@ -190,7 +194,10 @@ export const VehicleList: React.FC<VehicleListProps> = ({
         </div>
 
         {/* Status Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+        <div
+          data-testid="vehicle-status-filter-bar"
+          className="flex flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar"
+        >
           <button
             onClick={() => setSelectedStatus('all')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
@@ -349,23 +356,26 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                           {v.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
                         </td>
                         <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
-                          <select
+                          <ThemedSelect<VehicleStatus>
+                            testId={`list-status-select-${v.id}`}
+                            ariaLabel={t('thStatus')}
+                            stopPropagation
                             value={v.status}
-                            onChange={(e) => {
-                              const newStatus = e.target.value as VehicleStatus;
+                            onChange={(newStatus) => {
                               if (newStatus === 'sold' && v.status !== 'sold') {
                                 onOpenSellModal(v);
                               } else {
                                 onQuickStatusChange(v.id, newStatus);
                               }
                             }}
-                            className="text-[11px] font-semibold bg-[var(--background)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)] focus:outline-none focus:border-[var(--primary)] cursor-pointer"
-                          >
-                            <option value="preparation">🛠️ {t('statusPreparation')}</option>
-                            <option value="repair">🔧 {t('statusRepair')}</option>
-                            <option value="for_sale">🏷️ {t('statusForSale')}</option>
-                            <option value="sold">✅ {t('statusSold')}</option>
-                          </select>
+                            options={[
+                              { value: 'preparation', label: `🛠️ ${t('statusPreparation')}` },
+                              { value: 'repair', label: `🔧 ${t('statusRepair')}` },
+                              { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
+                              { value: 'sold', label: `✅ ${t('statusSold')}` },
+                            ]}
+                            triggerClassName="text-[11px] font-semibold bg-[var(--background)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)]"
+                          />
                         </td>
                         <td className="py-2 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
                           {formatEuro(v.purchasePrice)}

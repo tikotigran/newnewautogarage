@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildInitialCerfaData,
+  buildVehicleCerfaPatch,
+  CERFA_TEMPLATE_OPTIONS,
+  createDemoCerfaVehicle,
   formatFrenchDate,
+  pickCerfaTargetVehicle,
   sanitizeWinAnsi,
   splitFrenchDateDigits,
   splitStreetTypeAndName,
@@ -136,3 +140,85 @@ test('CERFA_15776_CONFIG exposes structured sections with valid coordinates', ()
   assert.ok(CERFA_15776_CONFIG.section2Seller.signatures.faitA.y > CERFA_15776_CONFIG.section3Buyer.signatures.faitA.y);
   assert.ok(CERFA_15776_CONFIG.checkboxes.opposeProspecting.x > 0);
 });
+
+test('pickCerfaTargetVehicle prioritizes preferred ID, then selected, then first vehicle, then demo fallback', () => {
+  const secondVehicle: Vehicle = { ...mockVehicle, id: 'veh_2', make: 'Peugeot', model: '208 GT' };
+  const pickedPreferred = pickCerfaTargetVehicle({
+    preferredVehicleId: 'veh_2',
+    selectedVehicle: mockVehicle,
+    vehicles: [mockVehicle, secondVehicle],
+  });
+  assert.equal(pickedPreferred.isDemo, false);
+  assert.equal(pickedPreferred.vehicle.id, 'veh_2');
+
+  const pickedFirst = pickCerfaTargetVehicle({
+    vehicles: [mockVehicle, secondVehicle],
+  });
+  assert.equal(pickedFirst.isDemo, false);
+  assert.equal(pickedFirst.vehicle.id, 'veh_1');
+
+  const pickedDemo = pickCerfaTargetVehicle({
+    vehicles: [],
+    userId: 'usr_99',
+  });
+  assert.equal(pickedDemo.isDemo, true);
+  assert.equal(pickedDemo.vehicle.id, createDemoCerfaVehicle('usr_99').id);
+  assert.ok(CERFA_TEMPLATE_OPTIONS.some((opt) => opt.id === 'cerfa_15776_02'));
+});
+
+test('buildVehicleCerfaPatch returns only modified plate, vin, or mileage', () => {
+  const baseVehicle: Vehicle = { ...mockVehicle, registrationNumber: 'AA-111-AA' };
+  const unchanged = buildVehicleCerfaPatch(baseVehicle, {
+    registrationNumber: 'aa-111-aa',
+    vin: 'WVWZZZAUZKP512984',
+    make: 'VOLKSWAGEN',
+    typeVariantVersion: '',
+    commercialDesignation: '',
+    firstRegistrationDate: '',
+    nationalGenre: 'VP',
+    mileage: 94000,
+    hasRegistrationCertificate: true,
+    formulaNumber: '',
+    certificateDate: '',
+    absenceReason: '',
+  });
+  assert.equal(unchanged, null);
+
+  const modified = buildVehicleCerfaPatch(baseVehicle, {
+    registrationNumber: 'bb-222-bb',
+    vin: 'WVWZZZAUZKP512984',
+    make: 'VOLKSWAGEN',
+    typeVariantVersion: '',
+    commercialDesignation: '',
+    firstRegistrationDate: '',
+    nationalGenre: 'VP',
+    mileage: 95500,
+    hasRegistrationCertificate: true,
+    formulaNumber: '',
+    certificateDate: '',
+    absenceReason: '',
+  });
+  assert.deepEqual(modified, {
+    registrationNumber: 'BB-222-BB',
+    mileage: 95500,
+  });
+});
+
+test('buildInitialCerfaData pre-fills Carte Grise codes (D.2, J.1, formulaNumber, certificateDate) from vehicle', () => {
+  const withCarteGrise: Vehicle = {
+    ...mockVehicle,
+    registrationNumber: 'CD-456-EF',
+    typeVariantVersion: 'M10PGTVP000H451',
+    nationalGenre: 'CTTE',
+    bodyType: 'FOURGON',
+    formulaNumber: '2022AB98765',
+    certificateDate: '2022-03-15',
+  };
+  const data = buildInitialCerfaData(withCarteGrise, mockGarage);
+  assert.equal(data.vehicle.typeVariantVersion, 'M10PGTVP000H451');
+  assert.equal(data.vehicle.nationalGenre, 'CTTE');
+  assert.equal(data.vehicle.formulaNumber, '2022AB98765');
+  assert.equal(data.vehicle.certificateDate, '2022-03-15');
+});
+
+

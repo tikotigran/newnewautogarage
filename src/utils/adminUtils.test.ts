@@ -13,6 +13,8 @@ import {
   getContrastForeground,
   getTranslationKeyCategory,
   isSuperAdminUser,
+  parseUserLayoutPreference,
+  resolveEffectiveLayoutMode,
   resolveLocalizedColor,
   resolveLocalizedLabel,
   resolveSystemThemeConfig,
@@ -220,3 +222,42 @@ test('getTranslationKeyCategory classifies keys into expected UI customization c
   assert.equal(getTranslationKeyCategory('searchPlaceholder'), 'inventory');
 });
 
+test('resolveSystemThemeConfig defaults layoutMode to classic and preserves sidebar', () => {
+  assert.equal(resolveSystemThemeConfig({}).layoutMode, 'classic');
+  assert.equal(resolveSystemThemeConfig({ layoutMode: 'sidebar' }).layoutMode, 'sidebar');
+  assert.equal(
+    resolveSystemThemeConfig({ layoutMode: 'invalid' as unknown as 'classic' }).layoutMode,
+    'classic'
+  );
+});
+
+test('parseUserLayoutPreference safely parses stored user layout values', () => {
+  assert.equal(parseUserLayoutPreference('sidebar'), 'sidebar');
+  assert.equal(parseUserLayoutPreference('classic'), 'classic');
+  assert.equal(parseUserLayoutPreference('global'), 'global');
+  assert.equal(parseUserLayoutPreference(null), 'global');
+  assert.equal(parseUserLayoutPreference('unknown'), 'global');
+});
+
+test('resolveEffectiveLayoutMode applies user override or inherits system default cleanly', () => {
+  // Default fallback
+  assert.equal(resolveEffectiveLayoutMode({}), 'classic');
+  // Inherits system default when user preference is global or absent
+  assert.equal(
+    resolveEffectiveLayoutMode({ userPreference: 'global', systemLayoutMode: 'sidebar' }),
+    'sidebar'
+  );
+  assert.equal(
+    resolveEffectiveLayoutMode({ userPreference: undefined, systemLayoutMode: 'sidebar' }),
+    'sidebar'
+  );
+  // User override wins over system global default
+  assert.equal(
+    resolveEffectiveLayoutMode({ userPreference: 'classic', systemLayoutMode: 'sidebar' }),
+    'classic'
+  );
+  assert.equal(
+    resolveEffectiveLayoutMode({ userPreference: 'sidebar', systemLayoutMode: 'classic' }),
+    'sidebar'
+  );
+});

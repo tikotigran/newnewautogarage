@@ -174,14 +174,14 @@ export function buildInitialCerfaData(
       ).toUpperCase(),
       vin: (vehicle.vin || '').toUpperCase(),
       make: (vehicle.make || '').toUpperCase(),
-      typeVariantVersion: vehicle.trim || vehicle.model || '',
+      typeVariantVersion: vehicle.typeVariantVersion || vehicle.trim || vehicle.model || '',
       commercialDesignation: (vehicle.model || '').toUpperCase(),
       firstRegistrationDate: vehicle.year ? `${vehicle.year}-01-01` : '',
-      nationalGenre: 'VP',
+      nationalGenre: vehicle.nationalGenre || 'VP',
       mileage: vehicle.mileage ?? 0,
       hasRegistrationCertificate: true,
-      formulaNumber: '',
-      certificateDate: '',
+      formulaNumber: (vehicle.formulaNumber || '').toUpperCase(),
+      certificateDate: vehicle.certificateDate || '',
       absenceReason: '',
     },
     seller: (() => {
@@ -299,3 +299,98 @@ export function validateCerfaStep(
 
   return errors;
 }
+
+export interface CerfaTemplateOption {
+  id: string;
+  code: string;
+  labelFr: string;
+  labelRu: string;
+  descriptionFr: string;
+  descriptionRu: string;
+}
+
+export const CERFA_TEMPLATE_OPTIONS: CerfaTemplateOption[] = [
+  {
+    id: 'cerfa_15776_02',
+    code: '15776*02',
+    labelFr: 'Cerfa N° 15776*02 — Certificat de cession',
+    labelRu: 'Cerfa N° 15776*02 — Акт передачи ТС (Cession)',
+    descriptionFr: 'Formulaire officiel ANTS / SIV (Exemplaires 1 & 2 pré-remplis)',
+    descriptionRu: 'Официальный бланк ANTS / SIV (экземпляры 1 и 2 с автозаполнением)',
+  },
+];
+
+export function createDemoCerfaVehicle(userId: string = 'garage_pro_dealer'): Vehicle {
+  return {
+    id: 'demo_aligner',
+    userId,
+    make: 'Volkswagen',
+    model: 'Golf VII',
+    trim: '1.6 TDI 115ch',
+    year: 2019,
+    mileage: 94000,
+    vin: 'WVWZZZAUZKP512984',
+    registrationNumber: 'AB-123-CD',
+    purchaseDate: '2026-08-10',
+    purchasePrice: 10400,
+    targetSalePrice: 13990,
+    status: 'for_sale',
+    photos: [],
+    documents: [],
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 10400,
+    netProfit: 3590,
+    marginPercentage: 25.66,
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
+export function pickCerfaTargetVehicle(params: {
+  preferredVehicleId?: string | null;
+  selectedVehicle?: Vehicle | null;
+  vehicles?: Vehicle[];
+  userId?: string;
+}): { vehicle: Vehicle; isDemo: boolean } {
+  const list = params.vehicles || [];
+  if (params.preferredVehicleId) {
+    const byId = list.find((v) => v.id === params.preferredVehicleId);
+    if (byId) return { vehicle: byId, isDemo: false };
+  }
+  if (params.selectedVehicle) {
+    const matching = list.find((v) => v.id === params.selectedVehicle?.id);
+    return { vehicle: matching || params.selectedVehicle, isDemo: false };
+  }
+  if (list.length > 0) {
+    return { vehicle: list[0], isDemo: false };
+  }
+  return { vehicle: createDemoCerfaVehicle(params.userId), isDemo: true };
+}
+
+export function buildVehicleCerfaPatch(
+  vehicle: Vehicle,
+  step1: Cerfa15776VehicleStep
+): Partial<Pick<Vehicle, 'registrationNumber' | 'vin' | 'mileage'>> | null {
+  const nextReg = step1.registrationNumber.trim().toUpperCase();
+  const nextVin = step1.vin.trim().toUpperCase();
+  const nextMileage =
+    step1.mileage === '' || Number.isNaN(Number(step1.mileage))
+      ? vehicle.mileage
+      : Math.max(0, Number(step1.mileage));
+
+  const patch: Partial<Pick<Vehicle, 'registrationNumber' | 'vin' | 'mileage'>> = {};
+  if (nextReg !== (vehicle.registrationNumber || '').toUpperCase()) {
+    patch.registrationNumber = nextReg;
+  }
+  if (nextVin && nextVin !== (vehicle.vin || '').toUpperCase()) {
+    patch.vin = nextVin;
+  }
+  if (nextMileage !== vehicle.mileage) {
+    patch.mileage = nextMileage;
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+

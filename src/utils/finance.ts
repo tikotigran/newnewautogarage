@@ -126,6 +126,27 @@ export function hasDefinedSalePrice(vehicle: {
   return getEffectiveSalePrice(vehicle) > 0;
 }
 
+export function getRealizedSalePrice(vehicle: {
+  status: string;
+  buyerInfo?: { salePrice?: number };
+}): number {
+  if (
+    vehicle.status === 'sold' &&
+    vehicle.buyerInfo?.salePrice !== undefined &&
+    Number(vehicle.buyerInfo.salePrice) > 0
+  ) {
+    return Number(vehicle.buyerInfo.salePrice);
+  }
+  return 0;
+}
+
+export function canDisplaySaleFinancialReport(vehicle: {
+  status: string;
+  buyerInfo?: { salePrice?: number };
+}): boolean {
+  return getRealizedSalePrice(vehicle) > 0;
+}
+
 export type TaxRegime = 'sarl' | 'micro' | 'custom' | 'none';
 
 export interface SaleFinancialReport {

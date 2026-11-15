@@ -3,6 +3,12 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Vehicle, RepairTask, GeneralExpense, GarageSettings } from '../types/garage';
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
 import { formatEuro } from './finance';
+import { DealershipAnalyticsReport } from './analytics';
+import {
+  buildFacturXInvoiceNumber,
+  buildFacturXXml,
+  buildFinancialLedgerRows,
+} from './exportBackup';
 import {
   Cerfa15776FormData,
   buildInitialCerfaData,
@@ -844,3 +850,375 @@ export function generateVehicleFinancialReportPDF(
 
   doc.save(`Bilan_Financier_${vehicle.make}_${vehicle.model}.pdf`);
 }
+
+/**
+ * 4. Generates Full Dealership P&L & Cash Flow PDF Report
+ * Strictly separates Revenue, Gross Profit, Tax, and Net Profit.
+ */
+export function generateDealershipFinancialReportPDF(params: {
+  analytics: DealershipAnalyticsReport;
+  vehicles: Vehicle[];
+  garageSettings: GarageSettings;
+  periodLabel: string;
+}): void {
+  const { analytics, vehicles, garageSettings, periodLabel } = params;
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  // Top Header
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text('RAPPORT FINANCIER & P&L CONCESSION', 14, 15);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.text(
+    `${garageSettings.name} (SIRET ${garageSettings.siret || '-'})  |  Période : ${periodLabel}  |  Édité le ${new Date().toISOString().slice(0, 10)}`,
+    14,
+    23
+  );
+
+  // Stock & Capital Block
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text('1. VALEUR DU STOCK & CAPITAL IMMOBILISÉ', 14, 40);
+
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(14, 44, 182, 24, 2, 2, 'F');
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Valeur du stock (cible)', 20, 52);
+  doc.text('Capital investi en stock', 82, 52);
+  doc.text('Profit potentiel stock', 144, 52);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatEuro(analytics.inventory.totalStockValue), 20, 61);
+  doc.text(formatEuro(analytics.inventory.totalInvestedInStock), 82, 61);
+  doc.setTextColor(16, 185, 129);
+  doc.text(formatEuro(analytics.inventory.totalPotentialProfit), 144, 61);
+
+  // Separated P&L Block: Revenue / Gross Profit / Net Profit
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text('2. COMPTE DE RÉSULTAT (REVENUE / GROSS PROFIT / NET PROFIT)', 14, 78);
+
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, 82, 182, 34, 2, 2, 'F');
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(14, 82, 182, 34, 2, 2);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('1. Chiffre d’affaires (Revenue)', 20, 90);
+  doc.text('2. Marge brute (Gross Profit)', 78, 90);
+  doc.text(`Impôts (${analytics.salesPerformance.taxLabel})`, 132, 90);
+  doc.text('3. Bénéfice net (Net Profit)', 20, 104);
+  doc.text('Marge moyenne / véhicule', 78, 104);
+  doc.text('Délai moyen de vente', 132, 104);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatEuro(analytics.salesPerformance.revenue), 20, 97);
+  doc.text(formatEuro(analytics.salesPerformance.grossProfit), 78, 97);
+  doc.setTextColor(217, 119, 6);
+  doc.text(formatEuro(analytics.salesPerformance.taxAmount), 132, 97);
+
+  doc.setTextColor(
+    analytics.salesPerformance.netProfit >= 0 ? 16 : 220,
+    analytics.salesPerformance.netProfit >= 0 ? 185 : 38,
+    analytics.salesPerformance.netProfit >= 0 ? 129 : 38
+  );
+  doc.text(formatEuro(analytics.salesPerformance.netProfit), 20, 111);
+  doc.setTextColor(15, 23, 42);
+  doc.text(
+    `${formatEuro(analytics.salesPerformance.averageNetMarginEuro)} (${analytics.salesPerformance.netMarginPercent.toFixed(1)}%)`,
+    78,
+    111
+  );
+  doc.text(
+    analytics.salesPerformance.averageDaysToSell !== null
+      ? `${analytics.salesPerformance.averageDaysToSell.toFixed(0)} j`
+      : '—',
+    132,
+    111
+  );
+
+  // Cash Flow Block
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('3. FLUX DE TRÉSORERIE (CASH FLOW)', 14, 126);
+
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(14, 130, 182, 22, 2, 2, 'F');
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Entrées (Encaissements ventes)', 20, 138);
+  doc.text('Sorties (Achats, Travaux, Frais, Taxes)', 82, 138);
+  doc.text('Flux net de trésorerie', 148, 138);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(16, 185, 129);
+  doc.text(formatEuro(analytics.cashFlow.inflow), 20, 146);
+  doc.setTextColor(220, 38, 38);
+  doc.text(formatEuro(analytics.cashFlow.outflow), 82, 146);
+  doc.setTextColor(
+    analytics.cashFlow.netCashFlow >= 0 ? 16 : 220,
+    analytics.cashFlow.netCashFlow >= 0 ? 185 : 38,
+    analytics.cashFlow.netCashFlow >= 0 ? 129 : 38
+  );
+  doc.text(formatEuro(analytics.cashFlow.netCashFlow), 148, 146);
+
+  // Fleet Ledger Table
+  const ledger = buildFinancialLedgerRows(vehicles, garageSettings);
+  let curY = 162;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`4. DÉTAIL PAR VÉHICULE (${ledger.length})`, 14, curY);
+  curY += 5;
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(14, curY, 182, 7, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(7.5);
+  doc.text('VÉHICULE', 17, curY + 4.8);
+  doc.text('STATUT', 78, curY + 4.8);
+  doc.text('INVESTI', 102, curY + 4.8);
+  doc.text('REVENUE', 128, curY + 4.8);
+  doc.text('BRUT', 154, curY + 4.8);
+  doc.text('NET', 176, curY + 4.8);
+  curY += 7;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(30, 41, 59);
+  if (ledger.length === 0) {
+    doc.text('Aucun véhicule enregistré.', 17, curY + 6);
+  } else {
+    ledger.forEach((row, idx) => {
+      if (curY > 272) {
+        doc.addPage();
+        curY = 20;
+      }
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(14, curY, 182, 6.5, 'F');
+      }
+      doc.setFontSize(7.5);
+      doc.text(row.Vehicule.slice(0, 32), 17, curY + 4.5);
+      doc.text(row.Statut, 78, curY + 4.5);
+      doc.text(formatEuro(row.TotalInvesti), 102, curY + 4.5);
+      doc.text(row.ChiffreAffaires > 0 ? formatEuro(row.ChiffreAffaires) : '—', 128, curY + 4.5);
+      doc.text(row.ChiffreAffaires > 0 ? formatEuro(row.MargeBrute) : '—', 154, curY + 4.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text(row.ChiffreAffaires > 0 ? formatEuro(row.BeneficeNet) : '—', 176, curY + 4.5);
+      doc.setFont('helvetica', 'normal');
+      curY += 6.5;
+    });
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  doc.save(`Rapport_Financier_AutoGarage_${stamp}.pdf`);
+}
+
+/**
+ * 5. Generates a Factur-X Hybrid PDF/A-3-style Invoice with embedded factur-x.xml (EN 16931 CII)
+ */
+export async function generateFacturXHybridPdf(params: {
+  vehicle: Vehicle;
+  garageSettings: GarageSettings;
+  paymentMeansCode?: '30' | '48' | '10' | '20';
+  vatMode?: 'margin' | 'standard_20';
+}): Promise<{ fileName: string; invoiceNumber: string; xml: string }> {
+  const { vehicle, garageSettings, paymentMeansCode = '30', vatMode = 'margin' } = params;
+  const invoiceNumber = buildFacturXInvoiceNumber(vehicle);
+  const xml = buildFacturXXml(vehicle, garageSettings, {
+    invoiceNumber,
+    paymentMeansCode,
+    vatMode,
+  });
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const buyer = vehicle.buyerInfo || {
+    fullName: 'Client Particulier',
+    phone: 'Non renseigné',
+    email: 'Non renseigné',
+    address: 'France',
+    salePrice: vehicle.targetSalePrice,
+    saleDate: new Date().toISOString().split('T')[0],
+  };
+  const sellerStreetPart = [
+    garageSettings.streetNumber,
+    garageSettings.streetExtension,
+    garageSettings.streetType,
+    garageSettings.streetName,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const sellerAddress = `${sellerStreetPart}, ${garageSettings.postalCode} ${garageSettings.city}`;
+  const grossPrice = Number(buyer.salePrice) || Number(vehicle.targetSalePrice) || 0;
+  const htAmount = vatMode === 'standard_20' ? grossPrice / 1.2 : grossPrice;
+  const vatAmount = vatMode === 'standard_20' ? grossPrice - htAmount : 0;
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, 210, 32, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text('FACTURE ÉLECTRONIQUE — FACTUR-X (EN 16931)', 14, 17);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(203, 213, 225);
+  doc.text(
+    `Facture N° ${invoiceNumber}  |  Date : ${buyer.saleDate}  |  XML factur-x.xml embarqué`,
+    14,
+    25
+  );
+
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('VENDEUR (GARAGE)', 14, 42);
+  doc.text('ACHETEUR (CLIENT)', 112, 42);
+
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, 46, 88, 36, 2, 2, 'F');
+  doc.roundedRect(112, 46, 84, 36, 2, 2, 'F');
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(garageSettings.name, 18, 52);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`SIRET : ${garageSettings.siret || '-'}`, 18, 58);
+  doc.text(sellerAddress, 18, 64, { maxWidth: 80 });
+  doc.text(`${garageSettings.phone} | ${garageSettings.email}`, 18, 75, { maxWidth: 80 });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(buyer.fullName, 116, 52);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
+  if (buyer.siret) doc.text(`SIRET : ${buyer.siret}`, 116, 58);
+  doc.text(`Adresse : ${buyer.address}`, 116, 64, { maxWidth: 76 });
+  doc.text(`${buyer.phone} | ${buyer.email}`, 116, 75, { maxWidth: 76 });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DÉSIGNATION DU VÉHICULE & DÉCOMPTE FISCAL', 14, 94);
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(14, 98, 182, 8, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8.5);
+  doc.text('DÉSIGNATION', 18, 103.5);
+  doc.text('RÉGIME TVA', 105, 103.5);
+  doc.text('MONTANT TTC', 162, 103.5);
+
+  doc.setFillColor(255, 255, 255);
+  doc.rect(14, 106, 182, 18);
+  doc.setTextColor(30, 41, 59);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(
+    `${vehicle.make} ${vehicle.model} ${vehicle.trim || ''} (${vehicle.year})`,
+    18,
+    113
+  );
+  doc.setFontSize(7.8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    `VIN : ${vehicle.vin}  |  Immat : ${vehicle.registrationNumber || 'N/A'}  |  ${vehicle.mileage.toLocaleString('fr-FR')} km`,
+    18,
+    119
+  );
+  doc.setFontSize(8);
+  doc.setTextColor(30, 41, 59);
+  doc.text(
+    vatMode === 'standard_20' ? 'TVA Standard 20%' : 'TVA sur la marge (Art. 297 A)',
+    105,
+    116
+  );
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(formatEuro(grossPrice), 162, 116);
+
+  doc.setFillColor(248, 250, 252);
+  doc.rect(112, 130, 84, 24, 'F');
+  doc.setDrawColor(203, 213, 225);
+  doc.rect(112, 130, 84, 24);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Base Hors Taxe :', 116, 137);
+  doc.text('TVA applicable :', 116, 143);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('TOTAL TTC À PAYER :', 116, 150);
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(formatEuro(htAmount), 162, 137);
+  doc.text(vatMode === 'standard_20' ? formatEuro(vatAmount) : '0,00 € (Marge)', 162, 143);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(16, 185, 129);
+  doc.text(formatEuro(grossPrice), 162, 150);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    'Document hybride Factur-X conforme au profil EN 16931 (UN/CEFACT CII D16B). Fichier factur-x.xml joint en pièce embarquée.',
+    14,
+    170,
+    { maxWidth: 182 }
+  );
+
+  // Embed factur-x.xml inside the PDF using pdf-lib
+  const basePdfBytes = doc.output('arraybuffer');
+  const pdfDoc = await PDFDocument.load(basePdfBytes);
+  pdfDoc.setTitle(`Factur-X ${invoiceNumber}`);
+  pdfDoc.setSubject('Facture électronique conforme Factur-X EN 16931');
+  pdfDoc.setCreator('AutoGarage Manager');
+  pdfDoc.setProducer('AutoGarage Manager (pdf-lib Factur-X)');
+
+  const xmlBytes = new TextEncoder().encode(xml);
+  await pdfDoc.attach(xmlBytes, 'factur-x.xml', {
+    mimeType: 'application/xml',
+    description: 'Factur-X EN 16931 UN/CEFACT CII XML Invoice',
+    creationDate: new Date(),
+    modificationDate: new Date(),
+  });
+
+  const hybridBytes = await pdfDoc.save();
+  const cleanMake = sanitizeWinAnsi(vehicle.make).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `FacturX_${invoiceNumber}_${cleanMake || 'Vehicule'}.pdf`;
+  const blob = new Blob([new Uint8Array(hybridBytes)], { type: 'application/pdf' });
+  downloadBlob(blob, fileName);
+
+  return { fileName, invoiceNumber, xml };
+}
+

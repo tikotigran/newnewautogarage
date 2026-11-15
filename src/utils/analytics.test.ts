@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  computeDealershipAnalytics,
   computeFleetExpenseAnalytics,
   isWithinTimeRange,
   mapGeneralExpenseCategory,
@@ -134,14 +135,42 @@ test('mapGeneralExpenseCategory routes all categories into 6 analytics buckets',
   assert.equal(mapGeneralExpenseCategory('other'), 'other');
 });
 
-test('isWithinTimeRange filters dates accurately for month, 3months, 6months, year, all', () => {
+test('isWithinTimeRange filters dates accurately for today, week, month, quarter, year, custom, all', () => {
+  // Today (2026-11-10)
+  assert.equal(isWithinTimeRange('2026-11-10', 'today', fixedNow), true);
+  assert.equal(isWithinTimeRange('2026-11-09', 'today', fixedNow), false);
+
+  // Week (last 7 days including today: 2026-11-04..2026-11-10)
+  assert.equal(isWithinTimeRange('2026-11-05', 'week', fixedNow), true);
+  assert.equal(isWithinTimeRange('2026-11-01', 'week', fixedNow), false);
+
+  // Month (last 30 days)
   assert.equal(isWithinTimeRange('2026-11-01', 'month', fixedNow), true);
   assert.equal(isWithinTimeRange('2026-09-01', 'month', fixedNow), false);
+
+  // Quarter & 3months
+  assert.equal(isWithinTimeRange('2026-09-01', 'quarter', fixedNow), true);
   assert.equal(isWithinTimeRange('2026-09-01', '3months', fixedNow), true);
   assert.equal(isWithinTimeRange('2026-06-01', '6months', fixedNow), true);
   assert.equal(isWithinTimeRange('2025-12-01', 'year', fixedNow), true);
   assert.equal(isWithinTimeRange('2020-01-01', 'year', fixedNow), false);
   assert.equal(isWithinTimeRange('2020-01-01', 'all', fixedNow), true);
+
+  // Custom inclusive range
+  assert.equal(
+    isWithinTimeRange('2026-10-25', 'custom', fixedNow, {
+      startDate: '2026-10-20',
+      endDate: '2026-10-30',
+    }),
+    true
+  );
+  assert.equal(
+    isWithinTimeRange('2026-11-01', 'custom', fixedNow, {
+      startDate: '2026-10-20',
+      endDate: '2026-10-30',
+    }),
+    false
+  );
 });
 
 test('computeFleetExpenseAnalytics computes totals, percentages, and top vehicle for all time', () => {
@@ -180,4 +209,208 @@ test('computeFleetExpenseAnalytics respects last 30 days filter', () => {
   assert.equal(result.totalSpent, 800);
   assert.equal(result.impactedVehiclesCount, 1);
   assert.equal(result.categories.find((c) => c.id === 'registration')?.amount, 0);
+});
+
+test('computeDealershipAnalytics separates Revenue, Gross Profit, and Net Profit after tax + computes stock, cash flow, and rankings', () => {
+  const soldRecent: Vehicle = {
+    id: 'v3',
+    userId: 'u1',
+    make: 'Audi',
+    model: 'A3',
+    trim: 'S-Line',
+    year: 2022,
+    mileage: 30000,
+    vin: 'WAUZZZ11111111111',
+    registrationNumber: 'CC-333-CC',
+    purchaseDate: '2026-10-15',
+    purchasePrice: 18000,
+    targetSalePrice: 23000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Marc Test',
+      address: 'Paris',
+      phone: '0600000000',
+      email: 'marc@test.fr',
+      salePrice: 22000,
+      saleDate: '2026-11-05', // 21 days to sell
+    },
+    photos: [],
+    documents: [],
+    repairCostTotal: 500,
+    generalExpensesTotal: 500,
+    totalExpenses: 1000,
+    totalInvested: 19000,
+    netProfit: 3000,
+    marginPercentage: 13.64,
+    createdAt: '2026-10-15T10:00:00Z',
+    updatedAt: '2026-11-05T10:00:00Z',
+  };
+
+  const soldOlder: Vehicle = {
+    id: 'v4',
+    userId: 'u1',
+    make: 'BMW',
+    model: '118i',
+    trim: 'M Sport',
+    year: 2020,
+    mileage: 55000,
+    vin: 'WBA11111111111111',
+    registrationNumber: 'DD-444-DD',
+    purchaseDate: '2026-07-01',
+    purchasePrice: 14000,
+    targetSalePrice: 17500,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Claire Older',
+      address: 'Lyon',
+      phone: '0611111111',
+      email: 'claire@test.fr',
+      salePrice: 17000,
+      saleDate: '2026-08-10', // 40 days to sell
+    },
+    photos: [],
+    documents: [],
+    repairCostTotal: 600,
+    generalExpensesTotal: 400,
+    totalExpenses: 1000,
+    totalInvested: 15000,
+    netProfit: 2000,
+    marginPercentage: 11.76,
+    createdAt: '2026-07-01T10:00:00Z',
+    updatedAt: '2026-08-10T10:00:00Z',
+  };
+
+  const unpricedActive: Vehicle = {
+    id: 'v5',
+    userId: 'u1',
+    make: 'Dacia',
+    model: 'Sandero',
+    trim: '',
+    year: 2021,
+    mileage: 40000,
+    vin: '',
+    registrationNumber: 'EE-555-EE',
+    purchaseDate: '2026-11-08',
+    purchasePrice: 7000,
+    targetSalePrice: 0,
+    status: 'preparation',
+    photos: [],
+    documents: [],
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 7000,
+    netProfit: 0,
+    marginPercentage: 0,
+    createdAt: '2026-11-08T10:00:00Z',
+    updatedAt: '2026-11-08T10:00:00Z',
+  };
+
+  const repairs: RepairTask[] = [
+    ...mockRepairs,
+    {
+      id: 'r3',
+      vehicleId: 'v3',
+      userId: 'u1',
+      title: 'Pneus',
+      status: 'done',
+      partsCost: 400,
+      laborCost: 100,
+      totalCost: 500,
+      createdAt: '2026-10-20T10:00:00Z',
+      updatedAt: '2026-10-20T10:00:00Z',
+    },
+  ];
+
+  const expenses: GeneralExpense[] = [
+    ...mockExpenses,
+    {
+      id: 'e4',
+      vehicleId: 'v3',
+      userId: 'u1',
+      category: 'admin',
+      description: 'Formalités',
+      amount: 500,
+      date: '2026-10-22',
+      createdAt: '2026-10-22T10:00:00Z',
+      updatedAt: '2026-10-22T10:00:00Z',
+    },
+  ];
+
+  const report = computeDealershipAnalytics({
+    vehicles: [...mockVehicles, soldRecent, soldOlder, unpricedActive],
+    repairs,
+    expenses,
+    timeRange: 'month', // 2026-10-11 .. 2026-11-10
+    taxRegime: 'sarl',
+    taxRatePercent: 15,
+    now: fixedNow,
+  });
+
+  // Inventory (active: v1, v2, v5)
+  // v1: invested 11800, target 14500 (potential +2700)
+  // v2: invested 10200, target 12000 (potential +1800)
+  // v5: invested 7000, target 0 (unpriced -> stockValue uses invested 7000, potential 0)
+  assert.equal(report.inventory.activeCount, 3);
+  assert.equal(report.inventory.totalInvestedInStock, 29000);
+  assert.equal(report.inventory.totalStockValue, 33500); // 14500 + 12000 + 7000
+  assert.equal(report.inventory.totalPotentialProfit, 4500); // 2700 + 1800
+  assert.equal(report.inventory.unpricedCount, 1);
+
+  // Sales Performance (month includes only v3 sold on 2026-11-05)
+  // Revenue = 22000
+  // Gross Profit = 22000 - (18000 + 500 + 500) = 3000
+  // Tax (SARL 15% of 3000) = 450
+  // Net Profit = 3000 - 450 = 2550
+  assert.equal(report.salesPerformance.soldCount, 1);
+  assert.equal(report.salesPerformance.revenue, 22000);
+  assert.equal(report.salesPerformance.grossProfit, 3000);
+  assert.equal(report.salesPerformance.taxAmount, 450);
+  assert.equal(report.salesPerformance.netProfit, 2550);
+  assert.notEqual(report.salesPerformance.revenue, report.salesPerformance.grossProfit);
+  assert.notEqual(report.salesPerformance.grossProfit, report.salesPerformance.netProfit);
+  assert.equal(report.salesPerformance.averageNetMarginEuro, 2550);
+  assert.equal(report.salesPerformance.averageDaysToSell, 21);
+
+  // Monthly Snapshot
+  assert.equal(report.monthlySnapshot.monthlyRevenue, 22000);
+  // Expenses in last 30 days: r1(500) + e1(80) + e2(220) + r3(500) + e4(500) = 1800
+  assert.equal(report.monthlySnapshot.monthlyExpenses, 1800);
+
+  // Cash Flow in month:
+  // Inflow: 22000 (v3 sale)
+  // Outflow: purchases in month (v3: 18000 on Oct 15 + v5: 7000 on Nov 08 = 25000) + repairs(1000) + expenses(800) + tax(450) = 27250
+  assert.equal(report.cashFlow.inflow, 22000);
+  assert.equal(report.cashFlow.vehiclePurchasesOutflow, 25000);
+  assert.equal(report.cashFlow.repairsOutflow, 1000);
+  assert.equal(report.cashFlow.generalExpensesOutflow, 800);
+  assert.equal(report.cashFlow.taxesOutflow, 450);
+  assert.equal(report.cashFlow.outflow, 27250);
+  assert.equal(report.cashFlow.netCashFlow, -5250);
+  assert.ok(report.cashFlow.series.length >= 1);
+
+  // Aging Unsold Vehicles: v2 (May 15 -> 179 days), v1 (Oct 1 -> 40 days), v5 (Nov 8 -> 2 days)
+  assert.equal(report.agingUnsoldVehicles[0].vehicleId, 'v2');
+  assert.equal(report.agingUnsoldVehicles[0].ageTier, 'critical');
+  assert.equal(report.agingUnsoldVehicles[1].vehicleId, 'v1');
+  assert.equal(report.agingUnsoldVehicles[1].ageTier, 'watch');
+  assert.equal(report.slowMovingCount, 2); // v2 and v1 >= 30 days
+
+  // Check ALL time range includes both v3 and v4
+  const allReport = computeDealershipAnalytics({
+    vehicles: [...mockVehicles, soldRecent, soldOlder, unpricedActive],
+    repairs,
+    expenses,
+    timeRange: 'all',
+    taxRegime: 'sarl',
+    taxRatePercent: 15,
+    now: fixedNow,
+  });
+  assert.equal(allReport.salesPerformance.soldCount, 2);
+  assert.equal(allReport.salesPerformance.revenue, 39000);
+  assert.equal(allReport.salesPerformance.grossProfit, 5000);
+  assert.equal(allReport.salesPerformance.taxAmount, 750);
+  assert.equal(allReport.salesPerformance.netProfit, 4250);
+  assert.equal(allReport.mostProfitableVehicles[0].vehicleId, 'v3');
+  assert.equal(allReport.mostProfitableVehicles[1].vehicleId, 'v4');
 });

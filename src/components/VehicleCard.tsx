@@ -18,6 +18,7 @@ import { Vehicle, VehicleStatus } from '../types/garage';
 import { formatEuro, formatDate, getEffectiveSalePrice } from '../utils/finance';
 import { useI18n } from '../i18n/I18nContext';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
+import { ThemedSelect } from './ThemedSelect';
 
 interface VehicleCardProps {
   vehicle: Vehicle;
@@ -204,24 +205,26 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         {/* Bottom Action Footer */}
         <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
           {/* Quick status selector */}
-          <select
+          <ThemedSelect<VehicleStatus>
+            testId={`card-status-select-${vehicle.id}`}
+            ariaLabel={t('statusLabel')}
+            stopPropagation
             value={vehicle.status}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const newStatus = e.target.value as VehicleStatus;
+            onChange={(newStatus) => {
               if (newStatus === 'sold' && vehicle.status !== 'sold') {
                 onOpenSellModal(vehicle);
               } else {
                 onQuickStatusChange(vehicle.id, newStatus);
               }
             }}
-            className="text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] cursor-pointer max-w-[125px]"
-          >
-            <option value="preparation">🛠️ {t('statusPreparation')}</option>
-            <option value="repair">🔧 {t('statusRepair')}</option>
-            <option value="for_sale">🏷️ {t('statusForSale')}</option>
-            <option value="sold">✅ {t('statusSold')}</option>
-          </select>
+            options={[
+              { value: 'preparation', label: `🛠️ ${t('statusPreparation')}` },
+              { value: 'repair', label: `🔧 ${t('statusRepair')}` },
+              { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
+              { value: 'sold', label: `✅ ${t('statusSold')}` },
+            ]}
+            triggerClassName="text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)] max-w-[132px]"
+          />
 
           <button
             onClick={(e) => {

@@ -1,9 +1,11 @@
 import {
   CardPaddingDensity,
+  LayoutMode,
   SubscriptionPlan,
   SubscriptionPlanId,
   SystemThemeConfig,
   ThemePaletteTokens,
+  UserLayoutPreference,
   UserProfile,
 } from '../types/garage';
 import { roundToTwo } from './finance';
@@ -101,6 +103,9 @@ export const CARD_PADDING_VALUES: Record<CardPaddingDensity, string> = {
   spacious: '28px',
 };
 
+export const USER_LAYOUT_MODE_STORAGE_KEY = 'autogarage_user_layout_mode';
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'autogarage_sidebar_collapsed';
+
 export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
   primaryAccentColor: '#f59e0b',
   cardBorderRadius: '16px',
@@ -108,6 +113,7 @@ export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
   cardPadding: 'comfortable',
   sectionGap: '24px',
   defaultInventoryViewMode: 'grid',
+  layoutMode: 'classic',
   cerfaAdjustments: {
     offsetX: 0,
     offsetY: 0,
@@ -431,6 +437,7 @@ export function resolveSystemThemeConfig(
     ...DEFAULT_SYSTEM_THEME_CONFIG,
     ...(raw || {}),
     primaryAccentColor: baseAccent,
+    layoutMode: raw?.layoutMode === 'sidebar' ? 'sidebar' : 'classic',
     cerfaAdjustments: {
       ...DEFAULT_SYSTEM_THEME_CONFIG.cerfaAdjustments,
       ...(raw?.cerfaAdjustments || {}),
@@ -438,6 +445,23 @@ export function resolveSystemThemeConfig(
     lightPalette,
     darkPalette,
   };
+}
+
+export function parseUserLayoutPreference(raw?: string | null): UserLayoutPreference {
+  if (raw === 'classic' || raw === 'sidebar') {
+    return raw;
+  }
+  return 'global';
+}
+
+export function resolveEffectiveLayoutMode(params: {
+  userPreference?: UserLayoutPreference | null;
+  systemLayoutMode?: LayoutMode | null;
+}): LayoutMode {
+  if (params.userPreference === 'classic' || params.userPreference === 'sidebar') {
+    return params.userPreference;
+  }
+  return params.systemLayoutMode === 'sidebar' ? 'sidebar' : 'classic';
 }
 
 export function isSuperAdminUser(params: {
@@ -750,6 +774,7 @@ export function getTranslationKeyCategory(key: string): Exclude<TranslationCateg
       'soldTo',
       'inListing',
       'netProfitLabel',
+      'netProfitPendingHint',
       'make',
       'model',
       'trimVersion',

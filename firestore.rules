@@ -103,6 +103,153 @@ service cloud.firestore {
              (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
 
+    function isValidSupplier(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+             data.type in ['private_seller', 'dealership', 'auction', 'parts_supplier', 'workshop', 'transport_company'] &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('contactPerson' in data) || (data.contactPerson is string && data.contactPerson.size() <= 120)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 40)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 240)) &&
+             (!('siret' in data) || (data.siret is string && data.siret.size() <= 30)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidPurchase(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.supplierId is string && data.supplierId.size() > 0 && data.supplierId.size() <= 128 &&
+             data.supplierName is string && data.supplierName.size() > 0 && data.supplierName.size() <= 120 &&
+             data.supplierType in ['private_seller', 'dealership', 'auction', 'parts_supplier', 'workshop', 'transport_company'] &&
+             data.category in ['vehicle', 'parts', 'repair', 'transport', 'other'] &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 240 &&
+             data.amount is number && data.amount >= 0 &&
+             data.date is string && data.date.size() > 0 && data.date.size() <= 30 &&
+             data.paymentMethod in ['bank_transfer', 'card', 'cash', 'check', 'financing', 'other'] &&
+             data.vehicleDocuments is list && data.vehicleDocuments.size() <= 20 &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('vehicleId' in data) || (data.vehicleId is string && data.vehicleId.size() <= 128)) &&
+             (!('vehicleLabel' in data) || (data.vehicleLabel is string && data.vehicleLabel.size() <= 160)) &&
+             (!('invoiceNumber' in data) || (data.invoiceNumber is string && data.invoiceNumber.size() <= 80)) &&
+             (!('invoiceProofName' in data) || (data.invoiceProofName is string && data.invoiceProofName.size() <= 160)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidGarageDocument(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 160 &&
+             data.category in [
+               'carte_grise',
+               'certificat_cession',
+               'controle_technique',
+               'facture_achat',
+               'facture_reparation',
+               'facture_vente',
+               'photos_vehicule',
+               'contrats',
+               'justificatif_paiement',
+               'documents_administratifs'
+             ] &&
+             data.bindingType in ['vehicle', 'client'] &&
+             data.fileName is string && data.fileName.size() > 0 && data.fileName.size() <= 200 &&
+             data.mimeType is string && data.mimeType.size() > 0 && data.mimeType.size() <= 100 &&
+             data.fileSize is number && data.fileSize >= 0 &&
+             data.fileUrl is string && data.fileUrl.size() > 0 &&
+             data.documentDate is string && data.documentDate.size() > 0 && data.documentDate.size() <= 30 &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('vehicleId' in data) || (data.vehicleId is string && data.vehicleId.size() <= 128)) &&
+             (!('vehicleLabel' in data) || (data.vehicleLabel is string && data.vehicleLabel.size() <= 160)) &&
+             (!('clientName' in data) || (data.clientName is string && data.clientName.size() <= 140)) &&
+             (!('clientEmail' in data) || (data.clientEmail is string && data.clientEmail.size() <= 160)) &&
+             (!('clientPhone' in data) || (data.clientPhone is string && data.clientPhone.size() <= 40)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidDocumentHistoryEvent(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.documentId is string && data.documentId.size() > 0 && data.documentId.size() <= 128 &&
+             data.documentTitle is string && data.documentTitle.size() > 0 && data.documentTitle.size() <= 160 &&
+             data.category in [
+               'carte_grise',
+               'certificat_cession',
+               'controle_technique',
+               'facture_achat',
+               'facture_reparation',
+               'facture_vente',
+               'photos_vehicule',
+               'contrats',
+               'justificatif_paiement',
+               'documents_administratifs'
+             ] &&
+             data.action in ['uploaded', 'updated', 'downloaded', 'linked', 'deleted'] &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() <= 50 &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('actorEmail' in data) || (data.actorEmail is string && data.actorEmail.size() <= 160)) &&
+             (!('vehicleId' in data) || (data.vehicleId is string && data.vehicleId.size() <= 128)) &&
+             (!('vehicleLabel' in data) || (data.vehicleLabel is string && data.vehicleLabel.size() <= 160)) &&
+             (!('clientName' in data) || (data.clientName is string && data.clientName.size() <= 140)) &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 300));
+    }
+
+    function isValidUserActivityLog(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.actorEmail is string && data.actorEmail.size() > 0 && data.actorEmail.size() <= 160 &&
+             data.action in [
+               'export_csv',
+               'export_excel',
+               'export_pdf',
+               'export_facturx',
+               'backup_created',
+               'backup_restored',
+               'vehicle_created',
+               'vehicle_updated',
+               'vehicle_sold',
+               'vehicle_deleted',
+               'supplier_created',
+               'purchase_created',
+               'document_uploaded',
+               'settings_updated',
+               'auth_login'
+             ] &&
+             data.targetLabel is string && data.targetLabel.size() > 0 && data.targetLabel.size() <= 200 &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() <= 50 &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('entityType' in data) || (data.entityType is string && data.entityType.size() <= 40)) &&
+             (!('entityId' in data) || (data.entityId is string && data.entityId.size() <= 128)) &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 500));
+    }
+
+    function isValidChangeLogEntry(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.actorEmail is string && data.actorEmail.size() > 0 && data.actorEmail.size() <= 160 &&
+             data.operation in ['create', 'update', 'delete', 'restore'] &&
+             data.entityType in ['vehicle', 'repair', 'expense', 'supplier', 'purchase', 'document', 'settings', 'backup'] &&
+             data.entityId is string && data.entityId.size() > 0 && data.entityId.size() <= 128 &&
+             data.entityLabel is string && data.entityLabel.size() > 0 && data.entityLabel.size() <= 200 &&
+             data.changes is list &&
+             data.timestamp is string && data.timestamp.size() > 0 && data.timestamp.size() <= 50 &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128));
+    }
+
+    function isValidBackupSnapshot(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.label is string && data.label.size() > 0 && data.label.size() <= 160 &&
+             data.actorEmail is string && data.actorEmail.size() > 0 && data.actorEmail.size() <= 160 &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 50 &&
+             data.sizeBytes is number && data.sizeBytes >= 0 &&
+             data.counts is map &&
+             (!('garageId' in data) || (data.garageId is string && data.garageId.size() <= 128)) &&
+             (!('payloadJson' in data) || (data.payloadJson is string && data.payloadJson.size() <= 850000));
+    }
+
     // Connection testing endpoint for boot verification
     match /test/connection {
       allow read: if true;
@@ -224,6 +371,74 @@ service cloud.firestore {
           get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.userId == request.auth.uid &&
           existing().userId == request.auth.uid;
       }
+    }
+
+    // Suppliers collection
+    match /suppliers/{supplierId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(supplierId) && isValidSupplier(incoming());
+      allow update: if isSignedIn() && isValidId(supplierId) &&
+                    (existing().userId == request.auth.uid || isSuperAdmin()) &&
+                    incoming().userId == existing().userId &&
+                    isValidSupplier(incoming());
+      allow delete: if isSignedIn() && isValidId(supplierId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Purchases collection
+    match /purchases/{purchaseId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(purchaseId) && isValidPurchase(incoming());
+      allow update: if isSignedIn() && isValidId(purchaseId) &&
+                    (existing().userId == request.auth.uid || isSuperAdmin()) &&
+                    incoming().userId == existing().userId &&
+                    isValidPurchase(incoming());
+      allow delete: if isSignedIn() && isValidId(purchaseId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Garage Documents vault collection
+    match /garage_documents/{documentId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(documentId) && isValidGarageDocument(incoming());
+      allow update: if isSignedIn() && isValidId(documentId) &&
+                    (existing().userId == request.auth.uid || isSuperAdmin()) &&
+                    incoming().userId == existing().userId &&
+                    isValidGarageDocument(incoming());
+      allow delete: if isSignedIn() && isValidId(documentId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Document History audit log collection
+    match /document_history/{eventId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(eventId) && isValidDocumentHistoryEvent(incoming());
+      allow delete: if isSignedIn() && isValidId(eventId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // User Activity Logs collection
+    match /user_activity_logs/{logId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(logId) && isValidUserActivityLog(incoming());
+      allow delete: if isSignedIn() && isValidId(logId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Structured Entity Change Logs collection
+    match /change_logs/{logId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(logId) && isValidChangeLogEntry(incoming());
+      allow delete: if isSignedIn() && isValidId(logId) && (existing().userId == request.auth.uid || isSuperAdmin());
+    }
+
+    // Named Garage Backup Snapshots collection
+    match /backup_snapshots/{snapshotId} {
+      allow get: if isSignedIn() && (existing().userId == request.auth.uid || isSuperAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create: if isSignedIn() && isValidId(snapshotId) && isValidBackupSnapshot(incoming());
+      allow delete: if isSignedIn() && isValidId(snapshotId) && (existing().userId == request.auth.uid || isSuperAdmin());
     }
   }
 }

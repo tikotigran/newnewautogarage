@@ -1,0 +1,86 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  buildVehicleSubmitPayload,
+  hasVehicleCerfaDetails,
+  validateQuickVehicleForm,
+  VehicleFormInput,
+} from './vehicleFormUtils';
+
+function createBaseInput(overrides: Partial<VehicleFormInput> = {}): VehicleFormInput {
+  return {
+    make: 'Peugeot',
+    model: '208',
+    trim: '',
+    year: 2021,
+    registrationNumber: 'AB-123-CD',
+    purchasePrice: 8500,
+    vin: '',
+    mileage: '',
+    fuelType: '',
+    gearbox: '',
+    typeVariantVersion: '',
+    nationalGenre: 'VP',
+    bodyType: '',
+    formulaNumber: '',
+    certificateDate: '',
+    purchaseDate: '2026-11-15',
+    targetSalePrice: '',
+    status: 'preparation',
+    photos: [],
+    ...overrides,
+  };
+}
+
+test('validateQuickVehicleForm allows creating a vehicle with only the 5 mandatory fields', () => {
+  const err = validateQuickVehicleForm(createBaseInput(), 'ru');
+  assert.equal(err, null);
+});
+
+test('validateQuickVehicleForm catches missing mandatory fields and invalid optional VIN', () => {
+  assert.ok(validateQuickVehicleForm(createBaseInput({ make: '' }), 'fr'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ model: '  ' }), 'fr'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ registrationNumber: '' }), 'ru'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ purchasePrice: '' }), 'ru'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ year: 1850 }), 'fr'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ vin: 'SHORT123' }), 'ru'));
+  assert.equal(
+    validateQuickVehicleForm(createBaseInput({ vin: 'VF3UPHNK0MT129841' }), 'fr'),
+    null
+  );
+});
+
+test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte Grise codes', () => {
+  const quickPayload = buildVehicleSubmitPayload(createBaseInput(), 'user_1');
+  assert.equal(quickPayload.make, 'Peugeot');
+  assert.equal(quickPayload.registrationNumber, 'AB-123-CD');
+  assert.equal(quickPayload.mileage, 0);
+  assert.equal(quickPayload.vin, '');
+  assert.equal(quickPayload.nationalGenre, 'VP');
+  assert.equal(quickPayload.totalInvested, 8500);
+
+  const fullPayload = buildVehicleSubmitPayload(
+    createBaseInput({
+      vin: ' vf3uphnk0mt129841 ',
+      mileage: 64200,
+      fuelType: 'Essence',
+      gearbox: 'Automatique EAT8',
+      typeVariantVersion: 'UPHNK-D2',
+      nationalGenre: 'VP',
+      bodyType: 'ci',
+      formulaNumber: '2021 ab 12345',
+      certificateDate: '2021-05-12',
+    }),
+    'user_1'
+  );
+  assert.equal(fullPayload.vin, 'VF3UPHNK0MT129841');
+  assert.equal(fullPayload.mileage, 64200);
+  assert.equal(fullPayload.fuelType, 'Essence');
+  assert.equal(fullPayload.gearbox, 'Automatique EAT8');
+  assert.equal(fullPayload.typeVariantVersion, 'UPHNK-D2');
+  assert.equal(fullPayload.bodyType, 'CI');
+  assert.equal(fullPayload.formulaNumber, '2021AB12345');
+  assert.equal(fullPayload.certificateDate, '2021-05-12');
+  assert.equal(hasVehicleCerfaDetails(fullPayload), true);
+  assert.equal(hasVehicleCerfaDetails(quickPayload), false);
+});

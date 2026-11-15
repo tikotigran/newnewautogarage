@@ -27,13 +27,17 @@ import {
   Moon,
   Sparkles,
   Eye,
+  PanelLeft,
+  PanelTop,
 } from 'lucide-react';
+import { ThemedSelect } from './ThemedSelect';
 import {
   ButtonBorderRadius,
   CardPaddingDensity,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
   GlobalTextOverrides,
+  LayoutMode,
   SectionGapSize,
   SubscriptionPlan,
   SubscriptionPlanId,
@@ -99,6 +103,7 @@ interface AdminPanelProps {
   onBackToApp: () => void;
   onSignIn: () => void;
   onOpenAlignerMode: () => void;
+  onGlobalLayoutChanged?: (mode: LayoutMode) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -110,6 +115,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBackToApp,
   onSignIn,
   onOpenAlignerMode,
+  onGlobalLayoutChanged,
 }) => {
   const { lang } = useI18n();
   const isRu = lang === 'ru';
@@ -815,20 +821,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </button>
                       </td>
                       <td className="py-3 px-4">
-                        <select
-                          aria-label={`Plan for ${acc.garageName}`}
+                        <ThemedSelect<SubscriptionPlanId>
+                          testId={`admin-plan-select-${acc.uid}`}
+                          ariaLabel={`Plan for ${acc.garageName}`}
                           value={acc.planId}
-                          onChange={(e) =>
-                            handlePlanChange(acc.uid, e.target.value as SubscriptionPlanId)
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
-                        >
-                          {plans.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(val) => handlePlanChange(acc.uid, val)}
+                          options={plans.map((p) => ({ value: p.id, label: p.name }))}
+                          triggerClassName="bg-[var(--background)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--foreground)]"
+                        />
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums">
                         <span className="font-bold text-white">{acc.activeVehiclesCount}</span>
@@ -846,19 +846,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         />
                       </td>
                       <td className="py-3 px-4">
-                        <select
-                          aria-label={`Status for ${acc.garageName}`}
+                        <ThemedSelect<SubscriptionStatus>
+                          testId={`admin-status-select-${acc.uid}`}
+                          ariaLabel={`Status for ${acc.garageName}`}
                           value={acc.subscriptionStatus}
-                          onChange={(e) =>
-                            handleStatusChange(acc.uid, e.target.value as SubscriptionStatus)
-                          }
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
-                        >
-                          <option value="active">{isRu ? 'Активен' : 'Actif'}</option>
-                          <option value="trial">{isRu ? 'Триал' : 'Essai'}</option>
-                          <option value="past_due">{isRu ? 'Просрочен' : 'Impayé'}</option>
-                          <option value="canceled">{isRu ? 'Отменён' : 'Annulé'}</option>
-                        </select>
+                          onChange={(val) => handleStatusChange(acc.uid, val)}
+                          options={[
+                            { value: 'active', label: isRu ? 'Активен' : 'Actif' },
+                            { value: 'trial', label: isRu ? 'Триал' : 'Essai' },
+                            { value: 'past_due', label: isRu ? 'Просрочен' : 'Impayé' },
+                            { value: 'canceled', label: isRu ? 'Отменён' : 'Annulé' },
+                          ]}
+                          triggerClassName="bg-[var(--background)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--foreground)]"
+                        />
                       </td>
                     </tr>
                   ))}
@@ -1570,6 +1570,108 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
 
+              {/* Global Application Layout Mode Switcher (Classic Top-Nav vs Modern Sidebar Layout) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <PanelLeft className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-white">
+                      {isRu
+                        ? 'Глобальный макет приложения (Новый дизайн / Sidebar Layout)'
+                        : 'Disposition globale de l’interface (Sidebar vs Classique)'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    {isRu
+                      ? 'Сохраняется глобально в settings/branding (по умолчанию Classic)'
+                      : 'Enregistré dans settings/branding (Classic par défaut)'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    data-testid="admin-layout-classic"
+                    onClick={async () => {
+                      const next = { ...resolvedDraft, layoutMode: 'classic' as const };
+                      setDraftConfig(next);
+                      onGlobalLayoutChanged?.('classic');
+                      await handleSaveGlobalConfig(next);
+                    }}
+                    className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition ${
+                      (resolvedDraft.layoutMode || 'classic') === 'classic'
+                        ? 'border-amber-500 bg-amber-500/10 text-white'
+                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${
+                        (resolvedDraft.layoutMode || 'classic') === 'classic'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      <PanelTop className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold flex items-center gap-2">
+                        <span>{isRu ? 'Классическая шапка (Classic Top-Nav)' : 'En-tête Classique (Top-Nav)'}</span>
+                        {(resolvedDraft.layoutMode || 'classic') === 'classic' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950">
+                            {isRu ? 'Активно' : 'Actif'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {isRu
+                          ? 'Верхняя панель навигации со счётчиками и выпадающим меню.'
+                          : 'Barre de navigation supérieure avec indicateurs et menu compact.'}
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="admin-layout-sidebar"
+                    onClick={async () => {
+                      const next = { ...resolvedDraft, layoutMode: 'sidebar' as const };
+                      setDraftConfig(next);
+                      onGlobalLayoutChanged?.('sidebar');
+                      await handleSaveGlobalConfig(next);
+                    }}
+                    className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition ${
+                      resolvedDraft.layoutMode === 'sidebar'
+                        ? 'border-amber-500 bg-amber-500/10 text-white'
+                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${
+                        resolvedDraft.layoutMode === 'sidebar'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      <PanelLeft className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold flex items-center gap-2">
+                        <span>{isRu ? 'Новый дизайн / Sidebar Layout' : 'Nouveau Design (Sidebar Layout)'}</span>
+                        {resolvedDraft.layoutMode === 'sidebar' && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950">
+                            {isRu ? 'Активно' : 'Actif'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {isRu
+                          ? 'Сворачиваемое левое меню, карточка гаража и минималистичная шапка.'
+                          : 'Barre latérale rétractable, sélecteur de garage et en-tête épuré.'}
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               {/* Quick Dual-Theme Brand Presets */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -2143,21 +2245,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                     {isRu ? 'Иконка' : 'Icône'}
                   </label>
-                  <select
-                    aria-label="Category icon"
+                  <ThemedSelect
+                    testId="admin-category-icon-select"
+                    ariaLabel="Category icon"
                     value={catFormIcon}
-                    onChange={(e) => setCatFormIcon(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="Truck">Truck (Эвакуатор / Transport)</option>
-                    <option value="Fuel">Fuel (Топливо / Carburant)</option>
-                    <option value="FileCheck">FileCheck (Техосмотр / CT)</option>
-                    <option value="Sparkles">Sparkles (Мойка / Detailing)</option>
-                    <option value="FileText">FileText (Carte Grise / Документы)</option>
-                    <option value="ShieldCheck">ShieldCheck (Страховка / Assurance)</option>
-                    <option value="Wrench">Wrench (Запчасти / Pièces)</option>
-                    <option value="Coins">Coins (Прочее / Autre)</option>
-                  </select>
+                    onChange={(val) => setCatFormIcon(val)}
+                    options={[
+                      { value: 'Truck', label: 'Truck (Эвакуатор / Transport)' },
+                      { value: 'Fuel', label: 'Fuel (Топливо / Carburant)' },
+                      { value: 'FileCheck', label: 'FileCheck (Техосмотр / CT)' },
+                      { value: 'Sparkles', label: 'Sparkles (Мойка / Detailing)' },
+                      { value: 'FileText', label: 'FileText (Carte Grise / Документы)' },
+                      { value: 'ShieldCheck', label: 'ShieldCheck (Страховка / Assurance)' },
+                      { value: 'Wrench', label: 'Wrench (Запчасти / Pièces)' },
+                      { value: 'Coins', label: 'Coins (Прочее / Autre)' },
+                    ]}
+                    triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--foreground)]"
+                  />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">

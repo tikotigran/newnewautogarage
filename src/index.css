@@ -44,6 +44,38 @@ body {
   color: var(--foreground);
 }
 
+select {
+  color-scheme: dark;
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+html.theme-light select {
+  color-scheme: light;
+}
+
+select option,
+select optgroup {
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: var(--surface-muted) !important;
+  color: var(--foreground) !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .ag-card-surface {
   border-radius: var(--ag-card-radius);
 }
