@@ -9,6 +9,7 @@ import {
   UserProfile,
 } from '../types/garage';
 import { roundToTwo } from './finance';
+import { Language } from './i18nUtils';
 
 export const SUPERADMIN_BOOTSTRAP_EMAIL = 'blackproduction999@gmail.com';
 
@@ -20,6 +21,8 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     vehicleLimit: 5,
     featuresFr: ['Jusqu’à 5 véhicules', 'Bilan P&L basique', 'Export Cerfa 15776*02'],
     featuresRu: ['До 5 автомобилей', 'Базовый расчёт P&L', 'Экспорт Cerfa 15776*02'],
+    featuresHy: ['Մինչև 5 ավտոմեքենա', 'Բազային P&L հաշվարկ', 'Cerfa 15776*02 արտահանում'],
+    featuresKa: ['5-მდე ავტომობილი', 'საბაზისო P&L გათვლა', 'Cerfa 15776*02 ექსპორტი'],
   },
   {
     id: 'pro',
@@ -28,6 +31,8 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     vehicleLimit: 50,
     featuresFr: ['Jusqu’à 50 véhicules', 'Analytique & Dépenses', 'Factures PDF TVA Marge'],
     featuresRu: ['До 50 автомобилей', 'Аналитика и расходы', 'Счета PDF (TVA sur marge)'],
+    featuresHy: ['Մինչև 50 ավտոմեքենա', 'Վերլուծություն և ծախսեր', 'PDF հաշիվներ (TVA sur marge)'],
+    featuresKa: ['50-მდე ავტომობილი', 'ანალიტიკა და ხარჯები', 'PDF ინვოისები (TVA sur marge)'],
   },
   {
     id: 'enterprise',
@@ -36,6 +41,8 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     vehicleLimit: 9999,
     featuresFr: ['Véhicules illimités', 'Support prioritaire', 'Multi-utilisateurs & API'],
     featuresRu: ['Безлимитный автопарк', 'Приоритетная поддержка', 'Мульти-доступ и API'],
+    featuresHy: ['Անսահմանափակ ավտոպարկ', 'Առաջնահերթ աջակցություն', 'Բազմաօգտատեր և API'],
+    featuresKa: ['ულიმიტო ავტოპარკი', 'პრიორიტეტული მხარდაჭერა', 'მულტი-წვდომა და API'],
   },
 ];
 
@@ -113,7 +120,7 @@ export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
   cardPadding: 'comfortable',
   sectionGap: '24px',
   defaultInventoryViewMode: 'grid',
-  layoutMode: 'classic',
+  layoutMode: 'sidebar',
   cerfaAdjustments: {
     offsetX: 0,
     offsetY: 0,
@@ -437,7 +444,7 @@ export function resolveSystemThemeConfig(
     ...DEFAULT_SYSTEM_THEME_CONFIG,
     ...(raw || {}),
     primaryAccentColor: baseAccent,
-    layoutMode: raw?.layoutMode === 'sidebar' ? 'sidebar' : 'classic',
+    layoutMode: raw?.layoutMode === 'classic' ? 'classic' : 'sidebar',
     cerfaAdjustments: {
       ...DEFAULT_SYSTEM_THEME_CONFIG.cerfaAdjustments,
       ...(raw?.cerfaAdjustments || {}),
@@ -461,7 +468,7 @@ export function resolveEffectiveLayoutMode(params: {
   if (params.userPreference === 'classic' || params.userPreference === 'sidebar') {
     return params.userPreference;
   }
-  return params.systemLayoutMode === 'sidebar' ? 'sidebar' : 'classic';
+  return params.systemLayoutMode === 'classic' ? 'classic' : 'sidebar';
 }
 
 export function isSuperAdminUser(params: {
@@ -616,13 +623,13 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlagsConfig = {
 };
 
 export const DEFAULT_DYNAMIC_EXPENSE_CATEGORIES: DynamicExpenseCategory[] = [
-  { id: 'transport', labelFr: 'Transport / Rapatriement', labelRu: 'Доставка / Эвакуатор', icon: 'Truck', defaultAmount: 180, order: 1 },
-  { id: 'fuel', labelFr: 'Carburant', labelRu: 'Топливо', icon: 'Fuel', defaultAmount: 65, order: 2 },
-  { id: 'controle_technique', labelFr: 'Contrôle Technique', labelRu: 'Техосмотр (Contrôle Technique)', icon: 'FileCheck', defaultAmount: 85, order: 3 },
-  { id: 'detailing', labelFr: 'Lavage / Detailing', labelRu: 'Мойка / Детейлинг', icon: 'Sparkles', defaultAmount: 120, order: 4 },
-  { id: 'admin', labelFr: 'Frais Administratifs / Carte Grise', labelRu: 'Оформление и Carte Grise', icon: 'FileText', defaultAmount: 35, order: 5 },
-  { id: 'insurance', labelFr: 'Assurance garage / Flotte transit', labelRu: 'Страховка автопарка / Транзит', icon: 'ShieldCheck', defaultAmount: 50, order: 6 },
-  { id: 'other', labelFr: 'Autre dépense', labelRu: 'Прочие расходы', icon: 'Coins', defaultAmount: 0, order: 7 },
+  { id: 'transport', labelFr: 'Transport / Rapatriement', labelRu: 'Доставка / Эвакуатор', labelHy: 'Տեղափոխում / Էվակուատոր', labelKa: 'ტრანსპორტირება / ევაკუატორი', icon: 'Truck', defaultAmount: 180, order: 1 },
+  { id: 'fuel', labelFr: 'Carburant', labelRu: 'Топливо', labelHy: 'Վառելիք', labelKa: 'საწვავი', icon: 'Fuel', defaultAmount: 65, order: 2 },
+  { id: 'controle_technique', labelFr: 'Contrôle Technique', labelRu: 'Техосмотр (Contrôle Technique)', labelHy: 'Տեխզննում (Contrôle Technique)', labelKa: 'ტექდათვალიერება (Contrôle Technique)', icon: 'FileCheck', defaultAmount: 85, order: 3 },
+  { id: 'detailing', labelFr: 'Lavage / Detailing', labelRu: 'Мойка / Детейлинг', labelHy: 'Լվացում / Դեթեյլինգ', labelKa: 'რეცხვა / დეტეილინგი', icon: 'Sparkles', defaultAmount: 120, order: 4 },
+  { id: 'admin', labelFr: 'Frais Administratifs / Carte Grise', labelRu: 'Оформление и Carte Grise', labelHy: 'Պետտուրքեր և Carte Grise', labelKa: 'ადმინისტრაციული ხარჯები და Carte Grise', icon: 'FileText', defaultAmount: 35, order: 5 },
+  { id: 'insurance', labelFr: 'Assurance garage / Flotte transit', labelRu: 'Страховка автопарка / Транзит', labelHy: 'Ավտոպարկի ապահովագրություն / Տրանզիտ', labelKa: 'ავტოპარკის დაზღვევა / ტრანზიტი', icon: 'ShieldCheck', defaultAmount: 50, order: 6 },
+  { id: 'other', labelFr: 'Autre dépense', labelRu: 'Прочие расходы', labelHy: 'Այլ ծախսեր', labelKa: 'სხვა ხარჯები', icon: 'Coins', defaultAmount: 0, order: 7 },
 ];
 
 export function sortExpenseCategories(
@@ -633,13 +640,13 @@ export function sortExpenseCategories(
 
 export function resolveLocalizedLabel(
   key: string,
-  lang: 'fr' | 'ru',
+  lang: Language,
   baseText: string,
   overrides: GlobalTextOverrides
 ): string {
   const entry = overrides[key];
   if (entry) {
-    const custom = lang === 'ru' ? entry.ru : entry.fr;
+    const custom = entry[lang];
     if (custom !== undefined && custom.trim() !== '') {
       return custom;
     }
@@ -671,15 +678,17 @@ export const TRANSLATION_CATEGORIES: {
   id: TranslationCategoryId;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
 }[] = [
-  { id: 'all', labelFr: 'Tout', labelRu: 'Все' },
-  { id: 'navigation', labelFr: 'Navigation & En-tête', labelRu: 'Навигация и шапка' },
-  { id: 'inventory', labelFr: 'Inventaire & Garages', labelRu: 'Инвентарь и гаражи' },
-  { id: 'vehicle_detail', labelFr: 'Fiche Véhicule & P&L', labelRu: 'Карточка авто и P&L' },
-  { id: 'sale_report', labelFr: 'Rapport Financier', labelRu: 'Финансовый отчёт' },
-  { id: 'statuses', labelFr: 'Statuts', labelRu: 'Статусы' },
-  { id: 'analytics', labelFr: 'Analytique', labelRu: 'Аналитика' },
-  { id: 'forms', labelFr: 'Formulaires & Docs', labelRu: 'Формы и документы' },
+  { id: 'all', labelFr: 'Tout', labelRu: 'Все', labelHy: 'Բոլորը', labelKa: 'ყველა' },
+  { id: 'navigation', labelFr: 'Navigation & En-tête', labelRu: 'Навигация и шапка', labelHy: 'Նավիգացիա', labelKa: 'ნავიგაცია' },
+  { id: 'inventory', labelFr: 'Inventaire & Garages', labelRu: 'Инвентарь и гаражи', labelHy: 'Ավտոպարկ և սրահներ', labelKa: 'ინვენტარი და გარაჟები' },
+  { id: 'vehicle_detail', labelFr: 'Fiche Véhicule & P&L', labelRu: 'Карточка авто и P&L', labelHy: 'Ավտոմեքենայի քարտ և P&L', labelKa: 'ავტომობილის ბარათი და P&L' },
+  { id: 'sale_report', labelFr: 'Rapport Financier', labelRu: 'Финансовый отчёт', labelHy: 'Ֆինանսական հաշվետվություն', labelKa: 'ფინანსური ანგარიში' },
+  { id: 'statuses', labelFr: 'Statuts', labelRu: 'Статусы', labelHy: 'Կարգավիճակներ', labelKa: 'სტატუსები' },
+  { id: 'analytics', labelFr: 'Analytique', labelRu: 'Аналитика', labelHy: 'Վերլուծություն', labelKa: 'ანალიტიკა' },
+  { id: 'forms', labelFr: 'Formulaires & Docs', labelRu: 'Формы и документы', labelHy: 'Ձևաթղթեր և փաստաթղթեր', labelKa: 'ფორმები და დოკუმენტები' },
 ];
 
 export function getTranslationKeyCategory(key: string): Exclude<TranslationCategoryId, 'all'> {

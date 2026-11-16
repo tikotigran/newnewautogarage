@@ -110,14 +110,29 @@ describe('exportBackup utilities', () => {
     assert.equal(soldRow.ChiffreAffaires, 19500);
     assert.equal(soldRow.TotalInvesti, 16000);
     assert.equal(soldRow.MargeBrute, 3500);
-    assert.equal(soldRow.ImpotEstime, 525); // 15% SARL of 3500
-    assert.equal(soldRow.BeneficeNet, 2975); // 3500 - 525
+    assert.equal(soldRow.ProfitAvantImpots_EUR, 3500);
+    // In SARL/SAS, IS is NOT calculated flat 15% per car — it is assessed on company annual taxable profit
+    assert.equal(soldRow.ImpotEstime, 0);
+    assert.equal(soldRow.BeneficeNet, 3500);
+    assert.equal(soldRow.RegimeTVA, 'tva_marge');
+    assert.equal(soldRow.TVA_EUR, 750); // (19500 - 15000) * 20 / 120 = 750
+
+    // Verify Micro-entreprise Achat/Revente calculates 12.3% URSSAF + 1% VL strictly on Turnover (19500)
+    const microLedger = buildFinancialLedgerRows([SOLD_VEHICLE], {
+      taxRegime: 'micro',
+      taxRatePercent: 13.3,
+    });
+    assert.equal(microLedger[0].URSSAF_EUR, 2398.5);
+    assert.equal(microLedger[0].VersementLiberatoire_EUR, 195);
+    assert.equal(microLedger[0].ImpotEstime, 2593.5);
+    assert.equal(microLedger[0].BeneficeNet, 906.5);
 
     const csv = financialLedgerToCsv([SOLD_VEHICLE], SAMPLE_SETTINGS);
     const lines = csv.split('\n');
     assert.equal(lines.length, 2);
     assert.ok(lines[0].includes('ChiffreAffaires_EUR;PrixAchat_EUR'));
-    assert.ok(lines[1].includes('19500;15000;600;400;16000;3500;SARL 15%;525;2975'));
+    assert.ok(lines[0].includes('RegimeTVA;TVA_EUR;URSSAF_EUR;VersementLiberatoire_EUR'));
+    assert.ok(lines[1].includes('19500;15000;600;400;16000;3500'));
   });
 
   it('builds readable multi-sheet Excel (.xlsx) workbooks for vehicles and P&L financials', () => {
@@ -192,6 +207,12 @@ describe('exportBackup utilities', () => {
     assert.ok(xml.includes('<udt:DateTimeString format="102">20260920</udt:DateTimeString>'));
     assert.ok(xml.includes('<ram:GrandTotalAmount>19500.00</ram:GrandTotalAmount>'));
     assert.ok(xml.includes('<ram:CategoryCode>AE</ram:CategoryCode>'));
+
+    const franchiseXml = buildFacturXXml(SOLD_VEHICLE, SAMPLE_SETTINGS, {
+      vatMode: 'franchise_base',
+    });
+    assert.ok(franchiseXml.includes('<ram:CategoryCode>E</ram:CategoryCode>'));
+    assert.ok(franchiseXml.includes('293 B'));
 
     const incompleteReadiness = validateFacturXReadiness(STOCK_VEHICLE, {
       ...SAMPLE_SETTINGS,

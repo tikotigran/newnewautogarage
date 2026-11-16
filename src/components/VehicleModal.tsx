@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Vehicle, VehicleStatus } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 import { ThemedSelect } from './ThemedSelect';
 import {
@@ -43,7 +44,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   userId,
 }) => {
   const { t, lang } = useI18n();
-  const isRu = lang === 'ru';
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
 
   // 5 Primary Required Fields
   const [make, setMake] = useState('');
@@ -186,9 +187,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setError(
         err instanceof Error
           ? err.message
-          : isRu
-          ? 'Ошибка при сохранении автомобиля.'
-          : 'Une erreur est survenue lors de l’enregistrement.'
+          : L(
+              'Une erreur est survenue lors de l’enregistrement.',
+              'Ошибка при сохранении автомобиля.',
+              'Սխալ՝ ավտոմեքենան պահպանելիս։',
+              'შეცდომა ავტომობილის შენახვისას.'
+            )
       );
     } finally {
       setIsSubmitting(false);
@@ -225,7 +229,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label={isRu ? 'Закрыть окно' : 'Fermer la fenêtre'}
+            aria-label={t('closeBtn')}
             className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl hover:bg-[var(--surface-muted)] transition"
           >
             <X className="w-5 h-5" />
@@ -284,7 +288,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="vehicle-year" className={labelClass}>
                   {t('year')} *
@@ -303,7 +307,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
               <div>
                 <label htmlFor="vehicle-reg" className={labelClass}>
-                  {isRu ? 'Госномер *' : 'Immatriculation *'}
+                  {t('thPlate')} *
                 </label>
                 <input
                   id="vehicle-reg"
@@ -315,7 +319,9 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   className={`${inputClass} font-mono uppercase placeholder:normal-case`}
                 />
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="vehicle-purchase-price" className={labelClass}>
                   {t('purchasePriceLabel')} (€) *
@@ -332,6 +338,23 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   }
                   placeholder="ex. 8500"
                   className={`${inputClass} font-bold`}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="vehicle-mileage" className={labelClass}>
+                  {t('mileage')} (km)
+                </label>
+                <input
+                  id="vehicle-mileage"
+                  type="number"
+                  min={0}
+                  value={mileage}
+                  onChange={(e) =>
+                    setMileage(e.target.value === '' ? '' : Number(e.target.value))
+                  }
+                  placeholder="ex. 65000"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -364,53 +387,34 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 data-testid="vehicle-modal-extra-section"
                 className="mt-4 space-y-5 p-4 sm:p-5 rounded-2xl border border-[var(--border)] bg-[var(--background)]/45"
               >
-                {/* Technical Details: VIN, Mileage, Trim */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label
-                        htmlFor="vehicle-vin"
-                        className="text-xs font-semibold text-[var(--secondary-foreground)]"
-                      >
-                        VIN (E)
-                      </label>
-                      <span
-                        className={`text-[10px] font-mono ${
-                          vin.replace(/\s+/g, '').length === 17
-                            ? 'text-emerald-400'
-                            : 'text-[var(--muted-foreground)]'
-                        }`}
-                      >
-                        {vin.replace(/\s+/g, '').length}/17
-                      </span>
-                    </div>
-                    <input
-                      id="vehicle-vin"
-                      type="text"
-                      maxLength={17}
-                      value={vin}
-                      onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                      placeholder="ex. VF3UPHNK0MT129841"
-                      className={`${inputClass} font-mono uppercase placeholder:normal-case`}
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="vehicle-mileage" className={labelClass}>
-                      {t('mileage')} (km)
+                {/* Technical Details: VIN */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label
+                      htmlFor="vehicle-vin"
+                      className="text-xs font-semibold text-[var(--secondary-foreground)]"
+                    >
+                      VIN (E)
                     </label>
-                    <input
-                      id="vehicle-mileage"
-                      type="number"
-                      min={0}
-                      value={mileage}
-                      onChange={(e) =>
-                        setMileage(e.target.value === '' ? '' : Number(e.target.value))
-                      }
-                      placeholder="ex. 65000"
-                      className={inputClass}
-                    />
+                    <span
+                      className={`text-[10px] font-mono ${
+                        vin.replace(/\s+/g, '').length === 17
+                          ? 'text-emerald-400'
+                          : 'text-[var(--muted-foreground)]'
+                      }`}
+                    >
+                      {vin.replace(/\s+/g, '').length}/17
+                    </span>
                   </div>
+                  <input
+                    id="vehicle-vin"
+                    type="text"
+                    maxLength={17}
+                    value={vin}
+                    onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                    placeholder="ex. VF3UPHNK0MT129841"
+                    className={`${inputClass} font-mono uppercase placeholder:normal-case`}
+                  />
                 </div>
 
                 {/* Specs: Trim, Fuel, Gearbox */}
@@ -440,12 +444,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       value={fuelType}
                       onChange={setFuelType}
                       options={[
-                        { value: '', label: isRu ? 'Не указано' : 'Non précisé' },
-                        { value: 'Essence', label: isRu ? 'Бензин (Essence)' : 'Essence' },
-                        { value: 'Diesel', label: isRu ? 'Дизель (Diesel)' : 'Diesel' },
-                        { value: 'Hybride', label: isRu ? 'Гибрид (Hybride)' : 'Hybride' },
-                        { value: 'Électrique', label: isRu ? 'Электро (Électrique)' : 'Électrique' },
-                        { value: 'GPL', label: isRu ? 'Газ (GPL)' : 'GPL' },
+                        { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
+                        { value: 'Essence', label: L('Essence', 'Бензин (Essence)', 'Բենզին (Essence)', 'ბენზინი (Essence)') },
+                        { value: 'Diesel', label: L('Diesel', 'Дизель (Diesel)', 'Դիզել (Diesel)', 'დიზელი (Diesel)') },
+                        { value: 'Hybride', label: L('Hybride', 'Гибрид (Hybride)', 'Հիբրիդ (Hybride)', 'ჰიბრიდი (Hybride)') },
+                        { value: 'Électrique', label: L('Électrique', 'Электро (Électrique)', 'Էլեկտրական (Électrique)', 'ელექტრო (Électrique)') },
+                        { value: 'GPL', label: L('GPL', 'Газ (GPL)', 'Գազ (GPL)', 'გაზი (GPL)') },
                       ]}
                       triggerClassName={inputClass}
                     />
@@ -462,10 +466,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       value={gearbox}
                       onChange={setGearbox}
                       options={[
-                        { value: '', label: isRu ? 'Не указано' : 'Non précisé' },
-                        { value: 'Manuelle', label: isRu ? 'Механика (Manuelle)' : 'Manuelle' },
-                        { value: 'Automatique', label: isRu ? 'Автомат (Automatique)' : 'Automatique' },
-                        { value: 'Séquentielle', label: isRu ? 'Робот / Вариатор' : 'Séquentielle / BVA' },
+                        { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
+                        { value: 'Manuelle', label: L('Manuelle', 'Механика (Manuelle)', 'Մեխանիկական (Manuelle)', 'მექანიკა (Manuelle)') },
+                        { value: 'Automatique', label: L('Automatique', 'Автомат (Automatique)', 'Ավտոմատ (Automatique)', 'ავტომატიკა (Automatique)') },
+                        { value: 'Séquentielle', label: L('Séquentielle / BVA', 'Робот / Вариатор', 'Ռոբոտ / Վարիատոր', 'რობოტი / ვარიატორი') },
                       ]}
                       triggerClassName={inputClass}
                     />

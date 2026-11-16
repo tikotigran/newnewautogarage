@@ -7,49 +7,101 @@ import {
   Vehicle,
 } from '../types/garage';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
+import { Language, pickLocalized } from './i18nUtils';
 
 export interface DocumentCategoryMeta {
   id: GarageDocumentCategory;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
 }
 
 export const DOCUMENT_CATEGORIES: DocumentCategoryMeta[] = [
-  { id: 'carte_grise', labelFr: 'Carte grise', labelRu: 'Carte grise (СТС / ПТС)' },
+  {
+    id: 'carte_grise',
+    labelFr: 'Carte grise',
+    labelRu: 'Carte grise (СТС / ПТС)',
+    labelHy: 'Carte grise (Տեխանձնագիր)',
+    labelKa: 'Carte grise (ტექპასპორტი)',
+  },
   {
     id: 'certificat_cession',
     labelFr: 'Certificat de cession',
     labelRu: 'Certificat de cession (Договор передачи)',
+    labelHy: 'Certificat de cession (Հանձնման ակտ)',
+    labelKa: 'Certificat de cession (გადაცემის აქტი)',
   },
   {
     id: 'controle_technique',
     labelFr: 'Contrôle technique',
     labelRu: 'Contrôle technique (Техосмотр)',
+    labelHy: 'Contrôle technique (Տեխզննում)',
+    labelKa: 'Contrôle technique (ტექდათვალიერება)',
   },
-  { id: 'facture_achat', labelFr: "Factures d'achat", labelRu: 'Счета на покупку' },
-  { id: 'facture_reparation', labelFr: 'Factures de réparation', labelRu: 'Счета за ремонт' },
-  { id: 'facture_vente', labelFr: 'Factures de vente', labelRu: 'Счета продажи' },
-  { id: 'photos_vehicule', labelFr: 'Photos du véhicule', labelRu: 'Фотографии автомобиля' },
-  { id: 'contrats', labelFr: 'Contrats', labelRu: 'Договоры и контракты' },
+  {
+    id: 'facture_achat',
+    labelFr: "Factures d'achat",
+    labelRu: 'Счета на покупку',
+    labelHy: 'Գնման հաշիվ-ապրանքագրեր',
+    labelKa: 'შესყიდვის ინვოისები',
+  },
+  {
+    id: 'facture_reparation',
+    labelFr: 'Factures de réparation',
+    labelRu: 'Счета за ремонт',
+    labelHy: 'Վերանորոգման հաշիվներ',
+    labelKa: 'შეკეთების ინვოისები',
+  },
+  {
+    id: 'facture_vente',
+    labelFr: 'Factures de vente',
+    labelRu: 'Счета продажи',
+    labelHy: 'Վաճառքի հաշիվ-ապրանքագրեր',
+    labelKa: 'გაყიდვის ინვოისები',
+  },
+  {
+    id: 'photos_vehicule',
+    labelFr: 'Photos du véhicule',
+    labelRu: 'Фотографии автомобиля',
+    labelHy: 'Ավտոմեքենայի լուսանկարներ',
+    labelKa: 'ავტომობილის ფოტოები',
+  },
+  {
+    id: 'contrats',
+    labelFr: 'Contrats',
+    labelRu: 'Договоры и контракты',
+    labelHy: 'Պայմանագրեր',
+    labelKa: 'ხელშეკრულებები',
+  },
   {
     id: 'justificatif_paiement',
     labelFr: 'Justificatifs de paiement',
     labelRu: 'Подтверждения оплаты',
+    labelHy: 'Վճարման հաստատումներ',
+    labelKa: 'გადახდის დამადასტურებელი საბუთები',
   },
   {
     id: 'documents_administratifs',
     labelFr: 'Documents administratifs',
     labelRu: 'Административные документы',
+    labelHy: 'Վարչական փաստաթղթեր',
+    labelKa: 'ადმინისტრაციული დოკუმენტები',
   },
 ];
 
 export function getDocumentCategoryLabel(
   category: GarageDocumentCategory,
-  lang: 'fr' | 'ru'
+  lang: Language
 ): string {
   const found = DOCUMENT_CATEGORIES.find((c) => c.id === category);
   if (!found) return category;
-  return lang === 'ru' ? found.labelRu : found.labelFr;
+  return pickLocalized(lang, {
+    fr: found.labelFr,
+    ru: found.labelRu,
+    hy: found.labelHy,
+    ka: found.labelKa,
+  });
 }
 
 export function filterDocumentsByGarage(
@@ -294,6 +346,8 @@ export interface MissingDocumentReminder {
   severity: 'high' | 'medium';
   reasonFr: string;
   reasonRu: string;
+  reasonHy: string;
+  reasonKa: string;
 }
 
 function textMatchesCategory(text: string, category: GarageDocumentCategory): boolean {
@@ -375,6 +429,8 @@ export function computeMissingDocumentReminders(params: {
       severity: 'high' | 'medium';
       reasonFr: string;
       reasonRu: string;
+      reasonHy: string;
+      reasonKa: string;
     }[] = [
       {
         category: 'carte_grise',
@@ -382,6 +438,8 @@ export function computeMissingDocumentReminders(params: {
         severity: v.status === 'for_sale' || v.status === 'sold' ? 'high' : 'medium',
         reasonFr: 'Indispensable pour le dossier du véhicule',
         reasonRu: 'Обязательно для досье автомобиля',
+        reasonHy: 'Պարտադիր է ավտոմեքենայի գործի համար',
+        reasonKa: 'სავალდებულოა ავტომობილის დოსიესთვის',
       },
       {
         category: 'facture_achat',
@@ -389,6 +447,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'medium',
         reasonFr: "Justificatif d'acquisition et TVA / marge",
         reasonRu: 'Подтверждение цены покупки и расчёта маржи',
+        reasonHy: 'Գնման գնի և մարժայի հաշվարկի հաստատում',
+        reasonKa: 'შესყიდვის ფასისა და მარჟის გათვლის დადასტურება',
       },
       {
         category: 'photos_vehicule',
@@ -396,6 +456,8 @@ export function computeMissingDocumentReminders(params: {
         severity: v.status === 'for_sale' ? 'high' : 'medium',
         reasonFr: 'Photos requises pour la mise en vente',
         reasonRu: 'Фотографии нужны для публикации объявления',
+        reasonHy: 'Լուսանկարները անհրաժեշտ են վաճառքի հայտարարության համար',
+        reasonKa: 'ფოტოები საჭიროა გასაყიდად განთავსებისთვის',
       },
       {
         category: 'controle_technique',
@@ -403,6 +465,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'high',
         reasonFr: 'Contrôle technique obligatoire avant cession',
         reasonRu: 'Техосмотр обязателен перед продажей во Франции',
+        reasonHy: 'Տեխզննումը պարտադիր է վաճառքից առաջ',
+        reasonKa: 'ტექდათვალიერება სავალდებულოა გაყიდვამდე',
       },
       {
         category: 'facture_reparation',
@@ -410,6 +474,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'medium',
         reasonFr: 'Travaux enregistrés sans facture atelier jointe',
         reasonRu: 'Зафиксирован ремонт, но не приложен счёт сервиса',
+        reasonHy: 'Գրանցված է վերանորոգում, բայց հաշիվը կցված չէ',
+        reasonKa: 'დაფიქსირებულია შეკეთება, მაგრამ ინვოისი არ არის მიბმული',
       },
       {
         category: 'certificat_cession',
@@ -417,6 +483,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'high',
         reasonFr: 'Véhicule vendu sans certificat de cession archivé',
         reasonRu: 'Авто продано, но не загружен Certificat de cession',
+        reasonHy: 'Ավտոմեքենան վաճառված է, բայց Certificat de cession-ը բացակայում է',
+        reasonKa: 'ავტომობილი გაყიდულია, მაგრამ Certificat de cession არ არის ატვირთული',
       },
       {
         category: 'facture_vente',
@@ -424,6 +492,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'high',
         reasonFr: 'Véhicule vendu sans facture de vente archivée',
         reasonRu: 'Авто продано, но не приложен счёт продажи',
+        reasonHy: 'Ավտոմեքենան վաճառված է, բայց վաճառքի հաշիվը կցված չէ',
+        reasonKa: 'ავტომობილი გაყიდულია, მაგრამ გაყიდვის ინვოისი არ არის მიბმული',
       },
       {
         category: 'justificatif_paiement',
@@ -431,6 +501,8 @@ export function computeMissingDocumentReminders(params: {
         severity: 'medium',
         reasonFr: 'Preuve de règlement client manquante',
         reasonRu: 'Нет подтверждения оплаты от покупателя',
+        reasonHy: 'Բացակայում է գնորդի վճարման հաստատումը',
+        reasonKa: 'მყიდველის გადახდის დამადასტურებელი საბუთი აკლია',
       },
     ];
 
@@ -446,6 +518,8 @@ export function computeMissingDocumentReminders(params: {
           severity: chk.severity,
           reasonFr: chk.reasonFr,
           reasonRu: chk.reasonRu,
+          reasonHy: chk.reasonHy,
+          reasonKa: chk.reasonKa,
         });
       }
     }

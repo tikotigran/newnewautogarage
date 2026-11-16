@@ -8,9 +8,10 @@ import {
   X,
   Check,
 } from 'lucide-react';
-import { GarageWorkspace, Vehicle } from '../types/garage';
+import { GarageWorkspace, LegalStatus, TaxRegime, Vehicle } from '../types/garage';
 import { computeGarageCardStats, filterVehiclesByGarage } from '../utils/garageUtils';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
 
 interface GarageSelectorProps {
@@ -20,9 +21,10 @@ interface GarageSelectorProps {
   onCreateGarage: (input: {
     name: string;
     entityType: 'morale' | 'physique';
+    legalStatus?: LegalStatus;
     city?: string;
     siret?: string;
-    taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+    taxRegime?: TaxRegime;
     taxRatePercent?: number;
   }) => Promise<void>;
 }
@@ -34,12 +36,12 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
   onCreateGarage,
 }) => {
   const { lang, t } = useI18n();
-  const isRu = lang === 'ru';
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [entityType, setEntityType] = useState<'morale' | 'physique'>('morale');
-  const [taxRegime, setTaxRegime] = useState<'sarl' | 'micro' | 'custom' | 'none'>('sarl');
+  const [taxRegime, setTaxRegime] = useState<TaxRegime>('sarl');
   const [taxRatePercent, setTaxRatePercent] = useState<number>(15);
   const [city, setCity] = useState('');
   const [siret, setSiret] = useState('');
@@ -48,20 +50,20 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
   const handleEntityTypeChange = (nextType: 'morale' | 'physique') => {
     setEntityType(nextType);
     if (nextType === 'physique') {
-      setTaxRegime('none');
-      setTaxRatePercent(0);
-    } else if (taxRegime === 'none') {
+      setTaxRegime('micro');
+      setTaxRatePercent(13.3);
+    } else if (taxRegime === 'none' || taxRegime === 'micro') {
       setTaxRegime('sarl');
       setTaxRatePercent(15);
     }
   };
 
-  const handleTaxRegimeChange = (nextRegime: 'sarl' | 'micro' | 'custom' | 'none') => {
+  const handleTaxRegimeChange = (nextRegime: TaxRegime) => {
     setTaxRegime(nextRegime);
-    if (nextRegime === 'sarl') {
+    if (nextRegime === 'sarl' || nextRegime === 'sas') {
       setTaxRatePercent(15);
     } else if (nextRegime === 'micro') {
-      setTaxRatePercent(12.3);
+      setTaxRatePercent(13.3);
     } else if (nextRegime === 'none') {
       setTaxRatePercent(0);
     } else if (nextRegime === 'custom' && taxRatePercent === 0) {
@@ -74,9 +76,18 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
     if (!name.trim()) return;
     setIsSubmitting(true);
     try {
+      const legalStatus: LegalStatus =
+        taxRegime === 'micro'
+          ? 'micro_entreprise'
+          : taxRegime === 'sas'
+          ? 'sas'
+          : taxRegime === 'none'
+          ? 'other'
+          : 'sarl';
       await onCreateGarage({
         name: name.trim(),
         entityType,
+        legalStatus,
         city: city.trim(),
         siret: entityType === 'morale' ? siret.trim() : '',
         taxRegime,
@@ -145,12 +156,18 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                       </h2>
                       <p className="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">
                         {isMorale
-                          ? isRu
-                            ? 'Юрлицо (Personne morale)'
-                            : 'Personne morale'
-                          : isRu
-                          ? 'Физлицо (Personne physique)'
-                          : 'Personne physique'}
+                          ? L(
+                              'Personne morale',
+                              'Юрлицо (Personne morale)',
+                              'Իրավաբանական անձ (Personne morale)',
+                              'იურიდიული პირი (Personne morale)'
+                            )
+                          : L(
+                              'Personne physique',
+                              'Физлицо (Personne physique)',
+                              'Ֆիզիկական անձ (Personne physique)',
+                              'ფიზიკური პირი (Personne physique)'
+                            )}
                         {garage.city ? ` · ${garage.city}` : ''}
                       </p>
                     </div>
@@ -162,7 +179,9 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   <div className="bg-[var(--surface-muted)] rounded-xl p-2.5 border border-[var(--border)]">
                     <p className="text-[11px] text-[var(--muted-foreground)] flex items-center gap-1">
                       <Car className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
-                      <span className="truncate">{isRu ? 'В наличии' : 'En stock'}</span>
+                      <span className="truncate">
+                        {L('En stock', 'В наличии', 'Պահեստում', 'საწყობში')}
+                      </span>
                     </p>
                     <p className="text-base font-bold text-[var(--foreground)] mt-1">
                       {stats.activeStockCount}
@@ -170,7 +189,15 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   </div>
 
                   <div className="bg-[var(--surface-muted)] rounded-xl p-2.5 border border-[var(--border)]">
-                    <p className="text-[11px] text-[var(--muted-foreground)] truncate" title={isRu ? 'В подготовке / ремонте' : 'En prép. / réparation'}>
+                    <p
+                      className="text-[11px] text-[var(--muted-foreground)] truncate"
+                      title={L(
+                        'En prép. / réparation',
+                        'В подготовке / ремонте',
+                        'Նախապատրաստում / վերանորոգում',
+                        'მომზადება / რემონტი'
+                      )}
+                    >
                       {t('garagePrepRepair')}
                     </p>
                     <p className="text-base font-bold text-[var(--warning)] mt-1">
@@ -213,12 +240,20 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
           </div>
           <div>
             <p className="text-sm font-bold text-[var(--foreground)]">
-              {isRu ? '+ Создать новый гараж' : '+ Créer un nouveau garage'}
+              {L(
+                '+ Créer un nouveau garage',
+                '+ Создать новый гараж',
+                '+ Ստեղծել նոր ավտոսրահ',
+                '+ ახალი ავტოსალონის შექმნა'
+              )}
             </p>
             <p className="text-xs text-[var(--muted-foreground)] mt-1 max-w-[220px]">
-              {isRu
-                ? 'Отдельный склад, финансы и профиль Cerfa 15776*02'
-                : 'Stock, finances P&L et profil Cerfa 15776*02 dédiés'}
+              {L(
+                'Stock, finances P&L et profil Cerfa 15776*02 dédiés',
+                'Отдельный склад, финансы и профиль Cerfa 15776*02',
+                'Առանձին պահեստ, ֆինանսներ և Cerfa 15776*02 պրոֆիլ',
+                'ცალკე საწყობი, ფინანსები და Cerfa 15776*02 პროფილი'
+              )}
             </p>
           </div>
         </button>
@@ -238,12 +273,17 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
           <div className="w-full max-w-md bg-[var(--ag-modal-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
               <h2 id="create-garage-title" className="text-base font-bold text-[var(--foreground)]">
-                {isRu ? 'Новый гараж / автосалон' : 'Créer un nouveau garage'}
+                {L(
+                  'Créer un nouveau garage',
+                  'Новый гараж / автосалон',
+                  'Նոր ավտոսրահ / ընկերություն',
+                  'ახალი ავტოსალონი / გარაჟი'
+                )}
               </h2>
               <button
                 type="button"
                 onClick={() => setIsCreateOpen(false)}
-                aria-label={isRu ? 'Закрыть' : 'Fermer'}
+                aria-label={t('closeBtn')}
                 className="p-1.5 rounded-[var(--ag-button-radius)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)] transition"
               >
                 <X className="w-4 h-4" />
@@ -253,7 +293,12 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
             <form onSubmit={handleCreateSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1.5">
-                  {isRu ? 'Юридический статус' : 'Forme juridique / Statut'}
+                  {L(
+                    'Forme juridique / Statut',
+                    'Юридический статус',
+                    'Իրավական կարգավիճակ',
+                    'იურიდიული სტატუსი'
+                  )}
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -265,7 +310,12 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                         : 'bg-[var(--background)] text-[var(--secondary-foreground)] border-[var(--border)]'
                     }`}
                   >
-                    {isRu ? 'Юрлицо (Мораль)' : 'Personne morale'}
+                    {L(
+                      'Personne morale',
+                      'Юрлицо (Мораль)',
+                      'Իրավաբանական անձ',
+                      'იურიდიული პირი'
+                    )}
                   </button>
                   <button
                     type="button"
@@ -276,7 +326,12 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                         : 'bg-[var(--background)] text-[var(--secondary-foreground)] border-[var(--border)]'
                     }`}
                   >
-                    {isRu ? 'Физлицо (Частник)' : 'Personne physique'}
+                    {L(
+                      'Personne physique',
+                      'Физлицо (Частник)',
+                      'Ֆիզիկական անձ',
+                      'ფიზიკური პირი'
+                    )}
                   </button>
                 </div>
               </div>
@@ -286,31 +341,70 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   htmlFor="new-garage-tax-regime"
                   className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1"
                 >
-                  {isRu ? 'Юридический статус / Налоговый режим' : 'Statut juridique / Régime fiscal'}
+                  {L(
+                    'Statut juridique / Régime fiscal',
+                    'Юридический статус / Налоговый режим',
+                    'Իրավական կարգավիճակ / Հարկային ռեժիմ',
+                    'სამართლებრივი სტატუსი / საგადასახადო რეჟიმი'
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
-                  <ThemedSelect<'sarl' | 'micro' | 'custom' | 'none'>
+                  <ThemedSelect<TaxRegime>
                     id="new-garage-tax-regime"
                     testId="new-garage-tax-regime-select"
-                    ariaLabel={isRu ? 'Юридический статус / Налоговый режим' : 'Statut juridique / Régime fiscal'}
+                    ariaLabel={L(
+                      'Statut juridique / Régime fiscal',
+                      'Юридический статус / Налоговый режим',
+                      'Իրավական կարգավիճակ / Հարկային ռեժիմ',
+                      'სამართლებრივი სტატუსი / საგადასახადო რეჟიმი'
+                    )}
                     value={taxRegime}
                     onChange={(val) => handleTaxRegimeChange(val)}
                     options={[
                       {
                         value: 'sarl',
-                        label: isRu ? 'SARL / SAS - IS 15% от маржи' : 'SARL / SAS - IS 15% sur la marge',
+                        label: L(
+                          'SARL - IS progressif 15% ≤ 42 500 € / 25%',
+                          'SARL - IS прогрессивный 15% ≤ 42 500 € / 25%',
+                          'SARL - IS պրոգրեսիվ 15% ≤ 42 500 € / 25%',
+                          'SARL - IS პროგრესული 15% ≤ 42 500 € / 25%'
+                        ),
+                      },
+                      {
+                        value: 'sas',
+                        label: L(
+                          'SAS - IS progressif 15% ≤ 42 500 € / 25%',
+                          'SAS - IS прогрессивный 15% ≤ 42 500 € / 25%',
+                          'SAS - IS պրոգրեսիվ 15% ≤ 42 500 € / 25%',
+                          'SAS - IS პროგრესული 15% ≤ 42 500 € / 25%'
+                        ),
                       },
                       {
                         value: 'micro',
-                        label: isRu ? 'Micro-entreprise - 12.3% от оборота' : 'Micro-entreprise - 12.3% du CA',
+                        label: L(
+                          'Micro-entreprise - 12.3% URSSAF (+ 1% VL = 13.3% CA)',
+                          'Micro-entreprise - 12.3% URSSAF (+ 1% VL = 13.3% с оборота)',
+                          'Micro-entreprise - 12.3% URSSAF (+ 1% VL = 13.3% շրջանառությունից)',
+                          'Micro-entreprise - 12.3% URSSAF (+ 1% VL = 13.3% ბრუნვიდან)'
+                        ),
                       },
                       {
                         value: 'custom',
-                        label: isRu ? 'Своя пользовательская ставка' : 'Taux personnalisé',
+                        label: L(
+                          'Taux personnalisé',
+                          'Своя пользовательская ставка',
+                          'Անհատական հարկային դրույքաչափ',
+                          'მორგებული საგადასახადო განაკვეთი'
+                        ),
                       },
                       {
                         value: 'none',
-                        label: isRu ? 'Частное лицо / Без налога 0%' : 'Particulier / Sans impôt 0%',
+                        label: L(
+                          'Particulier / Sans impôt 0%',
+                          'Частное лицо / Без налога 0%',
+                          'Անհատ / Առանց հարկի 0%',
+                          'ფიზიკური პირი / გადასახადის გარეშე 0%'
+                        ),
                       },
                     ]}
                     triggerClassName="flex-1 min-w-0 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)]"
@@ -323,7 +417,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                         min={0}
                         max={100}
                         step="any"
-                        aria-label={isRu ? 'Ставка налога %' : 'Taux %'}
+                        aria-label={L('Taux %', 'Ставка налога %', 'Տոկոսադրույք %', 'განაკვეთი %')}
                         value={taxRatePercent}
                         onChange={(e) =>
                           setTaxRatePercent(Math.max(0, Number(e.target.value) || 0))
@@ -344,12 +438,18 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1"
                 >
                   {entityType === 'morale'
-                    ? isRu
-                      ? 'Название компании / гаража *'
-                      : 'Raison sociale / Nom du garage *'
-                    : isRu
-                    ? 'Имя и Фамилия владельца *'
-                    : 'Nom & Prénom du vendeur *'}
+                    ? L(
+                        'Raison sociale / Nom du garage *',
+                        'Название компании / гаража *',
+                        'Ընկերության / ավտոսրահի անվանում *',
+                        'კომპანიის / ავტოსალონის სახელი *'
+                      )
+                    : L(
+                        'Nom & Prénom du vendeur *',
+                        'Имя и Фамилия владельца *',
+                        'Սեփականատիրոջ անուն և ազգանուն *',
+                        'მფლობელის სახელი და გვარი *'
+                      )}
                 </label>
                 <input
                   id="new-garage-name"
@@ -370,7 +470,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                     htmlFor="new-garage-city"
                     className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1"
                   >
-                    {isRu ? 'Город' : 'Ville / Commune'}
+                    {L('Ville / Commune', 'Город', 'Քաղաք', 'ქალაქი')}
                   </label>
                   <input
                     id="new-garage-city"
@@ -408,7 +508,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   onClick={() => setIsCreateOpen(false)}
                   className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--secondary-foreground)] border border-[var(--border)] transition"
                 >
-                  {isRu ? 'Отмена' : 'Annuler'}
+                  {t('cancelBtn')}
                 </button>
                 <button
                   type="submit"
@@ -416,7 +516,14 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] hover:opacity-90 text-[var(--primary-foreground)] transition disabled:opacity-60"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Создать и открыть' : 'Créer le garage'}</span>
+                  <span>
+                    {L(
+                      'Créer le garage',
+                      'Создать и открыть',
+                      'Ստեղծել և բացել',
+                      'შექმნა და გახსნა'
+                    )}
+                  </span>
                 </button>
               </div>
             </form>

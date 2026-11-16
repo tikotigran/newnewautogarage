@@ -4,6 +4,20 @@
  * total capital invested, net profit / margin, and ROI percentages.
  */
 
+import {
+  FrenchTaxConfiguration,
+  GeneralExpense,
+  RepairTask,
+  TaxRegime,
+  TransactionTaxSnapshot,
+  VatRegime,
+} from '../types/garage';
+import {
+  buildTransactionTaxSnapshot,
+  FRENCH_TAX_DEFAULTS,
+  normalizeFrenchTaxConfig,
+} from './frenchTaxEngine';
+
 export interface RepairItem {
   partsCost: number;
   laborCost: number;
@@ -147,7 +161,7 @@ export function canDisplaySaleFinancialReport(vehicle: {
   return getRealizedSalePrice(vehicle) > 0;
 }
 
-export type TaxRegime = 'sarl' | 'micro' | 'custom' | 'none';
+export type { TaxRegime };
 
 export interface SaleFinancialReport {
   salePrice: number;
@@ -161,34 +175,77 @@ export interface SaleFinancialReport {
   taxLabel: string;
   taxAmount: number;
   netProfitAfterTax: number;
+  // Separated French tax & VAT fields
+  urssafAmount: number;
+  versementLiberatoireEnabled: boolean;
+  versementLiberatoireAmount: number;
+  microBicEstimatedTax: number;
+  corporateIsContextNote: string;
+  vatRegime: VatRegime;
+  vatRatePercent: number;
+  vatAmount: number;
+  htAmount: number;
+  ttcAmount: number;
+  vatLegalMention: string;
+  isHistoricalSnapshot: boolean;
+  disclaimerNote: string;
 }
 
 export function resolveTaxRatePercent(
   taxRegime?: TaxRegime,
-  taxRatePercent?: number
+  taxRatePercent?: number,
+  frenchTaxConfig?: FrenchTaxConfiguration
 ): { regime: TaxRegime; rate: number; label: string } {
-  const regime: TaxRegime = taxRegime || 'sarl';
-  let rate: number;
-  if (typeof taxRatePercent === 'number' && !Number.isNaN(taxRatePercent) && taxRatePercent >= 0) {
-    rate = taxRatePercent;
-  } else if (regime === 'micro') {
-    rate = 12.3;
-  } else if (regime === 'none') {
-    rate = 0;
-  } else {
-    rate = 15;
+  const normalized = normalizeFrenchTaxConfig(
+    {
+      taxRegime,
+      taxRatePercent,
+      frenchTaxConfig,
+    },
+    frenchTaxConfig || undefined
+  );
+
+  const regime = normalized.businessTaxRegime;
+
+  if (regime === 'micro') {
+    const combined =
+      normalized.socialContributionRate +
+      (normalized.versementLiberatoireEnabled ? normalized.versementLiberatoireRate : 0);
+    return {
+      regime: 'micro',
+      rate: roundToTwo(combined),
+      label: normalized.versementLiberatoireEnabled
+        ? `Micro ${roundToTwo(combined)}% CA (URSSAF ${normalized.socialContributionRate}% + VL ${normalized.versementLiberatoireRate}%)`
+        : `Micro ${normalized.socialContributionRate}% CA (URSSAF seul)`,
+    };
   }
 
-  const label =
-    regime === 'sarl'
-      ? `SARL ${rate}%`
-      : regime === 'micro'
-      ? `Micro ${rate}%`
-      : regime === 'none'
-      ? '0%'
-      : `${rate}%`;
+  if (regime === 'sarl' || regime === 'sas') {
+    const rate =
+      normalized.isRateMode === 'custom'
+        ? normalized.corporateTaxCustomRate
+        : normalized.isRateMode === 'standard_25' || !normalized.reducedIsEligible
+        ? normalized.corporateTaxRateStandard
+        : normalized.corporateTaxRateReduced;
+    return {
+      regime,
+      rate: roundToTwo(rate),
+      label:
+        normalized.isRateMode === 'progressive_15_25' && normalized.reducedIsEligible
+          ? `${regime.toUpperCase()} IS (${normalized.corporateTaxRateReduced}% ≤ 42 500 € / ${normalized.corporateTaxRateStandard}%)`
+          : `${regime.toUpperCase()} IS (${rate}%)`,
+    };
+  }
 
-  return { regime, rate, label };
+  if (regime === 'none') {
+    return { regime: 'none', rate: 0, label: '0%' };
+  }
+
+  const customRate =
+    typeof taxRatePercent === 'number' && !Number.isNaN(taxRatePercent) && taxRatePercent >= 0
+      ? taxRatePercent
+      : normalized.corporateTaxCustomRate;
+  return { regime: 'custom', rate: roundToTwo(customRate), label: `${roundToTwo(customRate)}%` };
 }
 
 export function calculateSaleTaxReport(params: {
@@ -198,37 +255,93 @@ export function calculateSaleTaxReport(params: {
   generalExpensesTotal?: number;
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
+  frenchTaxConfig?: FrenchTaxConfiguration;
+  vatRegime?: VatRegime;
+  vatRatePercent?: number;
+  taxSnapshot?: TransactionTaxSnapshot;
 }): SaleFinancialReport {
-  const salePrice = roundToTwo(Number(params.salePrice) || 0);
-  const purchasePrice = roundToTwo(Number(params.purchasePrice) || 0);
-  const repairCostTotal = roundToTwo(Number(params.repairCostTotal) || 0);
-  const generalExpensesTotal = roundToTwo(Number(params.generalExpensesTotal) || 0);
-  const totalExpenses = roundToTwo(repairCostTotal + generalExpensesTotal);
-  const grossMargin = roundToTwo(salePrice - purchasePrice - totalExpenses);
+  if (params.taxSnapshot?.isHistoricalSnapshot) {
+    const snap = params.taxSnapshot;
+    const totalExpenses = roundToTwo(snap.repairCostTotal + snap.generalExpensesTotal);
+    const rate =
+      snap.taxRegime === 'micro'
+        ? roundToTwo(
+            snap.urssafRate + (snap.versementLiberatoireEnabled ? snap.versementLiberatoireRate : 0)
+          )
+        : 0;
+    return {
+      salePrice: snap.salePrice,
+      purchasePrice: snap.purchasePrice,
+      repairCostTotal: snap.repairCostTotal,
+      generalExpensesTotal: snap.generalExpensesTotal,
+      totalExpenses,
+      grossMargin: snap.profitBeforeTaxes,
+      taxRegime: snap.taxRegime,
+      taxRatePercent: rate,
+      taxLabel: snap.taxLabel,
+      taxAmount: snap.totalTaxAmount,
+      netProfitAfterTax: snap.netProfitAfterTax,
+      urssafAmount: snap.urssafAmount,
+      versementLiberatoireEnabled: snap.versementLiberatoireEnabled,
+      versementLiberatoireAmount: snap.versementLiberatoireAmount,
+      microBicEstimatedTax: snap.microBicEstimatedTax,
+      corporateIsContextNote: snap.corporateIsContextNote,
+      vatRegime: snap.vatRegime,
+      vatRatePercent: snap.vatRatePercent,
+      vatAmount: snap.vatAmount,
+      htAmount: snap.htAmount,
+      ttcAmount: snap.ttcAmount,
+      vatLegalMention: snap.vatLegalMention,
+      isHistoricalSnapshot: true,
+      disclaimerNote: snap.disclaimerNote || FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
+    };
+  }
 
-  const { regime, rate, label } = resolveTaxRatePercent(
+  const snap = buildTransactionTaxSnapshot({
+    salePrice: params.salePrice,
+    purchasePrice: params.purchasePrice,
+    repairCostTotal: params.repairCostTotal,
+    generalExpensesTotal: Number(params.generalExpensesTotal) || 0,
+    settings: {
+      taxRegime: params.taxRegime,
+      taxRatePercent: params.taxRatePercent,
+      frenchTaxConfig: params.frenchTaxConfig,
+    },
+    vatRegimeOverride: params.vatRegime,
+    vatRateOverride: params.vatRatePercent,
+  });
+
+  const { rate } = resolveTaxRatePercent(
     params.taxRegime,
-    params.taxRatePercent
+    params.taxRatePercent,
+    params.frenchTaxConfig
   );
 
-  const taxAmount =
-    grossMargin > 0 && rate > 0
-      ? roundToTwo(grossMargin * (rate / 100))
-      : 0;
-  const netProfitAfterTax = roundToTwo(grossMargin - taxAmount);
-
   return {
-    salePrice,
-    purchasePrice,
-    repairCostTotal,
-    generalExpensesTotal,
-    totalExpenses,
-    grossMargin,
-    taxRegime: regime,
+    salePrice: snap.salePrice,
+    purchasePrice: snap.purchasePrice,
+    repairCostTotal: snap.repairCostTotal,
+    generalExpensesTotal: snap.generalExpensesTotal,
+    totalExpenses: roundToTwo(snap.repairCostTotal + snap.generalExpensesTotal),
+    grossMargin: snap.profitBeforeTaxes,
+    taxRegime: snap.taxRegime,
     taxRatePercent: rate,
-    taxLabel: label,
-    taxAmount,
-    netProfitAfterTax,
+    taxLabel: snap.taxLabel,
+    taxAmount: snap.totalTaxAmount,
+    netProfitAfterTax: snap.netProfitAfterTax,
+    urssafAmount: snap.urssafAmount,
+    versementLiberatoireEnabled: snap.versementLiberatoireEnabled,
+    versementLiberatoireAmount: snap.versementLiberatoireAmount,
+    microBicEstimatedTax: snap.microBicEstimatedTax,
+    corporateIsContextNote: snap.corporateIsContextNote,
+    vatRegime: snap.vatRegime,
+    vatRatePercent: snap.vatRatePercent,
+    vatAmount: snap.vatAmount,
+    htAmount: snap.htAmount,
+    ttcAmount: snap.ttcAmount,
+    vatLegalMention: snap.vatLegalMention,
+    isHistoricalSnapshot: false,
+    disclaimerNote: snap.disclaimerNote,
   };
 }
 

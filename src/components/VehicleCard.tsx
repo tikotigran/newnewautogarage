@@ -1,39 +1,37 @@
 import React from 'react';
 import {
-  Wrench,
-  TrendingUp,
   Calendar,
   Gauge,
-  Tag,
-  DollarSign,
-  CheckCircle2,
-  Clock,
   ArrowRight,
-  FileText,
-  AlertCircle,
-  Truck,
-  Image as ImageIcon,
+  Edit,
 } from 'lucide-react';
 import { Vehicle, VehicleStatus } from '../types/garage';
-import { formatEuro, formatDate, getEffectiveSalePrice } from '../utils/finance';
+import { formatEuro, formatDate } from '../utils/finance';
+import {
+  computeVehicleInventoryFinancials,
+  formatMileageKm,
+  VehicleInventoryFinancials,
+} from '../utils/inventoryUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 import { ThemedSelect } from './ThemedSelect';
 
 interface VehicleCardProps {
   vehicle: Vehicle;
+  financials?: VehicleInventoryFinancials;
   onSelect: (vehicle: Vehicle) => void;
+  onEdit?: (vehicle: Vehicle) => void;
   onQuickStatusChange: (vehicleId: string, newStatus: VehicleStatus) => void;
   onOpenSellModal: (vehicle: Vehicle) => void;
-  showPnl?: boolean;
 }
 
 export const VehicleCard: React.FC<VehicleCardProps> = ({
   vehicle,
+  financials,
   onSelect,
+  onEdit,
   onQuickStatusChange,
   onOpenSellModal,
-  showPnl = true,
 }) => {
   const { t, lang } = useI18n();
 
@@ -73,15 +71,14 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
   };
 
   const statusBadge = getStatusBadge(vehicle.status);
-  const isSold = vehicle.status === 'sold';
-  const effectivePrice = getEffectiveSalePrice(vehicle);
-  const hasSalePrice = effectivePrice > 0;
+  const fin = financials ?? computeVehicleInventoryFinancials(vehicle);
 
   const hasPhoto = Boolean(vehicle.photos && vehicle.photos.length > 0);
   const photoUrl = hasPhoto ? vehicle.photos[0] : '';
 
   return (
     <div
+      data-testid={`inventory-card-${vehicle.id}`}
       onClick={() => onSelect(vehicle)}
       className="group bg-[var(--card)] rounded-[var(--ag-card-radius)] ag-card-surface border border-[var(--border)] hover:border-[var(--primary)] shadow-sm transition-all duration-300 overflow-hidden flex flex-col cursor-pointer"
     >
@@ -108,7 +105,7 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
           </span>
         </div>
 
-        {/* Registration Number tag (VIN kept inside VehicleDetail) */}
+        {/* Registration Number tag */}
         {vehicle.registrationNumber && (
           <div className="absolute top-2.5 right-2.5">
             <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-900/90 !text-white border border-slate-700/80 shadow backdrop-blur-sm">
@@ -139,67 +136,40 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
         <div className="grid grid-cols-2 gap-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--surface-muted)] px-2 py-1.5 rounded-lg border border-[var(--border)]">
           <div className="flex items-center gap-1 truncate">
             <Gauge className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
-            <span className="text-[var(--foreground)] font-semibold truncate">
-              {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
+            <span className="text-[var(--foreground)] font-semibold truncate tabular-nums">
+              {formatMileageKm(vehicle.mileage, lang)}
             </span>
           </div>
           <div className="flex items-center gap-1 truncate justify-end">
             <Calendar className="w-3 h-3 text-[var(--muted-foreground)] shrink-0" />
-            <span className="text-[var(--secondary-foreground)] truncate">
+            <span className="text-[var(--secondary-foreground)] truncate tabular-nums">
               {formatDate(vehicle.purchaseDate)}
             </span>
           </div>
         </div>
 
-        {/* Financial Ledger Snapshot */}
+        {/* Investment Breakdown: Purchase Price, Expenses & Total Invested */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[var(--muted-foreground)]">{t('cardInvested')}</span>
-            <span className="text-[var(--primary)] font-bold tabular-nums">
-              {formatEuro(vehicle.totalInvested)}
+            <span className="text-[var(--muted-foreground)]">{t('cardPurchase')}</span>
+            <span className="text-[var(--foreground)] font-semibold tabular-nums">
+              {formatEuro(fin.purchasePrice)}
             </span>
           </div>
 
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[var(--muted-foreground)]">
-              {isSold ? t('cardSold') : t('cardTarget')}
-            </span>
-            <span className={`font-extrabold text-xs tabular-nums ${hasSalePrice ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'}`}>
-              {hasSalePrice ? formatEuro(effectivePrice) : '—'}
+            <span className="text-[var(--muted-foreground)]">{t('cardExpenses')}</span>
+            <span className="text-[var(--secondary-foreground)] font-semibold tabular-nums">
+              {formatEuro(fin.totalExpenses)}
             </span>
           </div>
 
-          {/* Net Margin & ROI Box */}
-          {showPnl && (
-            <div
-              className={`px-2.5 py-1.5 rounded-xl border flex items-center justify-between ${
-                !hasSalePrice
-                  ? 'bg-[var(--surface-muted)] border-[var(--border)] text-[var(--muted-foreground)]'
-                  : vehicle.netProfit >= 0
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-[var(--success)]'
-                  : 'bg-red-500/10 border-red-500/30 text-red-500'
-              }`}
-            >
-              <div className="flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span className="text-[11px] font-semibold">{t('netMargin')}</span>
-              </div>
-              <div className="text-right">
-                {hasSalePrice ? (
-                  <>
-                    <div className="text-xs font-extrabold leading-tight tabular-nums">
-                      {vehicle.netProfit >= 0 ? '+' : ''}{formatEuro(vehicle.netProfit)}
-                    </div>
-                    <div className="text-[10px] opacity-80 font-mono leading-tight tabular-nums">
-                      {vehicle.marginPercentage.toFixed(1)}%
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs font-mono font-bold text-[var(--muted-foreground)]">—</div>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="pt-1.5 mt-1 border-t border-dashed border-[var(--border)] flex items-center justify-between text-xs">
+            <span className="text-[var(--foreground)] font-bold">{t('cardTotalInvested')}</span>
+            <span className="text-[var(--primary)] font-extrabold tabular-nums">
+              {formatEuro(fin.totalInvested)}
+            </span>
+          </div>
         </div>
 
         {/* Bottom Action Footer */}
@@ -226,18 +196,36 @@ export const VehicleCard: React.FC<VehicleCardProps> = ({
             triggerClassName="text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)] max-w-[132px]"
           />
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect(vehicle);
-            }}
-            className="flex items-center gap-1 text-[11px] font-bold text-[var(--primary)] transition-colors whitespace-nowrap"
-          >
-            <span>{t('dossierBtn')}</span>
-            <ArrowRight className="w-3 h-3 transform group-hover:translate-x-0.5 transition-transform" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(vehicle);
+                }}
+                aria-label={`${t('editVehicleTitle')}: ${vehicle.make} ${vehicle.model}`}
+                title={t('editVehicleTitle')}
+                className="p-1.5 rounded-lg bg-[var(--surface-muted)] hover:border-[var(--primary)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)] transition"
+              >
+                <Edit className="w-3 h-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(vehicle);
+              }}
+              className="flex items-center gap-1 text-[11px] font-bold text-[var(--primary)] transition-colors whitespace-nowrap"
+            >
+              <span>{t('dossierBtn')}</span>
+              <ArrowRight className="w-3 h-3 transform group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+

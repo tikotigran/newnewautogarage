@@ -7,12 +7,21 @@
       "properties": {
         "id": { "type": "string", "description": "Unique ID of the vehicle" },
         "userId": { "type": "string", "description": "Owner user UID" },
+        "garageId": { "type": "string", "maxLength": 128, "description": "Scoped garage workspace ID" },
         "make": { "type": "string", "maxLength": 80, "description": "Vehicle brand / manufacturer (e.g. Peugeot, Renault)" },
         "model": { "type": "string", "maxLength": 80, "description": "Vehicle model (e.g. 208, Clio)" },
         "trim": { "type": "string", "maxLength": 80, "description": "Trim / Version / Finition (e.g. GT Line, Allure)" },
         "year": { "type": "number", "description": "Model year (e.g. 2021)" },
         "mileage": { "type": "number", "description": "Mileage in kilometers" },
-        "vin": { "type": "string", "maxLength": 30, "description": "VIN or License plate / Immatriculation (e.g. AA-123-BB)" },
+        "vin": { "type": "string", "maxLength": 30, "description": "Vehicle Identification Number (E)" },
+        "registrationNumber": { "type": "string", "maxLength": 30, "description": "Vehicle registration plate / Immatriculation (e.g. AB-123-CD)" },
+        "fuelType": { "type": "string", "maxLength": 60, "description": "Fuel type" },
+        "gearbox": { "type": "string", "maxLength": 60, "description": "Transmission / gearbox type" },
+        "typeVariantVersion": { "type": "string", "maxLength": 80, "description": "Carte Grise D.2 type/variant/version" },
+        "nationalGenre": { "type": "string", "maxLength": 30, "description": "Carte Grise J.1 national genre" },
+        "bodyType": { "type": "string", "maxLength": 30, "description": "Carte Grise J.3 body type" },
+        "formulaNumber": { "type": "string", "maxLength": 60, "description": "Carte Grise formula number" },
+        "certificateDate": { "type": "string", "maxLength": 30, "description": "Carte Grise issue date (I)" },
         "purchaseDate": { "type": "string", "description": "Date of acquisition (YYYY-MM-DD)" },
         "purchasePrice": { "type": "number", "description": "Purchase cost in Euros" },
         "targetSalePrice": { "type": "number", "description": "Target or listed sales price in Euros" },
@@ -141,10 +150,12 @@
         "userId": { "type": "string", "description": "Owner user UID" },
         "name": { "type": "string", "maxLength": 120, "description": "Garage or owner display name" },
         "entityType": { "type": "string", "enum": ["morale", "physique"], "description": "Legal status" },
+        "legalStatus": { "type": "string", "enum": ["micro_entreprise", "sarl", "sas", "eurl", "sasu", "ei", "other"], "description": "Detailed French legal status" },
         "city": { "type": "string", "maxLength": 100, "description": "City" },
         "siret": { "type": "string", "maxLength": 20, "description": "SIRET number for companies" },
-        "taxRegime": { "type": "string", "enum": ["sarl", "micro", "custom", "none"], "description": "Tax regime for P&L" },
+        "taxRegime": { "type": "string", "enum": ["sarl", "sas", "micro", "custom", "none"], "description": "Tax regime for P&L" },
         "taxRatePercent": { "type": "number", "description": "Default tax rate percentage" },
+        "frenchTaxConfig": { "type": "object", "description": "French tax rules configuration (URSSAF, VL, IS brackets, VAT, effective dates)" },
         "createdAt": { "type": "string", "description": "Creation timestamp" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" }
       },
@@ -152,18 +163,33 @@
     },
     "GarageSettings": {
       "title": "GarageSettings",
-      "description": "Scoped garage settings including Cerfa profile, TVA mention, layout preference, and tax regime.",
+      "description": "Scoped garage settings including Cerfa profile, TVA mention, layout preference, and French tax configuration.",
       "type": "object",
       "properties": {
         "garageId": { "type": "string", "description": "Target garage ID" },
         "entityType": { "type": "string", "enum": ["morale", "physique"], "description": "Legal entity type" },
+        "legalStatus": { "type": "string", "enum": ["micro_entreprise", "sarl", "sas", "eurl", "sasu", "ei", "other"], "description": "Detailed French legal status" },
         "name": { "type": "string", "maxLength": 120, "description": "Garage name" },
-        "taxRegime": { "type": "string", "enum": ["sarl", "micro", "custom", "none"], "description": "Tax regime" },
+        "taxRegime": { "type": "string", "enum": ["sarl", "sas", "micro", "custom", "none"], "description": "Tax regime" },
         "taxRatePercent": { "type": "number", "description": "Tax rate percentage" },
         "currency": { "type": "string", "enum": ["EUR", "USD", "CHF", "GBP"], "description": "Currency" },
-        "layoutMode": { "type": "string", "enum": ["global", "classic", "sidebar"], "description": "User layout preference" }
+        "layoutMode": { "type": "string", "enum": ["global", "classic", "sidebar"], "description": "User layout preference" },
+        "frenchTaxConfig": { "type": "object", "description": "Structured French tax configuration (Micro URSSAF/VL, SARL/SAS progressive IS, VAT)" },
+        "isCalculationHistory": { "type": "array", "description": "Recorded annual corporate IS calculation history" },
+        "taxAuditHistory": { "type": "array", "description": "Audit log of tax settings modifications" }
       },
       "required": ["name"]
+    },
+    "SuperAdminTaxDefaults": {
+      "title": "SuperAdminTaxDefaults",
+      "description": "Platform-wide default French tax configuration managed by SuperAdmin.",
+      "type": "object",
+      "properties": {
+        "config": { "type": "object", "description": "Default FrenchTaxConfiguration template" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" }
+      },
+      "required": ["config"]
     },
     "Supplier": {
       "title": "Supplier",
@@ -343,6 +369,8 @@
             "purchase_created",
             "document_uploaded",
             "settings_updated",
+            "tax_settings_updated",
+            "is_calculation_recorded",
             "auth_login"
           ],
           "description": "Recorded action type"
@@ -456,6 +484,10 @@
     "/settings/copywriting": {
       "schema": { "$ref": "#/entities/UiCustomization" },
       "description": "Global copywriting label overrides synchronized for all workspaces."
+    },
+    "/settings/tax_defaults": {
+      "schema": { "$ref": "#/entities/SuperAdminTaxDefaults" },
+      "description": "Platform-wide default French tax configuration managed by SuperAdmin."
     },
     "/settings/{settingsId}": {
       "schema": { "$ref": "#/entities/GarageSettings" },

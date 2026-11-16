@@ -20,6 +20,8 @@ import {
   ArrowDownRight,
   Package,
   PiggyBank,
+  Scale,
+  AlertCircle,
 } from 'lucide-react';
 import { Vehicle, RepairTask, GeneralExpense, FeatureFlagsConfig, GarageSettings } from '../types/garage';
 import { getGarageSettings, subscribeAllFleetExpensesAndRepairs } from '../services/garageService';
@@ -114,6 +116,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           : undefined,
       taxRegime: garageSettings.taxRegime,
       taxRatePercent: garageSettings.taxRatePercent,
+      frenchTaxConfig: garageSettings.frenchTaxConfig,
     });
   }, [
     vehicles,
@@ -124,6 +127,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     customEndDate,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
+    garageSettings.frenchTaxConfig,
   ]);
 
   const analytics = report.expenseBreakdown;
@@ -401,6 +405,84 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   tax: formatEuro(salesPerformance.taxAmount),
                 })}
               </p>
+            </div>
+          </div>
+
+          {/* Strictly Separated French Tax & VAT Breakdown */}
+          <div
+            data-testid="analytics-french-tax-breakdown"
+            className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--foreground)]">
+                <Scale className="w-4 h-4 text-[var(--primary)]" />
+                <span>
+                  {lang === 'ru'
+                    ? 'Раздельный расчёт налогов и НДС (Франция)'
+                    : 'Ventilation fiscale séparée (TVA / URSSAF / IR / IS)'}
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-[var(--muted-foreground)] tabular-nums">
+                {salesPerformance.taxLabel}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs tabular-nums">
+              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <span className="text-[11px] text-[var(--muted-foreground)] block">
+                  {lang === 'ru' ? 'Расчётный НДС (TVA)' : 'TVA transaction (séparée)'}
+                </span>
+                <span className="text-base font-bold text-sky-400 mt-0.5 block">
+                  {formatEuro(salesPerformance.vatAmount)}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <span className="text-[11px] text-[var(--muted-foreground)] block">
+                  {lang === 'ru' ? 'Взносы URSSAF (с CA)' : 'URSSAF Micro (sur CA)'}
+                </span>
+                <span className="text-base font-bold text-amber-400 mt-0.5 block">
+                  {formatEuro(salesPerformance.urssafAmount)}
+                </span>
+                {salesPerformance.versementLiberatoireAmount > 0 && (
+                  <span className="text-[10px] text-[var(--muted-foreground)] block">
+                    + VL {formatEuro(salesPerformance.versementLiberatoireAmount)}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <span className="text-[11px] text-[var(--muted-foreground)] block">
+                  {lang === 'ru' ? 'Налог на прибыль (IS)' : 'IS Société (progressif)'}
+                </span>
+                <span className="text-base font-bold text-indigo-400 mt-0.5 block">
+                  {formatEuro(salesPerformance.corporateIsAmount)}
+                </span>
+                {salesPerformance.corporateIsBreakdown && salesPerformance.corporateIsAmount > 0 && (
+                  <span className="text-[10px] text-[var(--muted-foreground)] block">
+                    {salesPerformance.corporateIsBreakdown.reducedIsEligible
+                      ? `15% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket15Tax)}) + 25% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket25Tax)})`
+                      : `25% standard`}
+                  </span>
+                )}
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <span className="text-[11px] text-[var(--muted-foreground)] block">
+                  {lang === 'ru' ? 'Отд. оценка IR Micro-BIC' : 'IR Micro-BIC estimé (si VL = NON)'}
+                </span>
+                <span className="text-base font-bold text-[var(--secondary-foreground)] mt-0.5 block">
+                  {formatEuro(salesPerformance.microBicEstimatedIrAmount)}
+                </span>
+                <span className="text-[10px] text-[var(--muted-foreground)] block">
+                  {lang === 'ru' ? 'Abattement 71%, не входит в 12.3%' : 'Abattement 71%, hors URSSAF'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2 text-[11px] text-[var(--muted-foreground)] pt-1">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+              <span>{t('taxAccountantDisclaimer')}</span>
             </div>
           </div>
         </section>

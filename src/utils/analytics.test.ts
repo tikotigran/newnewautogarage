@@ -414,3 +414,136 @@ test('computeDealershipAnalytics separates Revenue, Gross Profit, and Net Profit
   assert.equal(allReport.mostProfitableVehicles[0].vehicleId, 'v3');
   assert.equal(allReport.mostProfitableVehicles[1].vehicleId, 'v4');
 });
+
+test('computeDealershipAnalytics computes progressive SARL/SAS IS on €60,000 profit and Micro turnover taxes', () => {
+  const bigSaleVehicle: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_big',
+    purchasePrice: 40000,
+    targetSalePrice: 100000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Client Corporate',
+      address: 'Lyon',
+      phone: '0600000000',
+      email: 'corp@test.fr',
+      salePrice: 100000,
+      saleDate: '2026-11-05',
+      vatRegime: 'tva_marge',
+    },
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 40000,
+    netProfit: 60000,
+    marginPercentage: 60,
+  };
+
+  // SARL Progressive IS: 42,500 * 15% (6,375) + 17,500 * 25% (4,375) = 10,750 €
+  const sarlReport = computeDealershipAnalytics({
+    vehicles: [bigSaleVehicle],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'sarl',
+    now: fixedNow,
+  });
+  assert.equal(sarlReport.salesPerformance.grossProfit, 60000);
+  assert.equal(sarlReport.salesPerformance.corporateIsAmount, 10750);
+  assert.equal(sarlReport.salesPerformance.taxAmount, 10750);
+  assert.equal(sarlReport.salesPerformance.netProfit, 49250);
+  assert.equal(sarlReport.salesPerformance.corporateIsBreakdown?.bracket15Tax, 6375);
+  assert.equal(sarlReport.salesPerformance.corporateIsBreakdown?.bracket25Tax, 4375);
+
+  // Micro-entreprise exact rule: Purchase 2,000, Repairs 5,000, Sale 5,000 -> Turnover 5,000
+  const lossMicroVehicle: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_micro_loss',
+    purchasePrice: 2000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Client Micro',
+      address: 'Paris',
+      phone: '0600000000',
+      email: 'micro@test.fr',
+      salePrice: 5000,
+      saleDate: '2026-11-05',
+      vatRegime: 'franchise_base',
+    },
+    repairCostTotal: 5000,
+    generalExpensesTotal: 0,
+    totalExpenses: 5000,
+    totalInvested: 7000,
+    netProfit: -2000,
+    marginPercentage: -40,
+  };
+
+  const microVlYes = computeDealershipAnalytics({
+    vehicles: [lossMicroVehicle],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    frenchTaxConfig: {
+      legalStatus: 'micro_entreprise',
+      businessTaxRegime: 'micro',
+      socialContributionRate: 12.3,
+      versementLiberatoireEnabled: true,
+      versementLiberatoireRate: 1,
+      microBicAbattementPercent: 71,
+      microBicIncomeTaxRate: 11,
+      isRateMode: 'progressive_15_25',
+      corporateTaxRateReduced: 15,
+      corporateTaxRateStandard: 25,
+      corporateTaxCustomRate: 25,
+      reducedIsEligible: true,
+      reducedIsThreshold: 42500,
+      annualTaxableProfit: 0,
+      financialYear: 2026,
+      vatRegime: 'franchise_base',
+      vatRatePercent: 20,
+      effectiveDates: { urssaf: '2026-01-01', is: '2026-01-01', vat: '2026-01-01' },
+    },
+    now: fixedNow,
+  });
+  assert.equal(microVlYes.salesPerformance.revenue, 5000);
+  assert.equal(microVlYes.salesPerformance.grossProfit, -2000);
+  assert.equal(microVlYes.salesPerformance.urssafAmount, 615);
+  assert.equal(microVlYes.salesPerformance.versementLiberatoireAmount, 50);
+  assert.equal(microVlYes.salesPerformance.taxAmount, 665);
+  assert.equal(microVlYes.salesPerformance.netProfit, -2665);
+
+  const microVlNo = computeDealershipAnalytics({
+    vehicles: [lossMicroVehicle],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    frenchTaxConfig: {
+      legalStatus: 'micro_entreprise',
+      businessTaxRegime: 'micro',
+      socialContributionRate: 12.3,
+      versementLiberatoireEnabled: false,
+      versementLiberatoireRate: 1,
+      microBicAbattementPercent: 71,
+      microBicIncomeTaxRate: 11,
+      isRateMode: 'progressive_15_25',
+      corporateTaxRateReduced: 15,
+      corporateTaxRateStandard: 25,
+      corporateTaxCustomRate: 25,
+      reducedIsEligible: true,
+      reducedIsThreshold: 42500,
+      annualTaxableProfit: 0,
+      financialYear: 2026,
+      vatRegime: 'franchise_base',
+      vatRatePercent: 20,
+      effectiveDates: { urssaf: '2026-01-01', is: '2026-01-01', vat: '2026-01-01' },
+    },
+    now: fixedNow,
+  });
+  assert.equal(microVlNo.salesPerformance.urssafAmount, 615);
+  assert.equal(microVlNo.salesPerformance.versementLiberatoireAmount, 0);
+  assert.equal(microVlNo.salesPerformance.taxAmount, 615);
+  assert.ok(microVlNo.salesPerformance.microBicEstimatedIrAmount > 0);
+});
+

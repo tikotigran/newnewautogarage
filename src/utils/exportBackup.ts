@@ -9,10 +9,16 @@ import {
   Purchase,
   RepairTask,
   Supplier,
+  VatRegime,
   Vehicle,
 } from '../types/garage';
 import { DealershipAnalyticsReport } from './analytics';
 import { calculateSaleTaxReport, getEffectiveSalePrice, getRealizedSalePrice, roundToTwo } from './finance';
+import {
+  calculateFrenchVat,
+  FRENCH_TAX_DEFAULTS,
+  normalizeFrenchTaxConfig,
+} from './frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
 
 export interface VehicleExportRow {
@@ -52,7 +58,13 @@ export interface FinancialLedgerRow {
   FraisDivers: number;
   TotalInvesti: number;
   MargeBrute: number;
+  ProfitAvantImpots_EUR: number;
   RegimeFiscal: string;
+  RegimeTVA: string;
+  TVA_EUR: number;
+  URSSAF_EUR: number;
+  VersementLiberatoire_EUR: number;
+  IS_Annuel_Contexte: string;
   ImpotEstime: number;
   BeneficeNet: number;
   MargePourcent: number;
@@ -94,8 +106,9 @@ export function buildVehiclesExportRows(vehicles: Vehicle[]): VehicleExportRow[]
 
 export function buildFinancialLedgerRows(
   vehicles: Vehicle[],
-  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent'>
+  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig'>
 ): FinancialLedgerRow[] {
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(garageSettings);
   return vehicles.map((v) => {
     const isSold = v.status === 'sold';
     const revenue = isSold ? getRealizedSalePrice(v) : getEffectiveSalePrice(v);
@@ -106,6 +119,10 @@ export function buildFinancialLedgerRows(
       generalExpensesTotal: v.generalExpensesTotal || 0,
       taxRegime: garageSettings.taxRegime,
       taxRatePercent: garageSettings.taxRatePercent,
+      frenchTaxConfig: normalizedTaxConfig,
+      vatRegime: v.buyerInfo?.vatRegime,
+      vatRatePercent: v.buyerInfo?.vatRatePercent,
+      taxSnapshot: isSold ? v.buyerInfo?.taxSnapshot : undefined,
     });
     const marginPercent =
       revenue > 0 ? roundToTwo((taxReport.netProfitAfterTax / revenue) * 100) : 0;
@@ -129,7 +146,13 @@ export function buildFinancialLedgerRows(
       FraisDivers: taxReport.generalExpensesTotal,
       TotalInvesti: totalInvested,
       MargeBrute: isSold ? taxReport.grossMargin : 0,
+      ProfitAvantImpots_EUR: isSold ? taxReport.grossMargin : 0,
       RegimeFiscal: taxReport.taxLabel,
+      RegimeTVA: taxReport.vatRegime,
+      TVA_EUR: isSold ? taxReport.vatAmount : 0,
+      URSSAF_EUR: isSold ? taxReport.urssafAmount : 0,
+      VersementLiberatoire_EUR: isSold ? taxReport.versementLiberatoireAmount : 0,
+      IS_Annuel_Contexte: isSold ? taxReport.corporateIsContextNote || '' : '',
       ImpotEstime: isSold ? taxReport.taxAmount : 0,
       BeneficeNet: isSold ? taxReport.netProfitAfterTax : 0,
       MargePourcent: isSold ? marginPercent : 0,
@@ -148,7 +171,7 @@ function escapeCsvCell(val: unknown): string {
 
 export function financialLedgerToCsv(
   vehicles: Vehicle[],
-  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent'>
+  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig'>
 ): string {
   const rows = buildFinancialLedgerRows(vehicles, garageSettings);
   const headers = [
@@ -166,8 +189,13 @@ export function financialLedgerToCsv(
     'TotalInvesti_EUR',
     'MargeBrute_EUR',
     'RegimeFiscal',
+    'RegimeTVA',
+    'TVA_EUR',
+    'URSSAF_EUR',
+    'VersementLiberatoire_EUR',
     'ImpotEstime_EUR',
     'BeneficeNet_EUR',
+    'IS_Annuel_Contexte',
     'MargeNet_Pct',
     'ROI_Pct',
   ];
@@ -188,8 +216,13 @@ export function financialLedgerToCsv(
       r.TotalInvesti,
       r.MargeBrute,
       r.RegimeFiscal,
+      r.RegimeTVA,
+      r.TVA_EUR,
+      r.URSSAF_EUR,
+      r.VersementLiberatoire_EUR,
       r.ImpotEstime,
       r.BeneficeNet,
+      r.IS_Annuel_Contexte,
       r.MargePourcent,
       r.ROIPourcent,
     ]
@@ -302,14 +335,20 @@ export function buildFinancialWorkbookBytes(params: {
     { Indicateur: 'Capital immobilise en stock', Valeur: analytics.inventory.totalInvestedInStock, Detail: 'Achats + Reparations + Frais' },
     { Indicateur: 'Profit potentiel du stock', Valeur: analytics.inventory.totalPotentialProfit, Detail: 'Estimation avant cession' },
     { Indicateur: '1. Chiffre d affaires (Revenue)', Valeur: analytics.salesPerformance.revenue, Detail: `${analytics.salesPerformance.soldCount} ventes realisees` },
-    { Indicateur: '2. Marge brute (Gross Profit)', Valeur: analytics.salesPerformance.grossProfit, Detail: 'Revenue - Cout de revient vehicules vendus' },
-    { Indicateur: 'Impots & Taxes estimes', Valeur: analytics.salesPerformance.taxAmount, Detail: analytics.salesPerformance.taxLabel },
+    { Indicateur: '2. Marge brute avant impots (Profit Before Taxes)', Valeur: analytics.salesPerformance.grossProfit, Detail: 'Revenue - Cout de revient vehicules vendus' },
+    { Indicateur: 'TVA estimee / collectee (TVA)', Valeur: analytics.salesPerformance.vatAmount, Detail: 'Separee du CA et du resultat fiscal' },
+    { Indicateur: 'Cotisations URSSAF (Micro)', Valeur: analytics.salesPerformance.urssafAmount, Detail: 'Sur chiffre d affaires (achat/revente)' },
+    { Indicateur: 'Versement liberatoire IR (Micro)', Valeur: analytics.salesPerformance.versementLiberatoireAmount, Detail: 'Option sur CA si activee' },
+    { Indicateur: 'IR Micro-BIC estime separement (si VL = NON)', Valeur: analytics.salesPerformance.microBicEstimatedIrAmount, Detail: 'Apres abattement forfaitaire 71%' },
+    { Indicateur: 'Impot sur les Societes - IS (SARL/SAS)', Valeur: analytics.salesPerformance.corporateIsAmount, Detail: 'Progressif 15% <= 42 500 EUR / 25% au-dela' },
+    { Indicateur: 'Total Impots & Taxes estimes', Valeur: analytics.salesPerformance.taxAmount, Detail: analytics.salesPerformance.taxLabel },
     { Indicateur: '3. Benefice net (Net Profit)', Valeur: analytics.salesPerformance.netProfit, Detail: 'Marge brute - Impots estimes' },
     { Indicateur: 'Marge nette moyenne / vehicule', Valeur: analytics.salesPerformance.averageNetMarginEuro, Detail: `${analytics.salesPerformance.netMarginPercent.toFixed(1)}%` },
     { Indicateur: 'Delai moyen de vente (jours)', Valeur: analytics.salesPerformance.averageDaysToSell ?? 0, Detail: 'Rotation moyenne' },
     { Indicateur: 'Cash Flow Entrees (Inflow)', Valeur: analytics.cashFlow.inflow, Detail: 'Encaissements ventes' },
     { Indicateur: 'Cash Flow Sorties (Outflow)', Valeur: analytics.cashFlow.outflow, Detail: 'Achats + Travaux + Frais + Taxes' },
     { Indicateur: 'Cash Flow Net', Valeur: analytics.cashFlow.netCashFlow, Detail: 'Tresorerie nette sur la periode' },
+    { Indicateur: 'Avertissement conformite', Valeur: 'Validation expert-comptable requise', Detail: FRENCH_TAX_DEFAULTS.DISCLAIMER_FR },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Synthese_PnL');
 
@@ -335,7 +374,13 @@ export function buildFinancialWorkbookBytes(params: {
               FraisDivers: 0,
               TotalInvesti: 0,
               MargeBrute: 0,
+              ProfitAvantImpots_EUR: 0,
               RegimeFiscal: '',
+              RegimeTVA: '',
+              TVA_EUR: 0,
+              URSSAF_EUR: 0,
+              VersementLiberatoire_EUR: 0,
+              IS_Annuel_Contexte: '',
               ImpotEstime: 0,
               BeneficeNet: 0,
               MargePourcent: 0,
@@ -588,7 +633,8 @@ export function buildFacturXXml(
     invoiceNumber?: string;
     issueDate?: string;
     paymentMeansCode?: '30' | '48' | '10' | '20';
-    vatMode?: 'margin' | 'standard_20';
+    vatMode?: VatRegime | 'margin' | 'standard_20';
+    vatRatePercent?: number;
   }
 ): string {
   const invoiceNumber = options?.invoiceNumber || buildFacturXInvoiceNumber(vehicle);
@@ -597,7 +643,25 @@ export function buildFacturXXml(
   const issueDate102 = toCiiDate102(issueDateIso);
   const currency = settings.currency || 'EUR';
   const paymentMeansCode = options?.paymentMeansCode || '30'; // 30 = Credit transfer (SEPA)
-  const vatMode = options?.vatMode || 'margin';
+
+  const resolvedVatRegime: VatRegime = (() => {
+    const raw =
+      options?.vatMode ||
+      vehicle.buyerInfo?.vatRegime ||
+      vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+      settings.frenchTaxConfig?.vatRegime ||
+      'tva_marge';
+    if (raw === 'margin') return 'tva_marge';
+    if (raw === 'standard_20') return 'tva_total';
+    return raw;
+  })();
+
+  const resolvedVatRate =
+    options?.vatRatePercent ??
+    vehicle.buyerInfo?.vatRatePercent ??
+    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+    settings.frenchTaxConfig?.vatRatePercent ??
+    20;
 
   const cleanSiret = (settings.siret || '').replace(/\s+/g, '');
   const sellerName =
@@ -626,16 +690,23 @@ export function buildFacturXXml(
   const grossAmount = roundToTwo(
     getRealizedSalePrice(vehicle) || vehicle.targetSalePrice || 0
   );
-  const vatRate = vatMode === 'standard_20' ? 20 : 0;
-  const taxBasisAmount =
-    vatMode === 'standard_20' ? roundToTwo(grossAmount / 1.2) : grossAmount;
-  const vatAmount =
-    vatMode === 'standard_20' ? roundToTwo(grossAmount - taxBasisAmount) : 0;
-  const taxCategoryCode = vatMode === 'standard_20' ? 'S' : 'AE';
+  const vatBreakdown = calculateFrenchVat({
+    salePrice: grossAmount,
+    purchasePrice: Number(vehicle.purchasePrice) || 0,
+    vatRegime: resolvedVatRegime,
+    vatRatePercent: resolvedVatRate,
+  });
+
+  const isStandardOnTotal = resolvedVatRegime === 'tva_total' || resolvedVatRegime === 'custom';
+  const vatRate = isStandardOnTotal ? vatBreakdown.vatRatePercent : 0;
+  const taxBasisAmount = isStandardOnTotal ? vatBreakdown.htAmount : grossAmount;
+  const vatAmount = isStandardOnTotal ? vatBreakdown.vatAmount : 0;
+  const taxCategoryCode =
+    resolvedVatRegime === 'franchise_base' ? 'E' : isStandardOnTotal ? 'S' : 'AE';
   const legalNote =
-    vatMode === 'standard_20'
-      ? 'TVA normale 20% incluse sur le prix de vente.'
-      : settings.tvaMention || 'Régime particulier - Biens d’occasion - TVA sur la marge (Art. 297 A du CGI).';
+    resolvedVatRegime === 'tva_marge' && settings.tvaMention?.trim()
+      ? settings.tvaMention
+      : vatBreakdown.legalMention;
 
   const lineItemTitle = `Véhicule d'occasion ${vehicle.make} ${vehicle.model} ${vehicle.trim || ''} (${vehicle.year}) - VIN ${vehicle.vin}`.trim();
 
@@ -733,7 +804,7 @@ export function buildFacturXXml(
       <ram:ApplicableTradeTax>
         <ram:CalculatedAmount>${vatAmount.toFixed(2)}</ram:CalculatedAmount>
         <ram:TypeCode>VAT</ram:TypeCode>
-        ${vatMode === 'margin' ? '<ram:ExemptionReason>TVA sur la marge - Article 297 A du CGI</ram:ExemptionReason>' : ''}
+        ${resolvedVatRegime === 'tva_marge' ? '<ram:ExemptionReason>TVA sur la marge - Article 297 A du CGI</ram:ExemptionReason>' : resolvedVatRegime === 'franchise_base' ? '<ram:ExemptionReason>TVA non applicable, art. 293 B du CGI</ram:ExemptionReason>' : ''}
         <ram:BasisAmount>${taxBasisAmount.toFixed(2)}</ram:BasisAmount>
         <ram:CategoryCode>${taxCategoryCode}</ram:CategoryCode>
         <ram:RateApplicablePercent>${vatRate.toFixed(2)}</ram:RateApplicablePercent>

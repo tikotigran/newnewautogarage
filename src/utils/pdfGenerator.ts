@@ -1,8 +1,9 @@
 import jsPDF from 'jspdf';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import { Vehicle, RepairTask, GeneralExpense, GarageSettings } from '../types/garage';
+import { Vehicle, RepairTask, GeneralExpense, GarageSettings, VatRegime } from '../types/garage';
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
-import { formatEuro } from './finance';
+import { calculateSaleTaxReport, formatEuro } from './finance';
+import { calculateFrenchVat, FRENCH_TAX_DEFAULTS, normalizeFrenchTaxConfig } from './frenchTaxEngine';
 import { DealershipAnalyticsReport } from './analytics';
 import {
   buildFacturXInvoiceNumber,
@@ -220,9 +221,26 @@ export function generateSalesInvoicePDF(
   doc.setTextColor(100, 116, 139);
   doc.text('Contrôle technique valide remis et certificat de situation administrative vierge', 20, 166);
 
+  const resolvedVatRegime: VatRegime =
+    vehicle.buyerInfo?.vatRegime ||
+    vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+    garageSettings.frenchTaxConfig?.vatRegime ||
+    'tva_marge';
+  const resolvedVatRate =
+    vehicle.buyerInfo?.vatRatePercent ??
+    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+    garageSettings.frenchTaxConfig?.vatRatePercent ??
+    20;
+  const vatBreakdown = calculateFrenchVat({
+    salePrice: Number(buyer.salePrice) || 0,
+    purchasePrice: Number(vehicle.purchasePrice) || 0,
+    vatRegime: resolvedVatRegime,
+    vatRatePercent: resolvedVatRate,
+  });
+
   doc.setFontSize(8);
   doc.setTextColor(30, 41, 59);
-  doc.text('TVA sur la marge (Art. 297 A CGI)', 105, 163);
+  doc.text(vatBreakdown.regimeShortLabel, 105, 163, { maxWidth: 50 });
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
@@ -239,14 +257,30 @@ export function generateSalesInvoicePDF(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
   doc.text('Total Hors Taxe :', 116, 178);
-  doc.text('TVA non récupérable :', 116, 184);
+  doc.text(
+    resolvedVatRegime === 'tva_marge'
+      ? 'TVA incluse (Marge) :'
+      : resolvedVatRegime === 'franchise_base'
+      ? 'TVA (Art. 293 B) :'
+      : `TVA (${vatBreakdown.vatRatePercent}%) :`,
+    116,
+    184
+  );
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
   doc.text('NET À PAYER TTC :', 116, 190);
 
   doc.setFont('helvetica', 'normal');
-  doc.text(formatEuro(buyer.salePrice), 162, 178);
-  doc.text('0,00 € (Marge)', 162, 184);
+  doc.text(formatEuro(vatBreakdown.htAmount), 162, 178);
+  doc.text(
+    resolvedVatRegime === 'franchise_base'
+      ? '0,00 € (Exonéré)'
+      : resolvedVatRegime === 'tva_marge'
+      ? `${formatEuro(vatBreakdown.vatAmount)} (Marge)`
+      : formatEuro(vatBreakdown.vatAmount),
+    162,
+    184
+  );
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(16, 185, 129); // emerald-500
@@ -254,7 +288,7 @@ export function generateSalesInvoicePDF(
 
   // Legal Mentions Box
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 198, 182, 36, 1.5, 1.5, 'F');
+  doc.roundedRect(14, 198, 182, 38, 1.5, 1.5, 'F');
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
@@ -262,11 +296,14 @@ export function generateSalesInvoicePDF(
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  const mentionFiscal = garageSettings.tvaMention || 'Régime particulier - TVA sur la marge (Art. 297 A du CGI). La TVA n\'ouvre pas droit à déduction.';
-  doc.text(`1. Régime fiscal : ${mentionFiscal}`, 18, 209);
-  doc.text('2. Garanties légales : Le véhicule bénéficie de la garantie légale de conformité (Art. L. 217-3 et suivants du Code de la consommation) et de la garantie des vices cachés (Art. 1641 et suivants du Code civil).', 18, 214, { maxWidth: 174 });
-  doc.text('3. Situation administrative : Le vendeur certifie que le véhicule n’est pas gagé et n’a subi aucune transformation susceptible de modifier le certificat d’immatriculation.', 18, 223, { maxWidth: 174 });
-  doc.text('4. Paiement : Virement bancaire ou chèque de banque certifié encaissé avant remise définitive des clés et des titres.', 18, 229);
+  const mentionFiscal =
+    resolvedVatRegime === 'tva_marge' && garageSettings.tvaMention?.trim()
+      ? garageSettings.tvaMention
+      : vatBreakdown.legalMention;
+  doc.text(`1. Régime fiscal : ${mentionFiscal}`, 18, 209, { maxWidth: 174 });
+  doc.text('2. Garanties légales : Le véhicule bénéficie de la garantie légale de conformité (Art. L. 217-3 et suivants du Code de la consommation) et de la garantie des vices cachés (Art. 1641 et suivants du Code civil).', 18, 215, { maxWidth: 174 });
+  doc.text('3. Situation administrative : Le vendeur certifie que le véhicule n’est pas gagé et n’a subi aucune transformation susceptible de modifier le certificat d’immatriculation.', 18, 224, { maxWidth: 174 });
+  doc.text('4. Paiement : Virement bancaire ou chèque de banque certifié encaissé avant remise définitive des clés et des titres.', 18, 231);
 
   // Signatures
   doc.setFontSize(8.5);
@@ -696,7 +733,8 @@ function generateFallbackCerfaPDF(
 export function generateVehicleFinancialReportPDF(
   vehicle: Vehicle,
   repairs: RepairTask[],
-  expenses: GeneralExpense[]
+  expenses: GeneralExpense[],
+  garageSettings: GarageSettings = DEFAULT_GARAGE_SETTINGS
 ): void {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -722,7 +760,7 @@ export function generateVehicleFinancialReportPDF(
 
   // Metrics Grid
   doc.setFillColor(241, 245, 249);
-  doc.roundedRect(14, 52, 182, 32, 2, 2, 'F');
+  doc.roundedRect(14, 52, 182, 30, 2, 2, 'F');
 
   doc.setFontSize(9);
   doc.text('PRIX D’ACHAT', 22, 60);
@@ -737,34 +775,67 @@ export function generateVehicleFinancialReportPDF(
   doc.text(formatEuro(vehicle.generalExpensesTotal), 108, 70);
   doc.text(formatEuro(vehicle.totalInvested), 148, 70);
 
-  // Outcome
+  // Outcome & Separated French Fiscal Summary
   const isSold = vehicle.status === 'sold' && vehicle.buyerInfo;
   const outcomePrice = isSold ? vehicle.buyerInfo!.salePrice : vehicle.targetSalePrice;
-  const outcomeProfit = outcomePrice - vehicle.totalInvested;
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(garageSettings);
+  const saleReport = calculateSaleTaxReport({
+    salePrice: outcomePrice,
+    purchasePrice: vehicle.purchasePrice,
+    repairCostTotal: vehicle.repairCostTotal,
+    generalExpensesTotal: vehicle.generalExpensesTotal,
+    taxRegime: garageSettings.taxRegime,
+    taxRatePercent: garageSettings.taxRatePercent,
+    frenchTaxConfig: normalizedTaxConfig,
+    vatRegime: vehicle.buyerInfo?.vatRegime,
+    vatRatePercent: vehicle.buyerInfo?.vatRatePercent,
+    taxSnapshot: isSold ? vehicle.buyerInfo?.taxSnapshot : undefined,
+  });
+
+  const outcomeProfit = saleReport.grossMargin;
   const outcomeMargin = outcomePrice > 0 ? (outcomeProfit / outcomePrice) * 100 : 0;
   const roi = vehicle.totalInvested > 0 ? (outcomeProfit / vehicle.totalInvested) * 100 : 0;
 
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 88, 182, 24, 2, 2, 'F');
-  doc.setFontSize(9);
+  doc.roundedRect(14, 86, 182, 36, 2, 2, 'F');
+  doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
-  doc.text(isSold ? 'PRIX DE VENTE FINAL' : 'PRIX DE VENTE VISÉ', 22, 96);
-  doc.text('MARGE NETTE (P&L)', 80, 96);
-  doc.text('RENTABILITÉ (ROI)', 140, 96);
+  doc.text(isSold ? 'PRIX DE VENTE FINAL' : 'PRIX DE VENTE VISÉ', 20, 93);
+  doc.text('PROFIT AVANT IMPÔTS', 72, 93);
+  doc.text('TVA / RÉGIME', 124, 93);
+  doc.text('RENTABILITÉ (ROI)', 166, 93);
 
-  doc.setFontSize(12);
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text(formatEuro(outcomePrice), 22, 106);
+  doc.setTextColor(15, 23, 42);
+  doc.text(formatEuro(outcomePrice), 20, 101);
   doc.setTextColor(outcomeProfit >= 0 ? 16 : 220, outcomeProfit >= 0 ? 185 : 38, outcomeProfit >= 0 ? 129 : 38);
-  doc.text(`${outcomeProfit >= 0 ? '+' : ''}${formatEuro(outcomeProfit)} (${outcomeMargin.toFixed(1)}%)`, 80, 106);
-  doc.text(`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`, 140, 106);
+  doc.text(`${outcomeProfit >= 0 ? '+' : ''}${formatEuro(outcomeProfit)} (${outcomeMargin.toFixed(1)}%)`, 72, 101);
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(9.5);
+  doc.text(`${formatEuro(saleReport.vatAmount)}`, 124, 101);
+  doc.text(`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`, 166, 101);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  const taxDetailLine =
+    saleReport.taxRegime === 'micro'
+      ? `URSSAF : ${formatEuro(saleReport.urssafAmount)} | VL : ${formatEuro(saleReport.versementLiberatoireAmount)} | Net après cotisations : ${formatEuro(saleReport.netProfitAfterTax)}`
+      : saleReport.corporateIsContextNote
+      ? `${saleReport.corporateIsContextNote}`
+      : `Impôt estimé : ${formatEuro(saleReport.taxAmount)} | Net estimé : ${formatEuro(saleReport.netProfitAfterTax)}`;
+  doc.text(`Fiscalité (${saleReport.taxLabel}) : ${taxDetailLine}`, 20, 111, { maxWidth: 172 });
+  doc.setFontSize(7);
+  doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 20, 118, { maxWidth: 172 });
 
   // Breakdown tables
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(11);
-  doc.text(`RÉCAPITULATIF DES RÉPARATIONS (${repairs.length} tâches)`, 14, 122);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`RÉCAPITULATIF DES RÉPARATIONS (${repairs.length} tâches)`, 14, 131);
 
-  let curY = 128;
+  let curY = 137;
   doc.setFillColor(15, 23, 42);
   doc.rect(14, curY, 182, 7, 'F');
   doc.setTextColor(255, 255, 255);
@@ -960,33 +1031,47 @@ export function generateDealershipFinancialReportPDF(params: {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('3. FLUX DE TRÉSORERIE (CASH FLOW)', 14, 126);
+  doc.text('3. DÉTAIL FISCAL SÉPARÉ & TRÉSORERIE (TVA / URSSAF / IS)', 14, 125);
+
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, 128, 182, 14, 2, 2, 'F');
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    `TVA estimée : ${formatEuro(analytics.salesPerformance.vatAmount)}  |  URSSAF Micro : ${formatEuro(analytics.salesPerformance.urssafAmount)}  |  VL : ${formatEuro(analytics.salesPerformance.versementLiberatoireAmount)}  |  IR Micro-BIC sép. : ${formatEuro(analytics.salesPerformance.microBicEstimatedIrAmount)}  |  IS Société : ${formatEuro(analytics.salesPerformance.corporateIsAmount)}`,
+    18,
+    134,
+    { maxWidth: 174 }
+  );
+  doc.setFontSize(6.8);
+  doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 18, 139.5, { maxWidth: 174 });
 
   doc.setFillColor(241, 245, 249);
-  doc.roundedRect(14, 130, 182, 22, 2, 2, 'F');
+  doc.roundedRect(14, 145, 182, 22, 2, 2, 'F');
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text('Entrées (Encaissements ventes)', 20, 138);
-  doc.text('Sorties (Achats, Travaux, Frais, Taxes)', 82, 138);
-  doc.text('Flux net de trésorerie', 148, 138);
+  doc.text('Entrées (Encaissements ventes)', 20, 153);
+  doc.text('Sorties (Achats, Travaux, Frais, Taxes)', 82, 153);
+  doc.text('Flux net de trésorerie', 148, 153);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(16, 185, 129);
-  doc.text(formatEuro(analytics.cashFlow.inflow), 20, 146);
+  doc.text(formatEuro(analytics.cashFlow.inflow), 20, 161);
   doc.setTextColor(220, 38, 38);
-  doc.text(formatEuro(analytics.cashFlow.outflow), 82, 146);
+  doc.text(formatEuro(analytics.cashFlow.outflow), 82, 161);
   doc.setTextColor(
     analytics.cashFlow.netCashFlow >= 0 ? 16 : 220,
     analytics.cashFlow.netCashFlow >= 0 ? 185 : 38,
     analytics.cashFlow.netCashFlow >= 0 ? 129 : 38
   );
-  doc.text(formatEuro(analytics.cashFlow.netCashFlow), 148, 146);
+  doc.text(formatEuro(analytics.cashFlow.netCashFlow), 148, 161);
 
   // Fleet Ledger Table
   const ledger = buildFinancialLedgerRows(vehicles, garageSettings);
-  let curY = 162;
+  let curY = 176;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.setTextColor(15, 23, 42);
@@ -1043,14 +1128,34 @@ export async function generateFacturXHybridPdf(params: {
   vehicle: Vehicle;
   garageSettings: GarageSettings;
   paymentMeansCode?: '30' | '48' | '10' | '20';
-  vatMode?: 'margin' | 'standard_20';
+  vatMode?: VatRegime | 'margin' | 'standard_20';
+  vatRatePercent?: number;
 }): Promise<{ fileName: string; invoiceNumber: string; xml: string }> {
-  const { vehicle, garageSettings, paymentMeansCode = '30', vatMode = 'margin' } = params;
+  const { vehicle, garageSettings, paymentMeansCode = '30', vatMode, vatRatePercent } = params;
+  const resolvedVatRegime: VatRegime = (() => {
+    const raw =
+      vatMode ||
+      vehicle.buyerInfo?.vatRegime ||
+      vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+      garageSettings.frenchTaxConfig?.vatRegime ||
+      'tva_marge';
+    if (raw === 'margin') return 'tva_marge';
+    if (raw === 'standard_20') return 'tva_total';
+    return raw;
+  })();
+  const resolvedVatRate =
+    vatRatePercent ??
+    vehicle.buyerInfo?.vatRatePercent ??
+    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+    garageSettings.frenchTaxConfig?.vatRatePercent ??
+    20;
+
   const invoiceNumber = buildFacturXInvoiceNumber(vehicle);
   const xml = buildFacturXXml(vehicle, garageSettings, {
     invoiceNumber,
     paymentMeansCode,
-    vatMode,
+    vatMode: resolvedVatRegime,
+    vatRatePercent: resolvedVatRate,
   });
 
   const doc = new jsPDF({
@@ -1077,8 +1182,14 @@ export async function generateFacturXHybridPdf(params: {
     .join(' ');
   const sellerAddress = `${sellerStreetPart}, ${garageSettings.postalCode} ${garageSettings.city}`;
   const grossPrice = Number(buyer.salePrice) || Number(vehicle.targetSalePrice) || 0;
-  const htAmount = vatMode === 'standard_20' ? grossPrice / 1.2 : grossPrice;
-  const vatAmount = vatMode === 'standard_20' ? grossPrice - htAmount : 0;
+  const vatBreakdown = calculateFrenchVat({
+    salePrice: grossPrice,
+    purchasePrice: Number(vehicle.purchasePrice) || 0,
+    vatRegime: resolvedVatRegime,
+    vatRatePercent: resolvedVatRate,
+  });
+  const htAmount = vatBreakdown.htAmount;
+  const vatAmount = vatBreakdown.vatAmount;
 
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, 210, 32, 'F');
@@ -1158,11 +1269,7 @@ export async function generateFacturXHybridPdf(params: {
   );
   doc.setFontSize(8);
   doc.setTextColor(30, 41, 59);
-  doc.text(
-    vatMode === 'standard_20' ? 'TVA Standard 20%' : 'TVA sur la marge (Art. 297 A)',
-    105,
-    116
-  );
+  doc.text(vatBreakdown.regimeShortLabel, 105, 116, { maxWidth: 50 });
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.text(formatEuro(grossPrice), 162, 116);
@@ -1182,7 +1289,15 @@ export async function generateFacturXHybridPdf(params: {
 
   doc.setFont('helvetica', 'normal');
   doc.text(formatEuro(htAmount), 162, 137);
-  doc.text(vatMode === 'standard_20' ? formatEuro(vatAmount) : '0,00 € (Marge)', 162, 143);
+  doc.text(
+    resolvedVatRegime === 'franchise_base'
+      ? '0,00 € (Art. 293 B)'
+      : resolvedVatRegime === 'tva_marge'
+      ? `${formatEuro(vatAmount)} (Marge)`
+      : formatEuro(vatAmount),
+    162,
+    143
+  );
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(16, 185, 129);
   doc.text(formatEuro(grossPrice), 162, 150);
@@ -1191,7 +1306,7 @@ export async function generateFacturXHybridPdf(params: {
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
   doc.text(
-    'Document hybride Factur-X conforme au profil EN 16931 (UN/CEFACT CII D16B). Fichier factur-x.xml joint en pièce embarquée.',
+    `${vatBreakdown.legalMention} Document hybride Factur-X conforme au profil EN 16931 (UN/CEFACT CII D16B). Fichier factur-x.xml joint en pièce embarquée.`,
     14,
     170,
     { maxWidth: 182 }

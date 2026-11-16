@@ -222,12 +222,12 @@ test('getTranslationKeyCategory classifies keys into expected UI customization c
   assert.equal(getTranslationKeyCategory('searchPlaceholder'), 'inventory');
 });
 
-test('resolveSystemThemeConfig defaults layoutMode to classic and preserves sidebar', () => {
-  assert.equal(resolveSystemThemeConfig({}).layoutMode, 'classic');
-  assert.equal(resolveSystemThemeConfig({ layoutMode: 'sidebar' }).layoutMode, 'sidebar');
+test('resolveSystemThemeConfig defaults layoutMode to sidebar and preserves classic', () => {
+  assert.equal(resolveSystemThemeConfig({}).layoutMode, 'sidebar');
+  assert.equal(resolveSystemThemeConfig({ layoutMode: 'classic' }).layoutMode, 'classic');
   assert.equal(
-    resolveSystemThemeConfig({ layoutMode: 'invalid' as unknown as 'classic' }).layoutMode,
-    'classic'
+    resolveSystemThemeConfig({ layoutMode: 'invalid' as unknown as 'sidebar' }).layoutMode,
+    'sidebar'
   );
 });
 
@@ -241,11 +241,11 @@ test('parseUserLayoutPreference safely parses stored user layout values', () => 
 
 test('resolveEffectiveLayoutMode applies user override or inherits system default cleanly', () => {
   // Default fallback
-  assert.equal(resolveEffectiveLayoutMode({}), 'classic');
+  assert.equal(resolveEffectiveLayoutMode({}), 'sidebar');
   // Inherits system default when user preference is global or absent
   assert.equal(
-    resolveEffectiveLayoutMode({ userPreference: 'global', systemLayoutMode: 'sidebar' }),
-    'sidebar'
+    resolveEffectiveLayoutMode({ userPreference: 'global', systemLayoutMode: 'classic' }),
+    'classic'
   );
   assert.equal(
     resolveEffectiveLayoutMode({ userPreference: undefined, systemLayoutMode: 'sidebar' }),

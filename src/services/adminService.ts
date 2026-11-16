@@ -11,11 +11,16 @@ import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import {
   DynamicExpenseCategory,
   FeatureFlagsConfig,
+  FrenchTaxConfiguration,
   GlobalTextOverrides,
   SubscriptionPlan,
   SystemThemeConfig,
   UserProfile,
 } from '../types/garage';
+import {
+  createDefaultFrenchTaxConfig,
+  normalizeFrenchTaxConfig,
+} from '../utils/frenchTaxEngine';
 import {
   applySystemThemeVariables,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
@@ -34,6 +39,7 @@ const LOCAL_SYSTEM_CONFIG_KEY = 'autogarage_system_theme_config';
 const LOCAL_EXPENSES_CONFIG_KEY = 'autogarage_system_expenses_config';
 const LOCAL_FEATURES_CONFIG_KEY = 'autogarage_system_features_config';
 const LOCAL_TEXTS_CONFIG_KEY = 'autogarage_system_texts_config';
+const LOCAL_TAX_DEFAULTS_KEY = 'autogarage_superadmin_tax_defaults';
 const LOCAL_PLANS_KEY = 'autogarage_subscription_plans';
 
 const SEEDED_ACCOUNTS: UserProfile[] = [
@@ -574,4 +580,80 @@ export async function saveGlobalTextOverrides(
     }
   }
 }
+
+// 4. SuperAdmin Global French Tax Defaults (/settings/tax_defaults)
+export function getSuperAdminTaxDefaults(): FrenchTaxConfiguration {
+  const saved = readLocal<Partial<FrenchTaxConfiguration> | null>(LOCAL_TAX_DEFAULTS_KEY, null);
+  return saved
+    ? normalizeFrenchTaxConfig({ frenchTaxConfig: saved as FrenchTaxConfiguration })
+    : createDefaultFrenchTaxConfig('sarl');
+}
+
+export function subscribeSuperAdminTaxDefaults(
+  onData: (config: FrenchTaxConfiguration) => void
+): () => void {
+  onData(getSuperAdminTaxDefaults());
+
+  getDoc(doc(db, 'settings', 'tax_defaults'))
+    .then((snap) => {
+      if (snap.exists()) {
+        const cfg = normalizeFrenchTaxConfig({
+          frenchTaxConfig: snap.data() as FrenchTaxConfiguration,
+        });
+        writeLocal(LOCAL_TAX_DEFAULTS_KEY, cfg);
+        onData(cfg);
+      }
+    })
+    .catch(() => {});
+
+  let unsub: (() => void) | null = null;
+  try {
+    unsub = onSnapshot(
+      doc(db, 'settings', 'tax_defaults'),
+      (snap) => {
+        if (snap.exists()) {
+          const cfg = normalizeFrenchTaxConfig({
+            frenchTaxConfig: snap.data() as FrenchTaxConfiguration,
+          });
+          writeLocal(LOCAL_TAX_DEFAULTS_KEY, cfg);
+          onData(cfg);
+        }
+      },
+      () => {}
+    );
+  } catch {
+    // ignore
+  }
+
+  const listener = () => onData(getSuperAdminTaxDefaults());
+  window.addEventListener('autogarage_tax_defaults_updated', listener);
+  return () => {
+    if (unsub) unsub();
+    window.removeEventListener('autogarage_tax_defaults_updated', listener);
+  };
+}
+
+export async function saveSuperAdminTaxDefaults(
+  config: FrenchTaxConfiguration,
+  adminUid?: string
+): Promise<void> {
+  const normalized = normalizeFrenchTaxConfig({ frenchTaxConfig: config });
+  writeLocal(LOCAL_TAX_DEFAULTS_KEY, normalized, 'autogarage_tax_defaults_updated');
+  if (auth.currentUser) {
+    try {
+      await setDoc(
+        doc(db, 'settings', 'tax_defaults'),
+        {
+          ...normalized,
+          updatedAt: new Date().toISOString(),
+          updatedBy: adminUid || auth.currentUser.uid,
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'settings/tax_defaults');
+    }
+  }
+}
+
 

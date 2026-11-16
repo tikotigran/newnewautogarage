@@ -13,11 +13,14 @@ import {
   TaxRegime,
 } from './finance';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
+import { Language, pickLocalized } from './i18nUtils';
 
 export interface SupplierTypeMeta {
   id: SupplierType;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   isVehicleSource: boolean;
 }
 
@@ -26,36 +29,48 @@ export const SUPPLIER_TYPES: SupplierTypeMeta[] = [
     id: 'private_seller',
     labelFr: 'Particuliers',
     labelRu: 'Частные продавцы',
+    labelHy: 'Մասնավոր վաճառողներ',
+    labelKa: 'კერძო გამყიდველები',
     isVehicleSource: true,
   },
   {
     id: 'dealership',
     labelFr: 'Concessions / Garages',
     labelRu: 'Автосалоны',
+    labelHy: 'Ավտոսրահներ',
+    labelKa: 'ავტოსალონები',
     isVehicleSource: true,
   },
   {
     id: 'auction',
     labelFr: 'Enchères / Ventes pro',
     labelRu: 'Аукционы',
+    labelHy: 'Աճուրդներ',
+    labelKa: 'აუქციონები',
     isVehicleSource: true,
   },
   {
     id: 'parts_supplier',
     labelFr: 'Fournisseurs de pièces',
     labelRu: 'Поставщики запчастей',
+    labelHy: 'Պահեստամասերի մատակարարներ',
+    labelKa: 'სათადარიგო ნაწილების მომწოდებლები',
     isVehicleSource: false,
   },
   {
     id: 'workshop',
     labelFr: 'Ateliers / Mécanique',
     labelRu: 'Автомастерские',
+    labelHy: 'Ավտոարհեստանոցներ',
+    labelKa: 'ავტოსახელოსნოები',
     isVehicleSource: false,
   },
   {
     id: 'transport_company',
     labelFr: 'Transporteurs / Logistique',
     labelRu: 'Транспортные компании',
+    labelHy: 'Տրանսպորտային ընկերություններ',
+    labelKa: 'სატრანსპორტო კომპანიები',
     isVehicleSource: false,
   },
 ];
@@ -64,43 +79,128 @@ export const PAYMENT_METHODS: {
   id: PurchasePaymentMethod;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
 }[] = [
-  { id: 'bank_transfer', labelFr: 'Virement bancaire', labelRu: 'Банковский перевод' },
-  { id: 'card', labelFr: 'Carte bancaire', labelRu: 'Банковская карта' },
-  { id: 'cash', labelFr: 'Espèces', labelRu: 'Наличные' },
-  { id: 'check', labelFr: 'Chèque', labelRu: 'Чек' },
-  { id: 'financing', labelFr: 'Financement / Crédit', labelRu: 'Кредит / Лизинг' },
-  { id: 'other', labelFr: 'Autre', labelRu: 'Другое' },
+  {
+    id: 'bank_transfer',
+    labelFr: 'Virement bancaire',
+    labelRu: 'Банковский перевод',
+    labelHy: 'Բանկային փոխանցում',
+    labelKa: 'საბანკო გადარიცხვა',
+  },
+  {
+    id: 'card',
+    labelFr: 'Carte bancaire',
+    labelRu: 'Банковская карта',
+    labelHy: 'Բանկային քարտ',
+    labelKa: 'საბანკო ბარათი',
+  },
+  {
+    id: 'cash',
+    labelFr: 'Espèces',
+    labelRu: 'Наличные',
+    labelHy: 'Կանխիկ',
+    labelKa: 'ნაღდი ფული',
+  },
+  {
+    id: 'check',
+    labelFr: 'Chèque',
+    labelRu: 'Чек',
+    labelHy: 'Չեկ',
+    labelKa: 'ჩეკი',
+  },
+  {
+    id: 'financing',
+    labelFr: 'Financement / Crédit',
+    labelRu: 'Кредит / Лизинг',
+    labelHy: 'Վարկ / Լիզինգ',
+    labelKa: 'კრედიტი / ლიზინგი',
+  },
+  {
+    id: 'other',
+    labelFr: 'Autre',
+    labelRu: 'Другое',
+    labelHy: 'Այլ',
+    labelKa: 'სხვა',
+  },
 ];
 
 export const PURCHASE_CATEGORIES: {
   id: PurchaseCategory;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
 }[] = [
-  { id: 'vehicle', labelFr: 'Achat véhicule', labelRu: 'Покупка автомобиля' },
-  { id: 'parts', labelFr: 'Pièces détachées', labelRu: 'Запчасти' },
-  { id: 'repair', labelFr: 'Prestation atelier', labelRu: 'Услуги автомастерской' },
-  { id: 'transport', labelFr: 'Transport / Convoyage', labelRu: 'Доставка / Эвакуатор' },
-  { id: 'other', labelFr: 'Autre achat', labelRu: 'Прочая закупка' },
+  {
+    id: 'vehicle',
+    labelFr: 'Achat véhicule',
+    labelRu: 'Покупка автомобиля',
+    labelHy: 'Ավտոմեքենայի գնում',
+    labelKa: 'ავტომობილის შესყიდვა',
+  },
+  {
+    id: 'parts',
+    labelFr: 'Pièces détachées',
+    labelRu: 'Запчасти',
+    labelHy: 'Պահեստամասեր',
+    labelKa: 'სათადარიგო ნაწილები',
+  },
+  {
+    id: 'repair',
+    labelFr: 'Prestation atelier',
+    labelRu: 'Услуги автомастерской',
+    labelHy: 'Արհեստանոցի ծառայություններ',
+    labelKa: 'ავტოსახელოსნოს მომსახურება',
+  },
+  {
+    id: 'transport',
+    labelFr: 'Transport / Convoyage',
+    labelRu: 'Доставка / Эвакуатор',
+    labelHy: 'Առաքում / Էվակուատոր',
+    labelKa: 'ტრანსპორტირება / ევაკუატორი',
+  },
+  {
+    id: 'other',
+    labelFr: 'Autre achat',
+    labelRu: 'Прочая закупка',
+    labelHy: 'Այլ գնում',
+    labelKa: 'სხვა შესყიდვა',
+  },
 ];
 
-export function getSupplierTypeLabel(type: SupplierType, lang: 'fr' | 'ru'): string {
+export function getSupplierTypeLabel(type: SupplierType, lang: Language): string {
   const found = SUPPLIER_TYPES.find((t) => t.id === type);
   if (!found) return type;
-  return lang === 'ru' ? found.labelRu : found.labelFr;
+  return pickLocalized(lang, {
+    fr: found.labelFr,
+    ru: found.labelRu,
+    hy: found.labelHy,
+    ka: found.labelKa,
+  });
 }
 
-export function getPaymentMethodLabel(method: PurchasePaymentMethod, lang: 'fr' | 'ru'): string {
+export function getPaymentMethodLabel(method: PurchasePaymentMethod, lang: Language): string {
   const found = PAYMENT_METHODS.find((m) => m.id === method);
   if (!found) return method;
-  return lang === 'ru' ? found.labelRu : found.labelFr;
+  return pickLocalized(lang, {
+    fr: found.labelFr,
+    ru: found.labelRu,
+    hy: found.labelHy,
+    ka: found.labelKa,
+  });
 }
 
-export function getPurchaseCategoryLabel(category: PurchaseCategory, lang: 'fr' | 'ru'): string {
+export function getPurchaseCategoryLabel(category: PurchaseCategory, lang: Language): string {
   const found = PURCHASE_CATEGORIES.find((c) => c.id === category);
   if (!found) return category;
-  return lang === 'ru' ? found.labelRu : found.labelFr;
+  return pickLocalized(lang, {
+    fr: found.labelFr,
+    ru: found.labelRu,
+    hy: found.labelHy,
+    ka: found.labelKa,
+  });
 }
 
 export function filterSuppliersByGarage(
@@ -192,6 +292,8 @@ export interface ChannelProfitabilityRow {
   type: SupplierType;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   isVehicleSource: boolean;
   suppliersCount: number;
   purchasesCount: number;
@@ -240,6 +342,9 @@ function getVehicleProfitForReport(
     generalExpensesTotal,
     taxRegime,
     taxRatePercent,
+    vatRegime: v.buyerInfo?.vatRegime,
+    vatRatePercent: v.buyerInfo?.vatRatePercent,
+    taxSnapshot: v.buyerInfo?.taxSnapshot,
   });
   return {
     isSold: true,
@@ -380,6 +485,8 @@ export function computeChannelProfitability(params: {
       type: meta.id,
       labelFr: meta.labelFr,
       labelRu: meta.labelRu,
+      labelHy: meta.labelHy,
+      labelKa: meta.labelKa,
       isVehicleSource: meta.isVehicleSource,
       suppliersCount: channelSuppliers.length,
       purchasesCount: channelPurchases.length,

@@ -17,16 +17,23 @@ import {
   Printer,
   ShieldCheck,
 } from 'lucide-react';
-import { Vehicle, BuyerInfo } from '../types/garage';
+import { Vehicle, BuyerInfo, GarageSettings, VatRegime } from '../types/garage';
 import { formatEuro } from '../utils/finance';
-import { generateSalesInvoicePDF, generateOfficialCerfa15776PDF } from '../utils/pdfGenerator';
+import {
+  buildTransactionTaxSnapshot,
+  FRENCH_TAX_DEFAULTS,
+  normalizeFrenchTaxConfig,
+} from '../utils/frenchTaxEngine';
 import { getGarageSettings } from '../services/garageService';
+import { ThemedSelect } from './ThemedSelect';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 
 interface BuyerModalProps {
   isOpen: boolean;
   onClose: () => void;
   vehicle: Vehicle | null;
+  garageSettings?: GarageSettings;
   onConfirmSale: (vehicleId: string, buyerInfo: BuyerInfo) => Promise<void>;
 }
 
@@ -34,9 +41,14 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   isOpen,
   onClose,
   vehicle,
+  garageSettings: propGarageSettings,
   onConfirmSale,
 }) => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
+
+  const resolvedSettings = propGarageSettings || getGarageSettings(vehicle?.garageId);
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(resolvedSettings);
 
   const [isCompany, setIsCompany] = useState(vehicle?.buyerInfo?.isCompany || false);
   const [fullName, setFullName] = useState(vehicle?.buyerInfo?.fullName || '');
@@ -56,11 +68,19 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     vehicle?.buyerInfo?.saleDate || new Date().toISOString().split('T')[0]
   );
   const [saleTime, setSaleTime] = useState(vehicle?.buyerInfo?.saleTime || '14:00');
+  const [vatRegime, setVatRegime] = useState<VatRegime>(
+    vehicle?.buyerInfo?.vatRegime || normalizedTaxConfig.vatRegime || 'tva_marge'
+  );
+  const [vatRatePercent, setVatRatePercent] = useState<number>(
+    vehicle?.buyerInfo?.vatRatePercent ?? normalizedTaxConfig.vatRatePercent ?? 20
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (vehicle && isOpen) {
+      const activeSettings = propGarageSettings || getGarageSettings(vehicle.garageId);
+      const activeTaxCfg = normalizeFrenchTaxConfig(activeSettings);
       setIsCompany(vehicle.buyerInfo?.isCompany || false);
       setFullName(vehicle.buyerInfo?.fullName || '');
       setSiret(vehicle.buyerInfo?.siret || '');
@@ -75,15 +95,28 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       setSalePrice(vehicle.buyerInfo?.salePrice || vehicle.targetSalePrice || vehicle.purchasePrice);
       setSaleDate(vehicle.buyerInfo?.saleDate || new Date().toISOString().split('T')[0]);
       setSaleTime(vehicle.buyerInfo?.saleTime || '14:00');
+      setVatRegime(vehicle.buyerInfo?.vatRegime || activeTaxCfg.vatRegime || 'tva_marge');
+      setVatRatePercent(
+        vehicle.buyerInfo?.vatRatePercent ?? activeTaxCfg.vatRatePercent ?? 20
+      );
       setError(null);
     }
-  }, [vehicle, isOpen]);
+  }, [vehicle, isOpen, propGarageSettings]);
 
   if (!isOpen || !vehicle) return null;
 
-  // Live calculation of net profit and margin
   const numericSalePrice = Number(salePrice) || 0;
-  const projectedNetProfit = numericSalePrice - (vehicle.totalInvested || 0);
+  const effectiveVatRate = vatRegime === 'franchise_base' ? 0 : Math.max(0, Number(vatRatePercent) || 0);
+  const liveSnapshot = buildTransactionTaxSnapshot({
+    salePrice: numericSalePrice,
+    purchasePrice: vehicle.purchasePrice,
+    repairCostTotal: vehicle.repairCostTotal || 0,
+    generalExpensesTotal: vehicle.generalExpensesTotal || 0,
+    settings: resolvedSettings,
+    vatRegimeOverride: vatRegime,
+    vatRateOverride: effectiveVatRate,
+  });
+  const projectedNetProfit = liveSnapshot.profitBeforeTaxes;
   const projectedMargin = numericSalePrice > 0 ? (projectedNetProfit / numericSalePrice) * 100 : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -103,6 +136,25 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
       const fullFormattedAddress = `${streetNumber ? streetNumber + ' ' : ''}${streetName.trim()}, ${postalCode.trim()} ${city.trim()}`;
 
+      const existingSnapshot = vehicle.buyerInfo?.taxSnapshot;
+      const shouldKeepExistingSnapshot =
+        existingSnapshot?.isHistoricalSnapshot &&
+        Number(existingSnapshot.salePrice) === Number(salePrice) &&
+        existingSnapshot.vatRegime === vatRegime &&
+        Number(existingSnapshot.vatRatePercent) === effectiveVatRate;
+
+      const frozenSnapshot = shouldKeepExistingSnapshot
+        ? existingSnapshot
+        : buildTransactionTaxSnapshot({
+            salePrice: Number(salePrice),
+            purchasePrice: vehicle.purchasePrice,
+            repairCostTotal: vehicle.repairCostTotal || 0,
+            generalExpensesTotal: vehicle.generalExpensesTotal || 0,
+            settings: resolvedSettings,
+            vatRegimeOverride: vatRegime,
+            vatRateOverride: effectiveVatRate,
+          });
+
       const buyerData: BuyerInfo = {
         isCompany,
         fullName: fullName.trim(),
@@ -119,6 +171,9 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
         salePrice: Number(salePrice),
         saleDate,
         saleTime,
+        vatRegime,
+        vatRatePercent: effectiveVatRate,
+        taxSnapshot: frozenSnapshot,
       };
 
       await onConfirmSale(vehicle.id, buyerData);
@@ -165,22 +220,84 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
           )}
 
-          {/* Real-time P&L Outcome Preview Box */}
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-950 to-slate-900 border border-slate-800 flex items-center justify-between text-xs">
-            <div>
-              <span className="text-slate-400 block">{t('totalCapitalInvestedLabel')} :</span>
-              <span className="text-slate-200 font-bold text-sm">
-                {formatEuro(vehicle.totalInvested)}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-slate-400 block">{t('netMargin')}</span>
-              <span className={`text-base font-extrabold ${projectedNetProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {projectedNetProfit >= 0 ? '+' : ''}{formatEuro(projectedNetProfit)}
-                <span className="text-xs ml-1 font-normal opacity-80">
-                  ({projectedMargin.toFixed(1)}%)
+          {/* Real-time P&L & French Tax / VAT Outcome Preview Box */}
+          <div
+            data-testid="buyer-modal-tax-preview"
+            className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-950 to-slate-900 border border-slate-800 space-y-2.5 text-xs"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="text-slate-400 block">{t('totalCapitalInvestedLabel')} :</span>
+                <span className="text-slate-200 font-bold text-sm tabular-nums">
+                  {formatEuro(vehicle.totalInvested)}
                 </span>
-              </span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 block">
+                  {L(
+                    'Profit avant impôts',
+                    'Прибыль до налогов',
+                    'Շահույթ մինչև հարկերը',
+                    'მოგება გადასახადებამდე'
+                  )}
+                </span>
+                <span className={`text-base font-extrabold tabular-nums ${projectedNetProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {projectedNetProfit >= 0 ? '+' : ''}{formatEuro(projectedNetProfit)}
+                  <span className="text-xs ml-1 font-normal opacity-80">
+                    ({projectedMargin.toFixed(1)}%)
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] tabular-nums">
+              <div className="bg-slate-950/60 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
+                <span className="text-slate-400 block">TVA ({vatRegime === 'tva_marge' ? 'Marge' : vatRegime === 'franchise_base' ? 'Art. 293 B' : `${effectiveVatRate}%`})</span>
+                <span className="text-sky-300 font-bold">{formatEuro(liveSnapshot.vatAmount)}</span>
+                <span className="text-slate-500 ml-1">(HT {formatEuro(liveSnapshot.htAmount)})</span>
+              </div>
+              <div className="bg-slate-950/60 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
+                <span className="text-slate-400 block">
+                  {liveSnapshot.taxRegime === 'micro'
+                    ? L(
+                        'URSSAF / VL (sur CA)',
+                        'Взносы URSSAF / VL (на оборот)',
+                        'URSSAF / VL (շրջանառությունից)',
+                        'URSSAF / VL (ბრუნვიდან)'
+                      )
+                    : L(
+                        'Impôt Société (IS annuel)',
+                        'Налог на прибыль (IS)',
+                        'Շահութահարկ (IS)',
+                        'მოგების გადასახადი (IS)'
+                      )}
+                </span>
+                {liveSnapshot.taxRegime === 'micro' ? (
+                  <span className="text-amber-300 font-bold">
+                    {formatEuro(liveSnapshot.urssafAmount)} URSSAF
+                    {liveSnapshot.versementLiberatoireEnabled
+                      ? ` + ${formatEuro(liveSnapshot.versementLiberatoireAmount)} VL`
+                      : ` (${L('IR sép.', 'IR отд.', 'IR առանձ.', 'IR ცალკე')} ${formatEuro(liveSnapshot.microBicEstimatedTax)})`}
+                  </span>
+                ) : (
+                  <span className="text-slate-300 font-semibold">
+                    {liveSnapshot.corporateIsContextNote || formatEuro(liveSnapshot.totalTaxAmount)}
+                  </span>
+                )}
+              </div>
+              <div className="bg-slate-950/60 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
+                <span className="text-slate-400 block">
+                  {L(
+                    'Net après cotisations',
+                    'Чистый результат сделки',
+                    'Զուտ արդյունքը հարկերից հետո',
+                    'წმინდა შედეგი გადასახადების შემდეგ'
+                  )}
+                </span>
+                <span className={`font-extrabold ${liveSnapshot.netProfitAfterTax >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {liveSnapshot.netProfitAfterTax >= 0 ? '+' : ''}{formatEuro(liveSnapshot.netProfitAfterTax)}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -237,6 +354,74 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Row 1b: French VAT (TVA) Regime for this transaction */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div className={vatRegime === 'franchise_base' ? 'sm:col-span-3' : 'sm:col-span-2'}>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                {t('taxVatRegimeLabel')}
+              </label>
+              <ThemedSelect<VatRegime>
+                testId="buyer-vat-regime-select"
+                ariaLabel={t('taxVatRegimeLabel')}
+                value={vatRegime}
+                onChange={(val) => {
+                  setVatRegime(val);
+                  if (val === 'franchise_base') {
+                    setVatRatePercent(0);
+                  } else if (vatRatePercent === 0) {
+                    setVatRatePercent(20);
+                  }
+                }}
+                options={[
+                  {
+                    value: 'tva_marge',
+                    label: 'TVA sur la marge (Art. 297 A CGI)',
+                  },
+                  {
+                    value: 'tva_total',
+                    label: 'TVA sur le prix total (20% standard)',
+                  },
+                  {
+                    value: 'franchise_base',
+                    label: 'Franchise en base de TVA (Art. 293 B — 0%)',
+                  },
+                  {
+                    value: 'custom',
+                    label: L(
+                      'Taux de TVA personnalisé (%)',
+                      'Своя ставка НДС (Custom %)',
+                      'Անհատական ԱԱՀ դրույքաչափ (%)',
+                      'მორგებული დღგ განაკვეთი (%)'
+                    ),
+                  },
+                ]}
+              />
+            </div>
+
+            {vatRegime !== 'franchise_base' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {t('taxVatRateLabel')}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    data-testid="buyer-vat-rate-input"
+                    min={0}
+                    max={100}
+                    step="0.1"
+                    value={vatRatePercent}
+                    onChange={(e) => setVatRatePercent(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full pl-3 pr-7 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold text-white tabular-nums focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-bold">
+                    %
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Section: Nouveau Propriétaire (Buyer for Cerfa & Invoice) */}
@@ -431,13 +616,21 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
           </div>
 
-          {/* Document Auto-Generation info notice */}
+          {/* Document Auto-Generation & Fiscal Immutability Notice */}
           <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-indigo-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2.5">
             <Sparkles className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
-            <div>
+            <div className="space-y-1">
               <p className="font-bold text-amber-200">{t('autoGenNoticeTitle')}</p>
-              <p className="text-slate-300 text-[11px] mt-0.5">
+              <p className="text-slate-300 text-[11px]">
                 Dès validation, les 2 boutons <strong>« Télécharger / Imprimer la Facture »</strong> et <strong>« Télécharger / Imprimer le Cerfa 15776 »</strong> seront instantanément disponibles dans le dossier du véhicule.
+              </p>
+              <p className="text-slate-400 text-[10px]">
+                {pickLocalized(lang, {
+                  fr: FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
+                  ru: FRENCH_TAX_DEFAULTS.DISCLAIMER_RU,
+                  hy: FRENCH_TAX_DEFAULTS.DISCLAIMER_HY,
+                  ka: FRENCH_TAX_DEFAULTS.DISCLAIMER_KA,
+                })}
               </p>
             </div>
           </div>

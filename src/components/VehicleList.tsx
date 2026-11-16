@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search,
-  Filter,
   PlusCircle,
   Car,
   Wrench,
@@ -12,18 +11,37 @@ import {
   Clock,
   LayoutGrid,
   List,
-  FileCheck,
+  Edit,
+  Menu,
 } from 'lucide-react';
-import { FeatureFlagsConfig, Vehicle, VehicleStatus } from '../types/garage';
+import {
+  FeatureFlagsConfig,
+  GeneralExpense,
+  RepairTask,
+  Vehicle,
+  VehicleStatus,
+} from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { VehicleCard } from './VehicleCard';
 import { useI18n } from '../i18n/I18nContext';
-import { formatEuro, getEffectiveSalePrice } from '../utils/finance';
+import { formatEuro } from '../utils/finance';
+import {
+  computeInventorySummaryTotals,
+  computeVehicleInventoryFinancials,
+  formatMileageKm,
+  InventorySortField,
+  matchesVehicleSearch,
+  sortInventoryVehicles,
+  VehicleInventoryFinancials,
+} from '../utils/inventoryUtils';
 import { ThemedSelect } from './ThemedSelect';
 
 interface VehicleListProps {
   vehicles: Vehicle[];
+  repairs?: RepairTask[];
+  expenses?: GeneralExpense[];
   onSelectVehicle: (vehicle: Vehicle) => void;
+  onEditVehicle?: (vehicle: Vehicle) => void;
   onNewVehicle: () => void;
   onQuickStatusChange: (vehicleId: string, newStatus: VehicleStatus) => void;
   onOpenSellModal: (vehicle: Vehicle) => void;
@@ -31,26 +49,28 @@ interface VehicleListProps {
   onSeedData: () => void;
   isSeeding: boolean;
   featureFlags?: FeatureFlagsConfig;
+  onOpenMobileSidebar?: () => void;
 }
 
 const VIEW_MODE_STORAGE_KEY = 'autogarage_inventory_view';
 
 export const VehicleList: React.FC<VehicleListProps> = ({
   vehicles,
+  repairs = [],
+  expenses = [],
   onSelectVehicle,
+  onEditVehicle,
   onNewVehicle,
   onQuickStatusChange,
   onOpenSellModal,
-  onOpenCerfa,
   onSeedData,
   isSeeding,
-  featureFlags = DEFAULT_FEATURE_FLAGS,
+  onOpenMobileSidebar,
 }) => {
   const { t, lang } = useI18n();
-  const isRu = lang === 'ru';
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'date' | 'price' | 'margin' | 'mileage'>('date');
+  const [sortBy, setSortBy] = useState<InventorySortField>('date');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     try {
       const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
@@ -70,40 +90,55 @@ export const VehicleList: React.FC<VehicleListProps> = ({
     }
   };
 
-  // Filter & Sort Logic
+  // Group subcollection repair tasks & general expenses per vehicle without duplicate counting
+  const financialsById = useMemo(() => {
+    const repairsMap = new Map<string, RepairTask[]>();
+    for (const r of repairs) {
+      if (!r.vehicleId) continue;
+      const list = repairsMap.get(r.vehicleId) || [];
+      list.push(r);
+      repairsMap.set(r.vehicleId, list);
+    }
+
+    const expensesMap = new Map<string, GeneralExpense[]>();
+    for (const e of expenses) {
+      if (!e.vehicleId) continue;
+      const list = expensesMap.get(e.vehicleId) || [];
+      list.push(e);
+      expensesMap.set(e.vehicleId, list);
+    }
+
+    const result = new Map<string, VehicleInventoryFinancials>();
+    for (const v of vehicles) {
+      result.set(
+        v.id,
+        computeVehicleInventoryFinancials(
+          v,
+          repairsMap.get(v.id),
+          expensesMap.get(v.id)
+        )
+      );
+    }
+    return result;
+  }, [vehicles, repairs, expenses]);
+
+  // Filter & Sort Logic (supports registration number & mileage search)
   const filteredVehicles = useMemo(() => {
-    return vehicles
-      .filter((v) => {
-        // Status filter
-        if (selectedStatus !== 'all' && v.status !== selectedStatus) {
-          return false;
-        }
-        // Search query filter (Make, Model, Trim, VIN)
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchMake = v.make.toLowerCase().includes(q);
-          const matchModel = v.model.toLowerCase().includes(q);
-          const matchTrim = (v.trim || '').toLowerCase().includes(q);
-          const matchVin = v.vin.toLowerCase().includes(q);
-          const matchReg = (v.registrationNumber || '').toLowerCase().includes(q);
-          if (!matchMake && !matchModel && !matchTrim && !matchVin && !matchReg) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'price') {
-          return (b.purchasePrice || 0) - (a.purchasePrice || 0);
-        }
-        if (sortBy === 'margin') {
-          return (b.netProfit || 0) - (a.netProfit || 0);
-        }
-        if (sortBy === 'mileage') {
-          return (b.mileage || 0) - (a.mileage || 0);
-        }
-        // default by creation date
-        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      });
-  }, [vehicles, selectedStatus, searchQuery, sortBy]);
+    const filtered = vehicles.filter((v) => {
+      if (selectedStatus !== 'all' && v.status !== selectedStatus) {
+        return false;
+      }
+      return matchesVehicleSearch(v, searchQuery);
+    });
+    return sortInventoryVehicles(filtered, sortBy, financialsById);
+  }, [vehicles, selectedStatus, searchQuery, sortBy, financialsById]);
+
+  const summaryTotals = useMemo(() => {
+    const items = filteredVehicles.map(
+      (v) => financialsById.get(v.id) || computeVehicleInventoryFinancials(v)
+    );
+    return computeInventorySummaryTotals(items);
+  }, [filteredVehicles, financialsById]);
 
   // Counts for each tab
   const counts = {
@@ -114,8 +149,70 @@ export const VehicleList: React.FC<VehicleListProps> = ({
     sold: vehicles.filter((v) => v.status === 'sold').length,
   };
 
+  const renderStatusSelect = (v: Vehicle, testIdPrefix: string) => (
+    <ThemedSelect<VehicleStatus>
+      testId={`${testIdPrefix}-status-select-${v.id}`}
+      ariaLabel={t('thStatus')}
+      stopPropagation
+      value={v.status}
+      onChange={(newStatus) => {
+        if (newStatus === 'sold' && v.status !== 'sold') {
+          onOpenSellModal(v);
+        } else {
+          onQuickStatusChange(v.id, newStatus);
+        }
+      }}
+      options={[
+        { value: 'preparation', label: `🛠️ ${t('statusPreparation')}` },
+        { value: 'repair', label: `🔧 ${t('statusRepair')}` },
+        { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
+        { value: 'sold', label: `✅ ${t('statusSold')}` },
+      ]}
+      triggerClassName="text-[11px] font-semibold bg-[var(--background)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)]"
+    />
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Page Header & Primary Action Row */}
+      <div
+        data-testid="inventory-page-header"
+        className="flex items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          {onOpenMobileSidebar && (
+            <button
+              type="button"
+              data-testid="sidebar-mobile-trigger"
+              onClick={onOpenMobileSidebar}
+              aria-label={t('openNavMenu')}
+              className="lg:hidden p-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--primary)] transition shrink-0"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+          <div className="w-10 h-10 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
+            <Car className="w-5 h-5" />
+          </div>
+          <h1
+            data-testid="page-header-title"
+            className="text-xl sm:text-2xl font-extrabold tracking-tight text-[var(--foreground)] truncate"
+          >
+            {t('navInventory')}
+          </h1>
+        </div>
+
+        <button
+          type="button"
+          data-testid="page-header-new-vehicle"
+          onClick={onNewVehicle}
+          className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-md transition whitespace-nowrap shrink-0"
+        >
+          <PlusCircle className="w-4 h-4 shrink-0" />
+          <span>+ {t('newVehicle')}</span>
+        </button>
+      </div>
+
       {/* Controls Bar: Search & Status Filters */}
       <div className="bg-[var(--card)] rounded-[var(--ag-card-radius)] border border-[var(--border)] p-4 shadow-sm space-y-4">
         {/* Search & Sort Row */}
@@ -124,13 +221,15 @@ export const VehicleList: React.FC<VehicleListProps> = ({
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
             <input
               type="text"
+              data-testid="inventory-search-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="w-full pl-10 pr-4 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition"
+              className="w-full pl-10 pr-20 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
               >
@@ -150,14 +249,14 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                 testId="vehicle-list-sort-select"
                 ariaLabel={t('sortBy')}
                 value={sortBy}
-                onChange={(val) => setSortBy(val as any)}
+                onChange={(val) => setSortBy(val as InventorySortField)}
                 options={[
                   { value: 'date', label: t('sortRecent') },
-                  ...(featureFlags.pnlCalculator ? [{ value: 'margin', label: t('sortMargin') }] : []),
+                  { value: 'invested', label: t('sortInvested') },
                   { value: 'price', label: t('sortPrice') },
                   { value: 'mileage', label: t('sortMileage') },
                 ]}
-                triggerClassName="text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 sm:px-3 py-2 max-w-[175px] sm:max-w-none"
+                triggerClassName="text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 sm:px-3 py-2 max-w-[190px] sm:max-w-none"
               />
             </div>
 
@@ -165,6 +264,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
             <div className="flex items-center bg-[var(--background)] p-0.5 rounded-[var(--ag-button-radius)] border border-[var(--border)] shrink-0">
               <button
                 type="button"
+                data-testid="inventory-view-grid-btn"
                 onClick={() => handleViewModeChange('grid')}
                 aria-label="Grid View"
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -178,6 +278,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
               </button>
               <button
                 type="button"
+                data-testid="inventory-view-list-btn"
                 onClick={() => handleViewModeChange('list')}
                 aria-label="List View"
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -199,6 +300,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           className="flex flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar"
         >
           <button
+            type="button"
             onClick={() => setSelectedStatus('all')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
               selectedStatus === 'all'
@@ -213,6 +315,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setSelectedStatus('preparation')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
               selectedStatus === 'preparation'
@@ -228,6 +331,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setSelectedStatus('repair')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
               selectedStatus === 'repair'
@@ -243,6 +347,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setSelectedStatus('for_sale')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
               selectedStatus === 'for_sale'
@@ -258,6 +363,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </button>
 
           <button
+            type="button"
             onClick={() => setSelectedStatus('sold')}
             className={`px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
               selectedStatus === 'sold'
@@ -282,163 +388,286 @@ export const VehicleList: React.FC<VehicleListProps> = ({
               <VehicleCard
                 key={vehicle.id}
                 vehicle={vehicle}
+                financials={financialsById.get(vehicle.id)}
                 onSelect={onSelectVehicle}
+                onEdit={onEditVehicle}
                 onQuickStatusChange={onQuickStatusChange}
                 onOpenSellModal={onOpenSellModal}
-                showPnl={featureFlags.pnlCalculator}
               />
             ))}
           </div>
         ) : (
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-[var(--ag-table-header-bg)] border-b border-[var(--border)] text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                    <th className="py-3 px-3 font-bold">Photo</th>
-                    <th className="py-3 px-3 font-bold">{t('thVehicleYear')}</th>
-                    <th className="py-3 px-3 font-bold">{t('thPlate')}</th>
-                    <th className="py-3 px-3 font-bold text-right">{t('thMileage')}</th>
-                    <th className="py-3 px-3 font-bold">{t('thStatus')}</th>
-                    <th className="py-3 px-3 font-bold text-right">{t('thPurchasePrice')}</th>
-                    <th className="py-3 px-3 font-bold text-right">{t('thSalePrice')}</th>
-                    {featureFlags.pnlCalculator && (
-                      <th className="py-3 px-3 font-bold text-right">{t('netMargin')}</th>
-                    )}
-                    <th className="py-3 px-3 font-bold text-right">{t('thActions')}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {filteredVehicles.map((v) => {
-                    const salePrice = getEffectiveSalePrice(v);
-                    const hasSalePrice = salePrice > 0;
-                    const hasPhoto = v.photos && v.photos.length > 0;
-                    return (
-                      <tr
-                        key={v.id}
-                        onClick={() => onSelectVehicle(v)}
-                        className="hover:bg-[var(--ag-table-row-hover)] transition cursor-pointer"
-                      >
-                        <td className="py-2 px-3">
-                          {hasPhoto ? (
-                            <img
-                              src={v.photos[0]}
-                              alt={`${v.make} ${v.model}`}
-                              className="w-12 h-9 rounded-lg object-cover border border-[var(--border)]"
-                            />
-                          ) : (
-                            <div className="w-12 h-9 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)]">
-                              <Car className="w-4 h-4" />
+          <>
+            {/* Desktop & Tablet 7-Column Active Inventory Table */}
+            <div className="hidden md:block bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table
+                  data-testid="active-inventory-table"
+                  className="w-full text-left border-collapse text-xs"
+                >
+                  <thead>
+                    <tr className="bg-[var(--ag-table-header-bg)] border-b border-[var(--border)] text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                      <th className="py-3 px-3.5 font-bold">{t('thVehicle')}</th>
+                      <th className="py-3 px-3 font-bold">{t('thPlate')}</th>
+                      <th className="py-3 px-3 font-bold text-right">{t('thMileageKm')}</th>
+                      <th className="py-3 px-3 font-bold">{t('thStatus')}</th>
+                      <th className="py-3 px-3 font-bold text-right">{t('thPurchasePriceEur')}</th>
+                      <th className="py-3 px-3 font-bold text-right">{t('thExpensesEur')}</th>
+                      <th className="py-3 px-3.5 font-bold text-right">{t('thTotalInvestedEur')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {filteredVehicles.map((v) => {
+                      const fin =
+                        financialsById.get(v.id) || computeVehicleInventoryFinancials(v);
+                      const hasPhoto = Boolean(v.photos && v.photos.length > 0);
+                      return (
+                        <tr
+                          key={v.id}
+                          data-testid={`inventory-row-${v.id}`}
+                          onClick={() => onSelectVehicle(v)}
+                          className="hover:bg-[var(--ag-table-row-hover)] transition cursor-pointer group"
+                        >
+                          {/* 1. Vehicle (photo, brand, model, year) */}
+                          <td className="py-2.5 px-3.5">
+                            <div className="flex items-center gap-3 min-w-[210px]">
+                              {hasPhoto ? (
+                                <img
+                                  src={v.photos[0]}
+                                  alt={`${v.make} ${v.model}`}
+                                  className="w-12 h-9 rounded-lg object-cover border border-[var(--border)] shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 h-9 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] shrink-0">
+                                  <Car className="w-4 h-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors">
+                                    {v.make} {v.model}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] font-mono text-[10px] font-bold tabular-nums">
+                                    {v.year}
+                                  </span>
+                                  {onEditVehicle && (
+                                    <button
+                                      type="button"
+                                      data-testid={`inventory-edit-btn-${v.id}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditVehicle(v);
+                                      }}
+                                      aria-label={`${t('editVehicleTitle')}: ${v.make} ${v.model}`}
+                                      title={t('editVehicleTitle')}
+                                      className="p-1 rounded-md text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-muted)] transition opacity-70 group-hover:opacity-100"
+                                    >
+                                      <Edit className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-[var(--muted-foreground)] truncate max-w-[220px]">
+                                  {v.trim || 'Standard'}
+                                </div>
+                              </div>
                             </div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-[var(--foreground)]">{v.make} {v.model}</span>
-                            <span className="px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] font-mono text-[10px] font-bold">
-                              {v.year}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-[var(--muted-foreground)] truncate max-w-[200px]">
-                            {v.trim || 'Standard'}
-                          </div>
-                        </td>
-                        <td className="py-2 px-3 font-mono">
-                          {v.registrationNumber ? (
-                            <span className="px-2 py-0.5 rounded bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] font-bold text-[11px]">
-                              {v.registrationNumber}
-                            </span>
-                          ) : (
-                            <span className="text-[var(--muted-foreground)]">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
-                          {v.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
-                        </td>
-                        <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
-                          <ThemedSelect<VehicleStatus>
-                            testId={`list-status-select-${v.id}`}
-                            ariaLabel={t('thStatus')}
-                            stopPropagation
-                            value={v.status}
-                            onChange={(newStatus) => {
-                              if (newStatus === 'sold' && v.status !== 'sold') {
-                                onOpenSellModal(v);
-                              } else {
-                                onQuickStatusChange(v.id, newStatus);
-                              }
-                            }}
-                            options={[
-                              { value: 'preparation', label: `🛠️ ${t('statusPreparation')}` },
-                              { value: 'repair', label: `🔧 ${t('statusRepair')}` },
-                              { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
-                              { value: 'sold', label: `✅ ${t('statusSold')}` },
-                            ]}
-                            triggerClassName="text-[11px] font-semibold bg-[var(--background)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)]"
-                          />
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
-                          {formatEuro(v.purchasePrice)}
-                        </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold whitespace-nowrap tabular-nums">
-                          {hasSalePrice ? (
-                            <span className="text-[var(--foreground)]">{formatEuro(salePrice)}</span>
-                          ) : (
-                            <span className="text-[var(--muted-foreground)]">—</span>
-                          )}
-                        </td>
-                        {featureFlags.pnlCalculator && (
-                          <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">
-                            {hasSalePrice ? (
-                              <>
-                                <span
-                                  className="font-mono font-extrabold"
-                                  style={{
-                                    color:
-                                      v.netProfit >= 0
-                                        ? 'var(--ag-profit-color)'
-                                        : 'var(--ag-expense-color)',
-                                  }}
-                                >
-                                  {v.netProfit >= 0 ? '+' : ''}{formatEuro(v.netProfit)}
-                                </span>
-                                <span className="block text-[10px] text-[var(--muted-foreground)] font-mono">
-                                  {v.marginPercentage.toFixed(1)}%
-                                </span>
-                              </>
+                          </td>
+
+                          {/* 2. Registration Number */}
+                          <td className="py-2.5 px-3 font-mono whitespace-nowrap">
+                            {v.registrationNumber ? (
+                              <span className="px-2 py-0.5 rounded bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] font-bold text-[11px]">
+                                {v.registrationNumber}
+                              </span>
                             ) : (
-                              <span className="font-mono text-[var(--muted-foreground)]">—</span>
+                              <span className="text-[var(--muted-foreground)]">—</span>
                             )}
                           </td>
-                        )}
-                        <td className="py-2 px-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => onSelectVehicle(v)}
-                              className="px-2.5 py-1 rounded-[var(--ag-button-radius)] text-[11px] font-bold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] transition"
-                            >
-                              {t('dossierBtn')}
-                            </button>
-                            {featureFlags.cerfaGenerator && onOpenCerfa && (
-                              <button
-                                type="button"
-                                onClick={() => onOpenCerfa(v)}
-                                className="px-2.5 py-1 rounded-[var(--ag-button-radius)] text-[11px] font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-500 border border-blue-500/30 transition inline-flex items-center gap-1"
-                              >
-                                <FileCheck className="w-3 h-3" />
-                                <span>Cerfa</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+
+                          {/* 3. Mileage (km) */}
+                          <td className="py-2.5 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
+                            {formatMileageKm(v.mileage, lang)}
+                          </td>
+
+                          {/* 4. Status */}
+                          <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                            {renderStatusSelect(v, 'list')}
+                          </td>
+
+                          {/* 5. Purchase Price (€) */}
+                          <td className="py-2.5 px-3 text-right font-mono font-semibold text-[var(--foreground)] whitespace-nowrap tabular-nums">
+                            {formatEuro(fin.purchasePrice)}
+                          </td>
+
+                          {/* 6. Expenses (€) */}
+                          <td className="py-2.5 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
+                            {formatEuro(fin.totalExpenses)}
+                          </td>
+
+                          {/* 7. Total Invested (€) */}
+                          <td className="py-2.5 px-3.5 text-right font-mono font-extrabold text-[var(--primary)] whitespace-nowrap tabular-nums">
+                            {formatEuro(fin.totalInvested)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr
+                      data-testid="inventory-table-totals"
+                      className="bg-[var(--ag-table-header-bg)] border-t-2 border-[var(--border)] font-bold text-xs"
+                    >
+                      <td colSpan={4} className="py-3 px-3.5 text-[var(--foreground)]">
+                        {t('thTotalSummary', { count: summaryTotals.vehicleCount })}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-[var(--foreground)] whitespace-nowrap tabular-nums">
+                        {formatEuro(summaryTotals.totalPurchasePrice)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
+                        {formatEuro(summaryTotals.totalExpenses)}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-mono font-black text-[var(--primary)] whitespace-nowrap tabular-nums">
+                        {formatEuro(summaryTotals.totalInvested)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
-          </div>
+
+            {/* Mobile Responsive List Cards (< md) */}
+            <div className="md:hidden space-y-3" data-testid="inventory-mobile-list">
+              {filteredVehicles.map((v) => {
+                const fin =
+                  financialsById.get(v.id) || computeVehicleInventoryFinancials(v);
+                const hasPhoto = Boolean(v.photos && v.photos.length > 0);
+                return (
+                  <div
+                    key={v.id}
+                    data-testid={`inventory-mobile-row-${v.id}`}
+                    onClick={() => onSelectVehicle(v)}
+                    className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-3 space-y-3 shadow-sm cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      {hasPhoto ? (
+                        <img
+                          src={v.photos[0]}
+                          alt={`${v.make} ${v.model}`}
+                          className="w-14 h-11 rounded-lg object-cover border border-[var(--border)] shrink-0"
+                        />
+                      ) : (
+                        <div className="w-14 h-11 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-[var(--muted-foreground)] shrink-0">
+                          <Car className="w-4 h-4" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-sm text-[var(--foreground)] truncate">
+                            {v.make} {v.model}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] font-mono text-[10px] font-bold">
+                            {v.year}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] font-mono text-[var(--muted-foreground)] tabular-nums">
+                          {v.registrationNumber && (
+                            <span className="px-1.5 py-0.5 rounded bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] font-bold">
+                              {v.registrationNumber}
+                            </span>
+                          )}
+                          <span>{formatMileageKm(v.mileage, lang)}</span>
+                        </div>
+                      </div>
+                      {onEditVehicle && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditVehicle(v);
+                          }}
+                          aria-label={`${t('editVehicleTitle')}: ${v.make} ${v.model}`}
+                          className="p-2 rounded-lg bg-[var(--surface-muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)] shrink-0"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 bg-[var(--surface-muted)] rounded-xl p-2 border border-[var(--border)] text-[11px] tabular-nums">
+                      <div>
+                        <span className="text-[10px] text-[var(--muted-foreground)] block truncate">
+                          {t('cardPurchase')}
+                        </span>
+                        <span className="font-mono font-bold text-[var(--foreground)]">
+                          {formatEuro(fin.purchasePrice)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-[var(--muted-foreground)] block truncate">
+                          {t('cardExpenses')}
+                        </span>
+                        <span className="font-mono font-semibold text-[var(--secondary-foreground)]">
+                          {formatEuro(fin.totalExpenses)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-[var(--primary)] font-semibold block truncate">
+                          {t('cardTotalInvested')}
+                        </span>
+                        <span className="font-mono font-extrabold text-[var(--primary)]">
+                          {formatEuro(fin.totalInvested)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                      {renderStatusSelect(v, 'mobile-list')}
+                      <button
+                        type="button"
+                        onClick={() => onSelectVehicle(v)}
+                        className="text-xs font-bold text-[var(--primary)] px-2 py-1"
+                      >
+                        {t('dossierBtn')} →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Mobile Totals Summary Bar */}
+              <div className="bg-[var(--ag-table-header-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-3 space-y-2">
+                <div className="text-xs font-bold text-[var(--foreground)]">
+                  {t('thTotalSummary', { count: summaryTotals.vehicleCount })}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[11px] tabular-nums">
+                  <div>
+                    <span className="text-[10px] text-[var(--muted-foreground)] block">
+                      {t('cardPurchase')}
+                    </span>
+                    <span className="font-mono font-bold text-[var(--foreground)]">
+                      {formatEuro(summaryTotals.totalPurchasePrice)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-[var(--muted-foreground)] block">
+                      {t('cardExpenses')}
+                    </span>
+                    <span className="font-mono font-semibold text-[var(--secondary-foreground)]">
+                      {formatEuro(summaryTotals.totalExpenses)}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-[var(--primary)] font-semibold block">
+                      {t('cardTotalInvested')}
+                    </span>
+                    <span className="font-mono font-extrabold text-[var(--primary)]">
+                      {formatEuro(summaryTotals.totalInvested)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )
       ) : (
         /* Empty State */
@@ -459,6 +688,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
+              type="button"
               onClick={onNewVehicle}
               className="px-5 py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition flex items-center gap-2"
             >
@@ -468,6 +698,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
 
             {vehicles.length === 0 && (
               <button
+                type="button"
                 onClick={onSeedData}
                 disabled={isSeeding}
                 className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition flex items-center gap-2"
@@ -482,3 +713,4 @@ export const VehicleList: React.FC<VehicleListProps> = ({
     </div>
   );
 };
+

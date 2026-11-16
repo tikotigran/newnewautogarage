@@ -36,8 +36,11 @@ import {
   CardPaddingDensity,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
+  FrenchTaxConfiguration,
   GlobalTextOverrides,
+  IsRateMode,
   LayoutMode,
+  LegalStatus,
   SectionGapSize,
   SubscriptionPlan,
   SubscriptionPlanId,
@@ -46,6 +49,7 @@ import {
   ThemePaletteTokens,
   UserProfile,
   UserRole,
+  VatRegime,
 } from '../types/garage';
 import {
   applySystemThemeVariables,
@@ -69,17 +73,24 @@ import {
 } from '../utils/adminUtils';
 import {
   getSubscriptionPlans,
+  getSuperAdminTaxDefaults,
   saveDynamicExpenseCategories,
   saveFeatureFlags,
   saveGlobalTextOverrides,
   saveSubscriptionPlans,
+  saveSuperAdminTaxDefaults,
   saveSystemThemeConfig,
   subscribeAllUserAccounts,
   subscribeDynamicExpenseCategories,
   subscribeFeatureFlags,
   subscribeGlobalTextOverrides,
+  subscribeSuperAdminTaxDefaults,
   updateUserAccount,
 } from '../services/adminService';
+import {
+  createDefaultFrenchTaxConfig,
+  FRENCH_TAX_DEFAULTS,
+} from '../utils/frenchTaxEngine';
 import { formatEuro } from '../utils/finance';
 import { useI18n } from '../i18n/I18nContext';
 import { translations } from '../i18n/translations';
@@ -142,6 +153,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Feature Flags state
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagsConfig>(DEFAULT_FEATURE_FLAGS);
 
+  // SuperAdmin Global French Tax Defaults state
+  const [taxDefaultsDraft, setTaxDefaultsDraft] = useState<FrenchTaxConfiguration>(() =>
+    getSuperAdminTaxDefaults()
+  );
+
   // Global Text Overrides state
   const [textOverrides, setTextOverrides] = useState<GlobalTextOverrides>({});
   const [textSearch, setTextSearch] = useState('');
@@ -184,11 +200,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const unsubTexts = subscribeGlobalTextOverrides((overrides) => {
       setTextOverrides(overrides);
     });
+    const unsubTaxDefaults = subscribeSuperAdminTaxDefaults((cfg) => {
+      setTaxDefaultsDraft(cfg);
+    });
     return () => {
       unsubAccounts();
       unsubExpenses();
       unsubFeatures();
       unsubTexts();
+      unsubTaxDefaults();
     };
   }, [isSuperAdmin]);
 
@@ -523,6 +543,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setFeatureFlags(DEFAULT_FEATURE_FLAGS);
     await saveFeatureFlags(DEFAULT_FEATURE_FLAGS, currentUserUid);
     showSavedFeedback(isRu ? 'Все функции включены' : 'Toutes les fonctions activées');
+  };
+
+  const handleSaveTaxDefaults = async () => {
+    await saveSuperAdminTaxDefaults(taxDefaultsDraft, currentUserUid);
+    showSavedFeedback(
+      isRu
+        ? 'Налоговые настройки по умолчанию сохранены (/settings/tax_defaults)'
+        : 'Paramètres fiscaux par défaut enregistrés (/settings/tax_defaults)'
+    );
+  };
+
+  const handleResetTaxDefaults = async () => {
+    const fresh = createDefaultFrenchTaxConfig('sarl');
+    setTaxDefaultsDraft(fresh);
+    await saveSuperAdminTaxDefaults(fresh, currentUserUid);
+    showSavedFeedback(
+      isRu ? 'Сброшено к стандартам Франции (12.3% / 1% / 15%-25%)' : 'Réinitialisé aux barèmes français'
+    );
   };
 
   // Global Text Overrides handlers
@@ -2478,6 +2516,299 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 );
               })}
+            </div>
+
+            {/* GLOBAL FRENCH TAX ENGINE DEFAULTS (/settings/tax_defaults) */}
+            <div
+              data-testid="admin-french-tax-defaults"
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-white">
+                    {isRu
+                      ? 'Налоговые настройки Франции по умолчанию (Micro-entreprise / SARL / SAS / TVA)'
+                      : 'Barèmes fiscaux France par défaut (Micro-entreprise / SARL / SAS / TVA)'}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isRu
+                      ? 'Глобальные значения по умолчанию для новых автосалонов и расчётных моделей (/settings/tax_defaults)'
+                      : 'Valeurs par défaut globales pour les nouveaux garages et le moteur fiscal (/settings/tax_defaults)'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleResetTaxDefaults}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{isRu ? 'Сброс' : 'Réinitialiser'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="admin-save-tax-defaults-btn"
+                    onClick={handleSaveTaxDefaults}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isRu ? 'Сохранить тарифы' : 'Enregistrer barèmes'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Статус по умолчанию' : 'Statut juridique par défaut'}
+                  </label>
+                  <ThemedSelect<LegalStatus>
+                    testId="admin-tax-legal-status"
+                    ariaLabel="Statut juridique par défaut"
+                    value={taxDefaultsDraft.legalStatus}
+                    onChange={(val) => {
+                      const businessTaxRegime =
+                        val === 'micro_entreprise'
+                          ? 'micro'
+                          : val === 'sas' || val === 'sasu'
+                          ? 'sas'
+                          : val === 'sarl' || val === 'eurl'
+                          ? 'sarl'
+                          : 'custom';
+                      setTaxDefaultsDraft((prev) => ({
+                        ...prev,
+                        legalStatus: val,
+                        businessTaxRegime,
+                      }));
+                    }}
+                    options={[
+                      { value: 'sarl', label: 'SARL / EURL (IS)' },
+                      { value: 'sas', label: 'SAS / SASU (IS)' },
+                      { value: 'micro_entreprise', label: 'Micro-entreprise (Achat / Revente)' },
+                      { value: 'other', label: isRu ? 'Другой статус' : 'Autre statut' },
+                    ]}
+                    triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'URSSAF Micro (%)' : 'URSSAF Micro (%)'}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.1"
+                    value={taxDefaultsDraft.socialContributionRate}
+                    onChange={(e) =>
+                      setTaxDefaultsDraft((prev) => ({
+                        ...prev,
+                        socialContributionRate: Math.max(0, Number(e.target.value) || 0),
+                      }))
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Versement libératoire (%)' : 'Versement libératoire (%)'}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          versementLiberatoireEnabled: !prev.versementLiberatoireEnabled,
+                        }))
+                      }
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                        taxDefaultsDraft.versementLiberatoireEnabled
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : 'bg-slate-950 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {taxDefaultsDraft.versementLiberatoireEnabled ? 'YES' : 'NO'}
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      value={taxDefaultsDraft.versementLiberatoireRate}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          versementLiberatoireRate: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'НДС (TVA) по умолчанию' : 'Régime TVA par défaut'}
+                  </label>
+                  <ThemedSelect<VatRegime>
+                    testId="admin-tax-vat-regime"
+                    ariaLabel="Régime TVA par défaut"
+                    value={taxDefaultsDraft.vatRegime}
+                    onChange={(val) =>
+                      setTaxDefaultsDraft((prev) => ({
+                        ...prev,
+                        vatRegime: val,
+                      }))
+                    }
+                    options={[
+                      { value: 'tva_marge', label: 'TVA sur la marge (Art. 297 A)' },
+                      { value: 'tva_total', label: 'TVA sur le prix total (20%)' },
+                      { value: 'franchise_base', label: 'Franchise en base (0%)' },
+                      { value: 'custom', label: isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)' },
+                    ]}
+                    triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Режим IS (SARL / SAS)' : 'Mode IS (SARL / SAS)'}
+                  </label>
+                  <ThemedSelect<IsRateMode>
+                    testId="admin-tax-is-mode"
+                    ariaLabel="Mode IS par défaut"
+                    value={taxDefaultsDraft.isRateMode}
+                    onChange={(val) =>
+                      setTaxDefaultsDraft((prev) => ({
+                        ...prev,
+                        isRateMode: val,
+                      }))
+                    }
+                    options={[
+                      { value: 'progressive_15_25', label: 'IS progressif 15% ≤ 42 500 € / 25%' },
+                      { value: 'standard_25', label: 'IS standard 25%' },
+                      { value: 'custom', label: isRu ? 'Своя ставка IS (%)' : 'Taux IS personnalisé' },
+                    ]}
+                    triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Льготная IS (%) / Порог (€)' : 'IS réduit (%) / Plafond (€)'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={taxDefaultsDraft.corporateTaxRateReduced}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          corporateTaxRateReduced: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step="500"
+                      value={taxDefaultsDraft.reducedIsThreshold}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          reducedIsThreshold: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Стандарт IS (%) / Налогообл. база' : 'IS normal (%) / Abattement BIC (%)'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={taxDefaultsDraft.corporateTaxRateStandard}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          corporateTaxRateStandard: Math.max(0, Number(e.target.value) || 0),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="1"
+                      value={taxDefaultsDraft.microBicAbattementPercent}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          microBicAbattementPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Ставка НДС (%) / IR Micro-BIC (%)' : 'Taux TVA (%) / IR Micro-BIC (%)'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={taxDefaultsDraft.vatRatePercent}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          vatRatePercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={taxDefaultsDraft.microBicIncomeTaxRate}
+                      onChange={(e) =>
+                        setTaxDefaultsDraft((prev) => ({
+                          ...prev,
+                          microBicIncomeTaxRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                        }))
+                      }
+                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl px-3.5 py-2.5">
+                {isRu ? FRENCH_TAX_DEFAULTS.DISCLAIMER_RU : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR}
+              </p>
             </div>
           </div>
         )}

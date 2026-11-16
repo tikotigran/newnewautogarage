@@ -1,4 +1,6 @@
 import { Vehicle, VehicleStatus } from '../types/garage';
+import { roundToTwo } from './finance';
+import { Language, pickLocalized } from './i18nUtils';
 
 export interface VehicleFormInput {
   make: string;
@@ -26,46 +28,62 @@ export const VIN_REGEX = /^[A-HJ-NPR-Z0-9]{17}$/;
 
 export function validateQuickVehicleForm(
   input: Pick<VehicleFormInput, 'make' | 'model' | 'year' | 'registrationNumber' | 'purchasePrice' | 'vin' | 'mileage'>,
-  lang: 'fr' | 'ru' = 'fr'
+  lang: Language = 'fr'
 ): string | null {
-  const isRu = lang === 'ru';
-
   if (!input.make.trim() || !input.model.trim()) {
-    return isRu
-      ? 'Укажите марку и модель автомобиля.'
-      : 'Veuillez renseigner la marque et le modèle.';
+    return pickLocalized(lang, {
+      fr: 'Veuillez renseigner la marque et le modèle.',
+      ru: 'Укажите марку и модель автомобиля.',
+      hy: 'Նշեք ավտոմեքենայի մակնիշը և մոդելը։',
+      ka: 'მიუთითეთ ავტომობილის მარკა და მოდელი.',
+    });
   }
 
   const parsedYear = Number(input.year);
   if (input.year === '' || Number.isNaN(parsedYear) || parsedYear < 1900 || parsedYear > 2100) {
-    return isRu
-      ? 'Укажите корректный год выпуска (1900–2100).'
-      : 'Veuillez renseigner une année de mise en circulation valide (1900–2100).';
+    return pickLocalized(lang, {
+      fr: 'Veuillez renseigner une année de mise en circulation valide (1900–2100).',
+      ru: 'Укажите корректный год выпуска (1900–2100).',
+      hy: 'Նշեք ճիշտ թողարկման տարեթիվ (1900–2100)։',
+      ka: 'მიუთითეთ გამოშვების სწორი წელი (1900–2100).',
+    });
   }
 
   if (!input.registrationNumber.trim()) {
-    return isRu
-      ? 'Укажите госномер (Immatriculation), например AB-123-CD.'
-      : 'Veuillez renseigner le numéro d’immatriculation (ex. AB-123-CD).';
+    return pickLocalized(lang, {
+      fr: 'Veuillez renseigner le numéro d’immatriculation (ex. AB-123-CD).',
+      ru: 'Укажите госномер (Immatriculation), например AB-123-CD.',
+      hy: 'Նշեք պետհամարանիշը (Immatriculation), օրինակ՝ AB-123-CD։',
+      ka: 'მიუთითეთ სახელმწიფო ნომერი (Immatriculation), მაგ. AB-123-CD.',
+    });
   }
 
   if (input.purchasePrice === '' || Number.isNaN(Number(input.purchasePrice)) || Number(input.purchasePrice) < 0) {
-    return isRu
-      ? 'Укажите корректную цену покупки.'
-      : 'Veuillez renseigner un prix d’achat valide.';
+    return pickLocalized(lang, {
+      fr: 'Veuillez renseigner un prix d’achat valide.',
+      ru: 'Укажите корректную цену покупки.',
+      hy: 'Նշեք գնման ճիշտ արժեքը։',
+      ka: 'მიუთითეთ შესყიდვის სწორი ფასი.',
+    });
   }
 
   const cleanedVin = input.vin.replace(/\s+/g, '').toUpperCase();
   if (cleanedVin.length > 0 && !VIN_REGEX.test(cleanedVin)) {
-    return isRu
-      ? 'VIN должен содержать ровно 17 символов (латинские буквы и цифры, без I, O, Q).'
-      : 'Le numéro VIN doit contenir exactement 17 caractères alphanumériques (hors I, O, Q).';
+    return pickLocalized(lang, {
+      fr: 'Le numéro VIN doit contenir exactement 17 caractères alphanumériques (hors I, O, Q).',
+      ru: 'VIN должен содержать ровно 17 символов (латинские буквы и цифры, без I, O, Q).',
+      hy: 'VIN կոդը պետք է պարունակի ուղիղ 17 նիշ (լատինատառ և թվեր, առանց I, O, Q)։',
+      ka: 'VIN კოდი უნდა შეიცავდეს ზუსტად 17 სიმბოლოს (ლათინური ასოები და ციფრები, I, O, Q-ს გარეშე).',
+    });
   }
 
   if (input.mileage !== '' && (Number.isNaN(Number(input.mileage)) || Number(input.mileage) < 0)) {
-    return isRu
-      ? 'Укажите корректный пробег.'
-      : 'Veuillez renseigner un kilométrage valide.';
+    return pickLocalized(lang, {
+      fr: 'Veuillez renseigner un kilométrage valide.',
+      ru: 'Укажите корректный пробег.',
+      hy: 'Նշեք ճիշտ վազքը։',
+      ka: 'მიუთითეთ სწორი გარბენი.',
+    });
   }
 
   return null;
@@ -87,6 +105,24 @@ export function buildVehicleSubmitPayload(
     input.targetSalePrice !== '' && !Number.isNaN(Number(input.targetSalePrice)) && Number(input.targetSalePrice) > 0
       ? Number(input.targetSalePrice)
       : 0;
+
+  const repairCostTotal = roundToTwo(Math.max(0, Number(initialVehicle?.repairCostTotal) || 0));
+  const generalExpensesTotal = roundToTwo(Math.max(0, Number(initialVehicle?.generalExpensesTotal) || 0));
+  const fallbackTotalExpenses =
+    repairCostTotal === 0 && generalExpensesTotal === 0
+      ? roundToTwo(Math.max(0, Number(initialVehicle?.totalExpenses) || 0))
+      : 0;
+  const totalExpenses = roundToTwo(
+    fallbackTotalExpenses > 0 ? fallbackTotalExpenses : repairCostTotal + generalExpensesTotal
+  );
+  const totalInvested = roundToTwo(parsedPurchasePrice + totalExpenses);
+  const effectiveSalePrice =
+    (input.status || initialVehicle?.status) === 'sold' && initialVehicle?.buyerInfo?.salePrice
+      ? Number(initialVehicle.buyerInfo.salePrice)
+      : parsedTargetPrice;
+  const netProfit = effectiveSalePrice > 0 ? roundToTwo(effectiveSalePrice - totalInvested) : 0;
+  const marginPercentage =
+    effectiveSalePrice > 0 ? roundToTwo((netProfit / effectiveSalePrice) * 100) : 0;
 
   return {
     userId,
@@ -111,12 +147,12 @@ export function buildVehicleSubmitPayload(
     photos: input.photos,
     documents: initialVehicle?.documents || [],
     buyerInfo: initialVehicle?.buyerInfo,
-    repairCostTotal: initialVehicle?.repairCostTotal || 0,
-    generalExpensesTotal: initialVehicle?.generalExpensesTotal || 0,
-    totalExpenses: initialVehicle?.totalExpenses || 0,
-    totalInvested: initialVehicle?.totalInvested ?? parsedPurchasePrice,
-    netProfit: initialVehicle?.netProfit || 0,
-    marginPercentage: initialVehicle?.marginPercentage || 0,
+    repairCostTotal,
+    generalExpensesTotal,
+    totalExpenses,
+    totalInvested,
+    netProfit,
+    marginPercentage,
   };
 }
 

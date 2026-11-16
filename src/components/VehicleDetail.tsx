@@ -98,11 +98,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>('overview');
   const [repairs, setRepairs] = useState<RepairTask[]>([]);
   const [expenses, setExpenses] = useState<GeneralExpense[]>([]);
+  const [repairsLoaded, setRepairsLoaded] = useState(false);
+  const [expensesLoaded, setExpensesLoaded] = useState(false);
   const [isLoadingSubdata, setIsLoadingSubdata] = useState(true);
   const [showCerfaWizard, setShowCerfaWizard] = useState(false);
 
   // Inline Carte Grise / Cerfa technical editor state
   const [isEditingSpecs, setIsEditingSpecs] = useState(false);
+  const [specReg, setSpecReg] = useState(vehicle.registrationNumber || '');
   const [specVin, setSpecVin] = useState(vehicle.vin || '');
   const [specMileage, setSpecMileage] = useState<number | ''>(vehicle.mileage ?? 0);
   const [specFuel, setSpecFuel] = useState(vehicle.fuelType || '');
@@ -116,6 +119,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [specError, setSpecError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSpecReg(vehicle.registrationNumber || '');
     setSpecVin(vehicle.vin || '');
     setSpecMileage(vehicle.mileage ?? 0);
     setSpecFuel(vehicle.fuelType || '');
@@ -167,13 +171,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   // Real-time subscriptions for repairs and expenses
   useEffect(() => {
     setIsLoadingSubdata(true);
+    setRepairsLoaded(false);
+    setExpensesLoaded(false);
 
     const unsubRepairs = subscribeRepairs(vehicle.id, (loadedRepairs) => {
       setRepairs(loadedRepairs);
+      setRepairsLoaded(true);
     });
 
     const unsubExpenses = subscribeExpenses(vehicle.id, (loadedExpenses) => {
       setExpenses(loadedExpenses);
+      setExpensesLoaded(true);
       setIsLoadingSubdata(false);
     });
 
@@ -182,6 +190,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       unsubExpenses();
     };
   }, [vehicle.id]);
+
+  // Keep parent vehicle financials synchronized when subcollection rows exist
+  useEffect(() => {
+    if (!repairsLoaded || !expensesLoaded) return;
+    if (repairs.length === 0 && expenses.length === 0) return;
+    void syncVehicleFinancials(vehicle, repairs, expenses);
+  }, [repairsLoaded, expensesLoaded, repairs, expenses, vehicle]);
 
   // Derived financials calculated in real-time on every state change
   const fin = calculateVehicleFinancials({
@@ -218,6 +233,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         generalExpensesTotal: fin.generalExpensesTotal,
         taxRegime: garageSettings.taxRegime,
         taxRatePercent: garageSettings.taxRatePercent,
+        frenchTaxConfig: garageSettings.frenchTaxConfig,
+        vatRegime: vehicle.buyerInfo?.vatRegime,
+        vatRatePercent: vehicle.buyerInfo?.vatRatePercent,
+        taxSnapshot: vehicle.buyerInfo?.taxSnapshot,
       })
     : null;
 
@@ -372,7 +391,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </button>
           ) : (
             <button
-              onClick={() => generateSalesInvoicePDF(vehicle)}
+              onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
               className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
@@ -567,12 +586,23 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               className="mt-4 bg-[var(--ag-receipt-bg)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] font-mono text-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-[var(--border)]">
-                <span
-                  style={getTextStyle('saleReportTitle')}
-                  className="font-bold text-[var(--ag-detail-heading)]"
-                >
-                  {t('saleReportTitle', { vehicle: `${vehicle.make} ${vehicle.model}` })}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    style={getTextStyle('saleReportTitle')}
+                    className="font-bold text-[var(--ag-detail-heading)]"
+                  >
+                    {t('saleReportTitle', { vehicle: `${vehicle.make} ${vehicle.model}` })}
+                  </span>
+                  {saleReport.isHistoricalSnapshot && (
+                    <span
+                      data-testid="sale-snapshot-locked-badge"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 text-[10px] font-bold"
+                    >
+                      <ShieldCheck className="w-3 h-3" />
+                      <span>{t('taxSnapshotLockedBadge')}</span>
+                    </span>
+                  )}
+                </div>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
                   {t('saleReportRegime', { regime: saleReport.taxLabel })}
                 </span>
@@ -621,22 +651,84 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                {/* Separated VAT (TVA) breakdown */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)] bg-[var(--surface-muted)]/60 rounded-lg px-2.5 py-1.5 border border-[var(--border)]">
                   <span>
-                    - {t('saleReportTax', { regime: saleReport.taxLabel })}
+                    TVA ({saleReport.vatRegime === 'tva_marge'
+                      ? lang === 'ru' ? 'На маржу (Art. 297 A CGI)' : 'Sur la marge (Art. 297 A)'
+                      : saleReport.vatRegime === 'tva_total'
+                      ? lang === 'ru' ? `На общую цену (${saleReport.vatRatePercent}%)` : `Sur prix total (${saleReport.vatRatePercent}%)`
+                      : saleReport.vatRegime === 'franchise_base'
+                      ? lang === 'ru' ? 'Franchise en base (0%)' : 'Franchise en base (Art. 293 B)'
+                      : `${saleReport.vatRatePercent}%`}
+                    ) · HT {formatEuro(saleReport.htAmount)}
                   </span>
-                  <span
-                    className="font-semibold"
-                    style={{
-                      color:
-                        saleReport.taxAmount > 0
-                          ? 'var(--ag-expense-color)'
-                          : 'var(--muted-foreground)',
-                    }}
-                  >
-                    {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
+                  <span className="font-semibold text-blue-400">
+                    {formatEuro(saleReport.vatAmount)}
                   </span>
                 </div>
+
+                {saleReport.taxRegime === 'micro' ? (
+                  <>
+                    <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                      <span>
+                        - {lang === 'ru' ? 'Взносы URSSAF (с оборота CA)' : 'Cotisations URSSAF (sur CA)'}
+                      </span>
+                      <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                        -{formatEuro(saleReport.urssafAmount)}
+                      </span>
+                    </div>
+                    {saleReport.versementLiberatoireEnabled ? (
+                      <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                        <span>
+                          - {lang === 'ru' ? 'Versement libératoire (с оборота CA)' : 'Versement libératoire (sur CA)'}
+                        </span>
+                        <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                          -{formatEuro(saleReport.versementLiberatoireAmount)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                        <span>
+                          ℹ {lang === 'ru'
+                            ? 'Подоходный IR Micro-BIC отдельно (вычет 71%, не включён в URSSAF)'
+                            : 'IR Micro-BIC estimé séparément (abattement 71%, hors URSSAF)'}
+                        </span>
+                        <span className="font-semibold text-amber-400">
+                          {formatEuro(saleReport.microBicEstimatedTax)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : saleReport.taxRegime === 'sarl' || saleReport.taxRegime === 'sas' ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)]">
+                    <span>
+                      - {t('saleReportTax', { regime: saleReport.taxLabel })}
+                    </span>
+                    <span className="text-[11px] font-semibold text-amber-400">
+                      {lang === 'ru'
+                        ? 'IS рассчитывается на годовую прибыль компании (см. Аналитику)'
+                        : 'IS calculé sur le bénéfice annuel société (voir Analytique)'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                    <span>
+                      - {t('saleReportTax', { regime: saleReport.taxLabel })}
+                    </span>
+                    <span
+                      className="font-semibold"
+                      style={{
+                        color:
+                          saleReport.taxAmount > 0
+                            ? 'var(--ag-expense-color)'
+                            : 'var(--muted-foreground)',
+                      }}
+                    >
+                      {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-sm">
                   <span
@@ -657,6 +749,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     {formatEuro(saleReport.netProfitAfterTax)}
                   </span>
                 </div>
+
+                <p className="pt-2 text-[10px] font-sans leading-relaxed text-[var(--muted-foreground)] border-t border-[var(--border)]/60">
+                  {t('taxAccountantDisclaimer')}
+                </p>
               </div>
             </div>
           ) : (
@@ -814,6 +910,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     setSpecError(null);
                     try {
                       await updateVehicle(vehicle.id, {
+                        registrationNumber: specReg.trim().toUpperCase(),
                         vin: cleanedVin,
                         mileage: specMileage === '' ? 0 : Math.max(0, Number(specMileage)),
                         fuelType: specFuel.trim(),
@@ -839,6 +936,19 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     </div>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label htmlFor="detail-spec-reg" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('plateFieldLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-reg"
+                        type="text"
+                        value={specReg}
+                        onChange={(e) => setSpecReg(e.target.value.toUpperCase())}
+                        placeholder="AB-123-CD"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
+                      />
+                    </div>
                     <div>
                       <label htmlFor="detail-spec-vin" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
                         VIN (E)
@@ -1099,7 +1209,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
                   {/* Quick Export Button */}
                   <button
-                    onClick={() => generateSalesInvoicePDF(vehicle)}
+                    onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
                     className="w-full mt-2 py-2 px-3 rounded-[var(--ag-button-radius)] bg-purple-600 hover:bg-purple-500 text-white font-bold flex items-center justify-center gap-2 transition whitespace-nowrap"
                   >
                     <Download className="w-4 h-4" />
@@ -1760,7 +1870,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </p>
                 </div>
                 <button
-                  onClick={() => generateSalesInvoicePDF(vehicle)}
+                  onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
                   className="w-full py-2.5 px-4 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] transition flex items-center justify-center gap-2 shadow-sm"
                 >
                   <Download className="w-4 h-4" />
@@ -1807,7 +1917,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     </p>
                   </div>
                   <button
-                    onClick={() => generateVehicleFinancialReportPDF(vehicle, repairs, expenses)}
+                    onClick={() => generateVehicleFinancialReportPDF(vehicle, repairs, expenses, garageSettings)}
                     className="w-full py-2.5 px-4 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center justify-center gap-2 shadow-sm"
                   >
                     <Download className="w-4 h-4" />

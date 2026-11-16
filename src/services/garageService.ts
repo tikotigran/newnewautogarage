@@ -11,9 +11,38 @@ import {
   getDoc,
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
-import { Vehicle, RepairTask, GeneralExpense, GarageSettings, GarageWorkspace } from '../types/garage';
+import {
+  Vehicle,
+  RepairTask,
+  GeneralExpense,
+  GarageSettings,
+  GarageWorkspace,
+  LegalStatus,
+  TaxRegime,
+} from '../types/garage';
 import { calculateVehicleFinancials } from '../utils/finance';
+import {
+  createDefaultFrenchTaxConfig,
+  mapTaxRegimeToLegalStatus,
+  normalizeFrenchTaxConfig,
+} from '../utils/frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
+
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefined(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
 
 // Helper to generate IDs
 export function generateId(prefix: string = 'id'): string {
@@ -53,6 +82,7 @@ export function setActiveGarageId(garageId: string | null): void {
 
 export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
   entityType: 'morale',
+  legalStatus: 'sarl',
   name: 'AutoGarage Manager SARL',
   lastName: '',
   firstName: '',
@@ -72,14 +102,34 @@ export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
   theme: 'dark',
   taxRegime: 'sarl',
   taxRatePercent: 15,
+  frenchTaxConfig: createDefaultFrenchTaxConfig('sarl'),
+  isCalculationHistory: [],
+  taxAuditHistory: [],
 };
 
-export function getDefaultTaxRateForRegime(
-  regime?: 'sarl' | 'micro' | 'custom' | 'none'
-): number {
-  if (regime === 'micro') return 12.3;
+export function getDefaultTaxRateForRegime(regime?: TaxRegime): number {
+  if (regime === 'micro') return 13.3;
   if (regime === 'none') return 0;
   return 15;
+}
+
+function hydrateGarageSettings(raw: Partial<GarageSettings>, targetId: string): GarageSettings {
+  const mergedBase: GarageSettings = {
+    ...DEFAULT_GARAGE_SETTINGS,
+    ...raw,
+    garageId: targetId,
+  };
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(mergedBase);
+  return {
+    ...mergedBase,
+    legalStatus: mergedBase.legalStatus || normalizedTaxConfig.legalStatus,
+    taxRegime: normalizedTaxConfig.businessTaxRegime,
+    frenchTaxConfig: normalizedTaxConfig,
+    isCalculationHistory: Array.isArray(mergedBase.isCalculationHistory)
+      ? mergedBase.isCalculationHistory
+      : [],
+    taxAuditHistory: Array.isArray(mergedBase.taxAuditHistory) ? mergedBase.taxAuditHistory : [],
+  };
 }
 
 export function getGarageSettings(garageIdOverride?: string): GarageSettings {
@@ -88,52 +138,41 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
     const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
     const match = garages.find((g) => g.id === targetId);
     const matchTaxRegime =
-      match?.taxRegime || (match?.entityType === 'physique' ? 'none' : DEFAULT_GARAGE_SETTINGS.taxRegime);
+      match?.taxRegime || (match?.entityType === 'physique' ? 'micro' : DEFAULT_GARAGE_SETTINGS.taxRegime);
     const matchTaxRate =
       typeof match?.taxRatePercent === 'number' && !Number.isNaN(match.taxRatePercent)
         ? match.taxRatePercent
         : getDefaultTaxRateForRegime(matchTaxRegime);
 
+    const matchOverrides: Partial<GarageSettings> = match
+      ? {
+          name: match.name,
+          entityType: match.entityType,
+          legalStatus: match.legalStatus || mapTaxRegimeToLegalStatus(matchTaxRegime, match.entityType),
+          city: match.city || DEFAULT_GARAGE_SETTINGS.city,
+          siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
+          taxRegime: matchTaxRegime,
+          taxRatePercent: matchTaxRate,
+        }
+      : {};
+
     const scopedRaw = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${targetId}`);
     if (scopedRaw) {
       const parsed = JSON.parse(scopedRaw) as Partial<GarageSettings>;
-      return {
-        ...DEFAULT_GARAGE_SETTINGS,
-        ...(match
-          ? {
-              name: match.name,
-              entityType: match.entityType,
-              city: match.city || DEFAULT_GARAGE_SETTINGS.city,
-              siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
-              taxRegime: matchTaxRegime,
-              taxRatePercent: matchTaxRate,
-            }
-          : {}),
-        ...parsed,
-        garageId: targetId,
-      };
+      return hydrateGarageSettings({ ...matchOverrides, ...parsed }, targetId);
     }
     if (targetId === DEFAULT_GARAGE_ID) {
       const legacyRaw = localStorage.getItem(LOCAL_SETTINGS_KEY);
       if (legacyRaw) {
-        return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId, ...JSON.parse(legacyRaw) };
+        return hydrateGarageSettings(JSON.parse(legacyRaw) as Partial<GarageSettings>, targetId);
       }
     }
     if (match) {
-      return {
-        ...DEFAULT_GARAGE_SETTINGS,
-        garageId: targetId,
-        name: match.name,
-        entityType: match.entityType,
-        city: match.city || DEFAULT_GARAGE_SETTINGS.city,
-        siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
-        taxRegime: matchTaxRegime,
-        taxRatePercent: matchTaxRate,
-      };
+      return hydrateGarageSettings(matchOverrides, targetId);
     }
-    return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId };
+    return hydrateGarageSettings({}, targetId);
   } catch {
-    return { ...DEFAULT_GARAGE_SETTINGS, garageId: targetId };
+    return hydrateGarageSettings({}, targetId);
   }
 }
 
@@ -147,12 +186,10 @@ export async function fetchGarageSettingsFromCloud(
     try {
       const snap = await getDoc(doc(db, 'settings', `${userId}_${targetId}`));
       if (snap.exists()) {
-        const merged: GarageSettings = {
-          ...DEFAULT_GARAGE_SETTINGS,
-          ...local,
-          ...(snap.data() as Partial<GarageSettings>),
-          garageId: targetId,
-        };
+        const merged = hydrateGarageSettings(
+          { ...local, ...(snap.data() as Partial<GarageSettings>) },
+          targetId
+        );
         localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${targetId}`, JSON.stringify(merged));
         window.dispatchEvent(new Event('autogarage_settings_updated'));
         return merged;
@@ -170,17 +207,41 @@ export async function saveGarageSettings(
   garageIdOverride?: string
 ): Promise<void> {
   const targetId = garageIdOverride || settings.garageId || getActiveGarageId() || DEFAULT_GARAGE_ID;
-  const resolvedRegime = settings.taxRegime || 'sarl';
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(settings);
+  const resolvedRegime = settings.taxRegime || normalizedTaxConfig.businessTaxRegime || 'sarl';
   const resolvedRate =
-    typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
+    resolvedRegime === 'micro'
+      ? Math.max(
+          0,
+          normalizedTaxConfig.socialContributionRate +
+            (normalizedTaxConfig.versementLiberatoireEnabled
+              ? normalizedTaxConfig.versementLiberatoireRate
+              : 0)
+        )
+      : typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
       ? Math.max(0, settings.taxRatePercent)
       : getDefaultTaxRateForRegime(resolvedRegime);
-  const scopedSettings: GarageSettings = {
+  const resolvedLegalStatus: LegalStatus =
+    settings.legalStatus || normalizedTaxConfig.legalStatus || mapTaxRegimeToLegalStatus(resolvedRegime, settings.entityType);
+
+  const scopedSettings: GarageSettings = stripUndefined({
     ...settings,
     garageId: targetId,
+    legalStatus: resolvedLegalStatus,
     taxRegime: resolvedRegime,
     taxRatePercent: resolvedRate,
-  };
+    frenchTaxConfig: {
+      ...normalizedTaxConfig,
+      legalStatus: resolvedLegalStatus,
+      businessTaxRegime: resolvedRegime,
+    },
+    isCalculationHistory: Array.isArray(settings.isCalculationHistory)
+      ? settings.isCalculationHistory.slice(0, 50)
+      : [],
+    taxAuditHistory: Array.isArray(settings.taxAuditHistory)
+      ? settings.taxAuditHistory.slice(0, 100)
+      : [],
+  });
   try {
     localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${targetId}`, JSON.stringify(scopedSettings));
     if (targetId === DEFAULT_GARAGE_ID) {
@@ -201,6 +262,7 @@ export async function saveGarageSettings(
               ...g,
               name: displayName || g.name,
               entityType: scopedSettings.entityType || g.entityType,
+              legalStatus: resolvedLegalStatus,
               city: scopedSettings.city || g.city,
               siret: scopedSettings.siret || g.siret,
               taxRegime: resolvedRegime,
@@ -217,16 +279,17 @@ export async function saveGarageSettings(
       if (garages.some((g) => g.id === targetId)) {
         await setDoc(
           doc(db, 'garages', targetId),
-          {
+          stripUndefined({
             userId,
             name: displayName || scopedSettings.name,
             entityType: scopedSettings.entityType || 'morale',
+            legalStatus: resolvedLegalStatus,
             city: scopedSettings.city || '',
             siret: scopedSettings.entityType === 'morale' ? scopedSettings.siret || '' : '',
             taxRegime: resolvedRegime,
             taxRatePercent: resolvedRate,
             updatedAt: now,
-          },
+          }),
           { merge: true }
         );
       }
@@ -363,32 +426,39 @@ export async function createGarage(
   input: {
     name: string;
     entityType: 'morale' | 'physique';
+    legalStatus?: LegalStatus;
     city?: string;
     siret?: string;
-    taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+    taxRegime?: TaxRegime;
     taxRatePercent?: number;
   }
 ): Promise<GarageWorkspace> {
   const id = generateId('garage');
   const now = new Date().toISOString();
-  const resolvedRegime = input.taxRegime || (input.entityType === 'physique' ? 'none' : 'sarl');
+  const resolvedRegime: TaxRegime = input.taxRegime || (input.entityType === 'physique' ? 'micro' : 'sarl');
+  const resolvedLegalStatus: LegalStatus =
+    input.legalStatus || mapTaxRegimeToLegalStatus(resolvedRegime, input.entityType);
   const resolvedTaxRate =
     typeof input.taxRatePercent === 'number' && !Number.isNaN(input.taxRatePercent)
       ? Math.max(0, input.taxRatePercent)
       : getDefaultTaxRateForRegime(resolvedRegime);
+  const frenchTaxConfig = createDefaultFrenchTaxConfig(resolvedLegalStatus, {
+    businessTaxRegime: resolvedRegime,
+  });
 
-  const newGarage: GarageWorkspace = {
+  const newGarage: GarageWorkspace = stripUndefined({
     id,
     userId,
     name: input.name.trim(),
     entityType: input.entityType,
+    legalStatus: resolvedLegalStatus,
     city: input.city?.trim() || '',
     siret: input.entityType === 'morale' ? input.siret?.trim() || '' : '',
     taxRegime: resolvedRegime,
     taxRatePercent: resolvedTaxRate,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   const existing = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
   setLocalStore(LOCAL_GARAGES_KEY, [...existing, newGarage]);
@@ -405,6 +475,7 @@ export async function createGarage(
       ...DEFAULT_GARAGE_SETTINGS,
       garageId: id,
       entityType: input.entityType,
+      legalStatus: resolvedLegalStatus,
       name: newGarage.name,
       city: newGarage.city || DEFAULT_GARAGE_SETTINGS.city,
       siret: newGarage.siret || '',
@@ -412,6 +483,7 @@ export async function createGarage(
       firstName: derivedFirstName,
       taxRegime: resolvedRegime,
       taxRatePercent: resolvedTaxRate,
+      frenchTaxConfig,
     },
     userId,
     id
@@ -426,6 +498,39 @@ export async function createGarage(
   }
 
   return newGarage;
+}
+
+function normalizeVehicleRecord(raw: Vehicle, docId?: string): Vehicle {
+  const purchasePrice = Math.max(0, Number(raw.purchasePrice) || 0);
+  const repairCostTotal = Math.max(0, Number(raw.repairCostTotal) || 0);
+  const generalExpensesTotal = Math.max(0, Number(raw.generalExpensesTotal) || 0);
+  const rawTotalExpenses = Math.max(0, Number(raw.totalExpenses) || 0);
+  const totalExpenses =
+    rawTotalExpenses > 0 && repairCostTotal === 0 && generalExpensesTotal === 0
+      ? rawTotalExpenses
+      : Math.round((repairCostTotal + generalExpensesTotal + Number.EPSILON) * 100) / 100;
+  const totalInvested =
+    typeof raw.totalInvested === 'number' && !Number.isNaN(raw.totalInvested) && raw.totalInvested >= purchasePrice
+      ? raw.totalInvested
+      : Math.round((purchasePrice + totalExpenses + Number.EPSILON) * 100) / 100;
+
+  return {
+    ...raw,
+    id: docId || raw.id,
+    mileage: Math.max(0, Number(raw.mileage) || 0),
+    vin: raw.vin || '',
+    registrationNumber: raw.registrationNumber || '',
+    purchasePrice,
+    targetSalePrice: Number(raw.targetSalePrice) || 0,
+    photos: Array.isArray(raw.photos) ? raw.photos : [],
+    documents: Array.isArray(raw.documents) ? raw.documents : [],
+    repairCostTotal,
+    generalExpensesTotal,
+    totalExpenses,
+    totalInvested,
+    netProfit: Number(raw.netProfit) || 0,
+    marginPercentage: Number(raw.marginPercentage) || 0,
+  };
 }
 
 export function subscribeVehicles(
@@ -446,7 +551,7 @@ export function subscribeVehicles(
       (snapshot) => {
         const vehicles: Vehicle[] = [];
         snapshot.forEach((docSnap) => {
-          vehicles.push({ ...(docSnap.data() as Vehicle), id: docSnap.id });
+          vehicles.push(normalizeVehicleRecord(docSnap.data() as Vehicle, docSnap.id));
         });
         vehicles.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         onData(vehicles);
@@ -460,7 +565,7 @@ export function subscribeVehicles(
 
   // Local storage listener for immediate offline/guest exploration
   const emitLocal = () => {
-    const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
+    const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY).map((v) => normalizeVehicleRecord(v));
     list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     onData(list);
   };
@@ -489,7 +594,7 @@ export async function createVehicle(
     expenses: [],
   });
 
-  const newVehicle: Vehicle = {
+  const newVehicle: Vehicle = stripUndefined({
     ...vehicle,
     id,
     repairCostTotal: financials.repairCostTotal,
@@ -502,7 +607,7 @@ export async function createVehicle(
     documents: vehicle.documents || [],
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   if (!auth.currentUser) {
     const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
@@ -526,23 +631,42 @@ export async function updateVehicle(
   updates: Partial<Vehicle>
 ): Promise<void> {
   const path = `vehicles/${vehicleId}`;
+  const cleanUpdates = stripUndefined(updates);
+  if (cleanUpdates.registrationNumber !== undefined) {
+    cleanUpdates.registrationNumber = String(cleanUpdates.registrationNumber).trim().toUpperCase();
+  }
+  if (cleanUpdates.mileage !== undefined) {
+    cleanUpdates.mileage = Math.max(0, Number(cleanUpdates.mileage) || 0);
+  }
 
   if (!auth.currentUser) {
     const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
-    const updated = list.map((v) =>
-      v.id === vehicleId
-        ? { ...v, ...updates, updatedAt: new Date().toISOString() }
-        : v
-    );
+    const updated = list.map((v) => {
+      if (v.id !== vehicleId) return v;
+      const next = { ...v, ...cleanUpdates };
+      if (cleanUpdates.purchasePrice !== undefined && cleanUpdates.totalInvested === undefined) {
+        const exp = Math.max(0, Number(next.totalExpenses) || 0);
+        next.totalInvested = Math.round(((Number(cleanUpdates.purchasePrice) || 0) + exp + Number.EPSILON) * 100) / 100;
+      }
+      return { ...next, updatedAt: new Date().toISOString() };
+    });
     setLocalStore(LOCAL_STORAGE_KEY, updated);
     return;
   }
 
   try {
-    const payload = {
-      ...updates,
+    const payload = stripUndefined({
+      ...cleanUpdates,
       updatedAt: new Date().toISOString(),
-    };
+    });
+    if (payload.purchasePrice !== undefined && payload.totalInvested === undefined) {
+      const snap = await getDoc(doc(db, 'vehicles', vehicleId));
+      if (snap.exists()) {
+        const existingData = snap.data() as Vehicle;
+        const exp = Math.max(0, Number(existingData.totalExpenses) || 0);
+        payload.totalInvested = Math.round(((Number(payload.purchasePrice) || 0) + exp + Number.EPSILON) * 100) / 100;
+      }
+    }
     await updateDoc(doc(db, 'vehicles', vehicleId), payload);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
@@ -654,11 +778,13 @@ export async function addRepairTask(
   if (!auth.currentUser) {
     const list = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY);
     setLocalStore(LOCAL_REPAIRS_KEY, [newTask, ...list]);
+    await recalculateAndSyncVehicleById(vehicleId);
     return id;
   }
 
   try {
     await setDoc(doc(db, 'vehicles', vehicleId, 'repairs', id), newTask);
+    await recalculateAndSyncVehicleById(vehicleId);
     return id;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
@@ -693,6 +819,7 @@ export async function updateRepairTask(
       return t;
     });
     setLocalStore(LOCAL_REPAIRS_KEY, updated);
+    await recalculateAndSyncVehicleById(vehicleId);
     return;
   }
 
@@ -702,11 +829,14 @@ export async function updateRepairTask(
       updatedAt: new Date().toISOString(),
     };
     if (updates.partsCost !== undefined || updates.laborCost !== undefined) {
-      const parts = updates.partsCost !== undefined ? Number(updates.partsCost) : 0;
-      const labor = updates.laborCost !== undefined ? Number(updates.laborCost) : 0;
+      const existingSnap = await getDoc(doc(db, 'vehicles', vehicleId, 'repairs', taskId));
+      const existing = existingSnap.exists() ? (existingSnap.data() as RepairTask) : null;
+      const parts = updates.partsCost !== undefined ? Number(updates.partsCost) : (existing?.partsCost ?? 0);
+      const labor = updates.laborCost !== undefined ? Number(updates.laborCost) : (existing?.laborCost ?? 0);
       payload.totalCost = parts + labor;
     }
     await updateDoc(doc(db, 'vehicles', vehicleId, 'repairs', taskId), payload);
+    await recalculateAndSyncVehicleById(vehicleId);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
@@ -721,11 +851,13 @@ export async function deleteRepairTask(vehicleId: string, taskId: string): Promi
   if (!auth.currentUser) {
     const list = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY).filter((t) => t.id !== taskId);
     setLocalStore(LOCAL_REPAIRS_KEY, list);
+    await recalculateAndSyncVehicleById(vehicleId);
     return;
   }
 
   try {
     await deleteDoc(doc(db, 'vehicles', vehicleId, 'repairs', taskId));
+    await recalculateAndSyncVehicleById(vehicleId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
@@ -858,11 +990,13 @@ export async function addGeneralExpense(
   if (!auth.currentUser) {
     const list = getLocalStore<GeneralExpense>(LOCAL_EXPENSES_KEY);
     setLocalStore(LOCAL_EXPENSES_KEY, [newExpense, ...list]);
+    await recalculateAndSyncVehicleById(vehicleId);
     return id;
   }
 
   try {
     await setDoc(doc(db, 'vehicles', vehicleId, 'expenses', id), newExpense);
+    await recalculateAndSyncVehicleById(vehicleId);
     return id;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
@@ -887,6 +1021,7 @@ export async function updateGeneralExpense(
         : e
     );
     setLocalStore(LOCAL_EXPENSES_KEY, updated);
+    await recalculateAndSyncVehicleById(vehicleId);
     return;
   }
 
@@ -896,6 +1031,7 @@ export async function updateGeneralExpense(
       updatedAt: new Date().toISOString(),
     };
     await updateDoc(doc(db, 'vehicles', vehicleId, 'expenses', expenseId), payload);
+    await recalculateAndSyncVehicleById(vehicleId);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
@@ -910,13 +1046,48 @@ export async function deleteGeneralExpense(vehicleId: string, expenseId: string)
   if (!auth.currentUser) {
     const list = getLocalStore<GeneralExpense>(LOCAL_EXPENSES_KEY).filter((e) => e.id !== expenseId);
     setLocalStore(LOCAL_EXPENSES_KEY, list);
+    await recalculateAndSyncVehicleById(vehicleId);
     return;
   }
 
   try {
     await deleteDoc(doc(db, 'vehicles', vehicleId, 'expenses', expenseId));
+    await recalculateAndSyncVehicleById(vehicleId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Recalculate & Sync Vehicle Financials directly from stored subcollections / local arrays
+ */
+export async function recalculateAndSyncVehicleById(vehicleId: string): Promise<void> {
+  if (!auth.currentUser) {
+    const vehicles = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
+    const target = vehicles.find((v) => v.id === vehicleId);
+    if (!target) return;
+    const repairs = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY).filter((r) => r.vehicleId === vehicleId);
+    const expenses = getLocalStore<GeneralExpense>(LOCAL_EXPENSES_KEY).filter((e) => e.vehicleId === vehicleId);
+    await syncVehicleFinancials(target, repairs, expenses);
+    return;
+  }
+
+  try {
+    const [vehSnap, repairsSnap, expensesSnap] = await Promise.all([
+      getDoc(doc(db, 'vehicles', vehicleId)),
+      getDocs(collection(db, 'vehicles', vehicleId, 'repairs')),
+      getDocs(collection(db, 'vehicles', vehicleId, 'expenses')),
+    ]);
+    if (!vehSnap.exists()) return;
+    const target = normalizeVehicleRecord(vehSnap.data() as Vehicle, vehSnap.id);
+    const repairs: RepairTask[] = [];
+    repairsSnap.forEach((d) => repairs.push({ ...(d.data() as RepairTask), id: d.id }));
+    const expenses: GeneralExpense[] = [];
+    expensesSnap.forEach((d) => expenses.push({ ...(d.data() as GeneralExpense), id: d.id }));
+    await syncVehicleFinancials(target, repairs, expenses);
+    window.dispatchEvent(new Event('autogarage_store_updated'));
+  } catch (err) {
+    console.warn('recalculateAndSyncVehicleById warning:', err);
   }
 }
 
@@ -978,6 +1149,7 @@ export async function seedDemoGarageData(
     year: 2021,
     mileage: 48500,
     vin: 'VF3UPHNK0MT129841',
+    registrationNumber: 'GH-208-AB',
     purchaseDate: '2026-10-15',
     purchasePrice: 11200,
     targetSalePrice: 14900,
@@ -1041,6 +1213,7 @@ export async function seedDemoGarageData(
     year: 2020,
     mileage: 62000,
     vin: 'VF1RJA00365891234',
+    registrationNumber: 'FW-415-CL',
     purchaseDate: '2026-09-28',
     purchasePrice: 8900,
     targetSalePrice: 12200,
@@ -1093,6 +1266,7 @@ export async function seedDemoGarageData(
     year: 2019,
     mileage: 94000,
     vin: 'WVWZZZAUZKP512984',
+    registrationNumber: 'EV-719-VW',
     purchaseDate: '2026-08-10',
     purchasePrice: 10400,
     targetSalePrice: 13990,
@@ -1148,6 +1322,7 @@ export async function seedDemoGarageData(
     year: 2021,
     mileage: 51200,
     vin: 'WAUZZZGY4NA029145',
+    registrationNumber: 'GK-903-AA',
     purchaseDate: '2026-07-05',
     purchasePrice: 18500,
     targetSalePrice: 22900,

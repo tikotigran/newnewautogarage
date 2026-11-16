@@ -1,28 +1,35 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { translations, Language } from './translations';
+import { translations, Language, TranslationKey } from './translations';
 import { GlobalTextOverrides } from '../types/garage';
 import { subscribeGlobalTextOverrides } from '../services/adminService';
 import { resolveLocalizedColor, resolveLocalizedLabel } from '../utils/adminUtils';
+import { LANGUAGE_STORAGE_KEY, resolveInitialLanguage } from '../utils/i18nUtils';
 
 interface I18nContextType {
   lang: Language;
   setLang: (lang: Language) => void;
-  t: (key: keyof typeof translations.fr, params?: Record<string, string | number>) => string;
-  getTextColor: (key: keyof typeof translations.fr) => string | undefined;
-  getTextStyle: (key: keyof typeof translations.fr) => React.CSSProperties | undefined;
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+  getTextColor: (key: TranslationKey) => string | undefined;
+  getTextStyle: (key: TranslationKey) => React.CSSProperties | undefined;
 }
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Language>(() => {
+    let saved: string | null = null;
     try {
-      const saved = localStorage.getItem('autogarage_lang');
-      if (saved === 'fr' || saved === 'ru') return saved;
+      saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
     } catch {
       // ignore
     }
-    return 'fr';
+    const browserLanguages =
+      typeof navigator !== 'undefined'
+        ? navigator.languages && navigator.languages.length > 0
+          ? navigator.languages
+          : navigator.language
+        : null;
+    return resolveInitialLanguage(saved, browserLanguages, 'fr');
   });
 
   const [textOverrides, setTextOverrides] = useState<GlobalTextOverrides>({});
@@ -34,16 +41,22 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = lang;
+    }
+  }, [lang]);
+
   const setLang = (newLang: Language) => {
     setLangState(newLang);
     try {
-      localStorage.setItem('autogarage_lang', newLang);
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, newLang);
     } catch {
       // ignore
     }
   };
 
-  const t = (key: keyof typeof translations.fr, params?: Record<string, string | number>): string => {
+  const t = (key: TranslationKey, params?: Record<string, string | number>): string => {
     const dict = translations[lang] || translations.fr;
     const baseText = dict[key] || translations.fr[key] || (key as string);
     let text = resolveLocalizedLabel(key as string, lang, baseText, textOverrides);
@@ -57,11 +70,11 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return text;
   };
 
-  const getTextColor = (key: keyof typeof translations.fr): string | undefined => {
+  const getTextColor = (key: TranslationKey): string | undefined => {
     return resolveLocalizedColor(key as string, textOverrides);
   };
 
-  const getTextStyle = (key: keyof typeof translations.fr): React.CSSProperties | undefined => {
+  const getTextStyle = (key: TranslationKey): React.CSSProperties | undefined => {
     const color = resolveLocalizedColor(key as string, textOverrides);
     return color ? { color } : undefined;
   };

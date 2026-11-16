@@ -20,6 +20,7 @@ import { Vehicle, RepairTask, GeneralExpense } from '../types/garage';
 import { formatEuro } from '../utils/finance';
 import { updateRepairTask } from '../services/garageService';
 import { useI18n } from '../i18n/I18nContext';
+import { getIntlLocale, pickLocalized } from '../utils/i18nUtils';
 
 interface MobileSimulatorProps {
   vehicles: Vehicle[];
@@ -33,6 +34,8 @@ export const MobileSimulator: React.FC<MobileSimulatorProps> = ({
   onOpenVehicleModal,
 }) => {
   const { t, lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
+  const intlLocale = getIntlLocale(lang);
   const [mobileTab, setMobileTab] = useState<'fleet' | 'mechanic' | 'pnl' | 'sourceCode'>('fleet');
   const [selectedMobileVehicle, setSelectedMobileVehicle] = useState<Vehicle | null>(
     vehicles[0] || null
@@ -184,7 +187,7 @@ const styles = StyleSheet.create({
                       className="text-[11px] text-amber-400 font-bold flex items-center gap-1"
                     >
                       <Plus className="w-3 h-3" />
-                      {lang === 'ru' ? 'Добавить' : 'Ajouter'}
+                      {L('Ajouter', 'Добавить', 'Ավելացնել', 'დამატება')}
                     </button>
                   </div>
 
@@ -203,7 +206,7 @@ const styles = StyleSheet.create({
                             {v.make} {v.model}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">
-                            {v.vin} • {v.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
+                            {v.vin} • {v.mileage.toLocaleString(intlLocale)} km
                           </span>
                         </div>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700">
@@ -239,7 +242,7 @@ const styles = StyleSheet.create({
                       {currentVehicle.make} {currentVehicle.model} ({currentVehicle.year})
                     </h4>
                     <p className="text-[10px] text-slate-400 font-mono">
-                      {currentVehicle.vin} • {currentVehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
+                      {currentVehicle.vin} • {currentVehicle.mileage.toLocaleString(intlLocale)} km
                     </p>
                   </div>
 
@@ -253,7 +256,9 @@ const styles = StyleSheet.create({
                     <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span className="text-slate-300">{lang === 'ru' ? 'Замена масла и фильтров' : 'Vidange & Filtres'}</span>
+                        <span className="text-slate-300">
+                          {L('Vidange & Filtres', 'Замена масла и фильтров', 'Յուղի և ֆիլտրերի փոխարինում', 'ზეთისა და ფილტრების შეცვლა')}
+                        </span>
                       </div>
                       <span className="text-[11px] text-emerald-400 font-bold">{t('taskDone')}</span>
                     </div>
@@ -261,7 +266,9 @@ const styles = StyleSheet.create({
                     <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-blue-400" />
-                        <span className="text-slate-300">{lang === 'ru' ? 'Тормозные диски и колодки' : 'Disques & Plaquettes avant'}</span>
+                        <span className="text-slate-300">
+                          {L('Disques & Plaquettes avant', 'Тормозные диски и колодки', 'Առջևի արգելակային սկավառակներ', 'წინა სამუხრუჭე დისკები და ხუნდები')}
+                        </span>
                       </div>
                       <span className="text-[11px] text-blue-400 font-bold">{t('taskInProgress')}</span>
                     </div>
@@ -269,7 +276,9 @@ const styles = StyleSheet.create({
                     <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full border border-slate-600"></div>
-                        <span className="text-slate-300">{lang === 'ru' ? 'Прохождение техосмотра' : 'Passage Contrôle Technique'}</span>
+                        <span className="text-slate-300">
+                          {L('Passage Contrôle Technique', 'Прохождение техосмотра', 'Տեխզննման անցում', 'ტექნიკური ინსპექტირება')}
+                        </span>
                       </div>
                       <span className="text-[11px] text-amber-400 font-bold">{t('taskTodo')}</span>
                     </div>
@@ -277,7 +286,9 @@ const styles = StyleSheet.create({
                     <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full border border-slate-600"></div>
-                        <span className="text-slate-300">{lang === 'ru' ? 'Детейлинг и полировка' : 'Detailing & Lustrage'}</span>
+                        <span className="text-slate-300">
+                          {L('Detailing & Lustrage', 'Детейлинг и полировка', 'Դեթեյլինգ և փայլեցում', 'დეტეილინგი და პოლირება')}
+                        </span>
                       </div>
                       <span className="text-[11px] text-amber-400 font-bold">{t('taskTodo')}</span>
                     </div>
@@ -351,7 +362,7 @@ const styles = StyleSheet.create({
                 }`}
               >
                 <Car className="w-4 h-4" />
-                <span>{lang === 'ru' ? 'Автопарк' : 'Parc VO'}</span>
+                <span>{L('Parc VO', 'Автопарк', 'Ավտոպարկ', 'ავტოპარკი')}</span>
               </button>
               <button
                 onClick={() => setMobileTab('mechanic')}
@@ -360,7 +371,7 @@ const styles = StyleSheet.create({
                 }`}
               >
                 <Wrench className="w-4 h-4" />
-                <span>{lang === 'ru' ? 'Сервис' : 'Atelier'}</span>
+                <span>{L('Atelier', 'Сервис', 'Արհեստանոց', 'სერვისი')}</span>
               </button>
               <button
                 onClick={() => setMobileTab('pnl')}
@@ -369,7 +380,7 @@ const styles = StyleSheet.create({
                 }`}
               >
                 <TrendingUp className="w-4 h-4" />
-                <span>{lang === 'ru' ? 'P&L Маржа' : 'Bilan P&L'}</span>
+                <span>{L('Bilan P&L', 'P&L Маржа', 'P&L հաշվեկշիռ', 'P&L ბალანსი')}</span>
               </button>
               <button
                 onClick={() => setMobileTab('sourceCode')}

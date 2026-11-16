@@ -31,8 +31,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onDevSuperAdminLogin,
 }) => {
-  const { lang } = useI18n();
-  const isRu = lang === 'ru';
+  const { t } = useI18n();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -57,11 +56,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('popup-blocked') || msg.includes('popup-closed')) {
-        setError(
-          isRu
-            ? 'Всплывающее окно заблокировано браузером. Используйте вход по Email или Dev SuperAdmin.'
-            : 'Fenêtre popup bloquée par le navigateur. Utilisez Email ou l’accès Dev SuperAdmin.'
-        );
+        setError(t('authPopupBlocked'));
       } else {
         setError(msg);
       }
@@ -74,9 +69,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setError(null);
     if (!email.trim() || !password.trim()) {
-      setError(
-        isRu ? 'Введите email и пароль.' : 'Veuillez saisir un email et un mot de passe.'
-      );
+      setError(t('authMissingFields'));
       return;
     }
 
@@ -135,26 +128,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h2 id="auth-modal-title" className="text-base font-bold text-white">
-                {mode === 'login'
-                  ? isRu
-                    ? 'Вход в AutoGarage Manager'
-                    : 'Connexion à AutoGarage'
-                  : isRu
-                  ? 'Регистрация аккаунта'
-                  : 'Créer un compte'}
+                {mode === 'login' ? t('authSignInTitle') : t('authRegisterTitle')}
               </h2>
-              <p className="text-[11px] text-slate-400">
-                {isRu
-                  ? 'Синхронизация Firebase и доступ к панели'
-                  : 'Synchronisation Firebase & accès RBAC'}
-              </p>
+              <p className="text-[11px] text-slate-400">{t('authSubtitle')}</p>
             </div>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            aria-label={isRu ? 'Закрыть' : 'Fermer'}
+            aria-label={t('closeBtn')}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-4 h-4" />
@@ -195,16 +178,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
               />
             </svg>
-            <span>
-              {isRu ? 'Войти через Google' : 'Continuer avec Google'}
-            </span>
+            <span>{t('authGoogle')}</span>
           </button>
 
           <div className="relative flex items-center">
             <div className="flex-grow border-t border-slate-800" />
-            <span className="px-3 text-[11px] text-slate-500">
-              {isRu ? 'или по Email' : 'ou par Email'}
-            </span>
+            <span className="px-3 text-[11px] text-slate-500">{t('authOrEmail')}</span>
             <div className="flex-grow border-t border-slate-800" />
           </div>
 
@@ -215,7 +194,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 htmlFor="auth-email"
                 className="block text-xs font-semibold text-slate-300 mb-1"
               >
-                Email
+                {t('email')}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -236,7 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 htmlFor="auth-password"
                 className="block text-xs font-semibold text-slate-300 mb-1"
               >
-                {isRu ? 'Пароль' : 'Mot de passe'}
+                {t('authPassword')}
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -266,13 +245,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <UserPlus className="w-4 h-4" />
               )}
               <span>
-                {mode === 'login'
-                  ? isRu
-                    ? 'Войти'
-                    : 'Se connecter'
-                  : isRu
-                  ? 'Зарегистрироваться'
-                  : 'Créer le compte'}
+                {mode === 'login' ? t('authSubmitLogin') : t('authSubmitRegister')}
               </span>
             </button>
           </form>
@@ -286,13 +259,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               }}
               className="text-xs text-slate-400 hover:text-amber-400 transition"
             >
-              {mode === 'login'
-                ? isRu
-                  ? 'Нет аккаунта? Зарегистрироваться'
-                  : 'Pas encore de compte ? Créer un compte'
-                : isRu
-                ? 'Уже есть аккаунт? Войти'
-                : 'Déjà un compte ? Se connecter'}
+              {mode === 'login' ? t('authNoAccount') : t('authHaveAccount')}
             </button>
           </div>
 
@@ -306,9 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>
-                  {isRu
-                    ? `Dev-вход SuperAdmin (${SUPERADMIN_BOOTSTRAP_EMAIL})`
-                    : `Accès Dev SuperAdmin (${SUPERADMIN_BOOTSTRAP_EMAIL})`}
+                  {t('authDevAdmin', { email: SUPERADMIN_BOOTSTRAP_EMAIL })}
                 </span>
               </button>
             </div>

@@ -22,9 +22,116 @@ export interface VehicleDocument {
 export type LayoutMode = 'classic' | 'sidebar';
 export type UserLayoutPreference = 'global' | LayoutMode;
 
+export type LegalStatus =
+  | 'micro_entreprise'
+  | 'sarl'
+  | 'sas'
+  | 'eurl'
+  | 'sasu'
+  | 'ei'
+  | 'other';
+
+export type TaxRegime = 'sarl' | 'sas' | 'micro' | 'custom' | 'none';
+
+export type VatRegime = 'tva_marge' | 'tva_total' | 'franchise_base' | 'custom';
+
+export type IsRateMode = 'progressive_15_25' | 'standard_25' | 'reduced_15' | 'custom';
+
+export interface TaxEffectiveDates {
+  urssaf: string;
+  is: string;
+  vat: string;
+}
+
+export interface FrenchTaxConfiguration {
+  legalStatus: LegalStatus;
+  businessTaxRegime: TaxRegime;
+  // Micro-entreprise (Achat / Revente)
+  socialContributionRate: number;      // Default: 12.3%
+  versementLiberatoireEnabled: boolean;
+  versementLiberatoireRate: number;    // Default: 1%
+  microBicAbattementPercent: number;   // Default: 71% for achat/revente
+  microBicIncomeTaxRate: number;       // Default: 11% estimated IR rate when VL is NO
+  // SARL / SAS Corporate Tax (Impôt sur les Sociétés - IS)
+  isRateMode: IsRateMode;              // Default: 'progressive_15_25'
+  corporateTaxRateReduced: number;     // Default: 15%
+  corporateTaxRateStandard: number;    // Default: 25%
+  corporateTaxCustomRate: number;      // Custom IS rate
+  reducedIsEligible: boolean;          // Default: true (turnover < 10M€, etc.)
+  reducedIsThreshold: number;          // Default: 42500 €
+  annualTaxableProfit: number;         // Company annual taxable profit for IS calculation
+  financialYear: number;               // e.g. 2026
+  // French VAT (TVA)
+  vatRegime: VatRegime;                // Default: 'tva_marge'
+  vatRatePercent: number;              // Default: 20%
+  // Versioning / Effective Dates
+  effectiveDates: TaxEffectiveDates;
+  lastModifiedAt?: string;
+  lastModifiedBy?: string;
+}
+
+export interface IsCalculationHistoryEntry {
+  id: string;
+  financialYear: number;
+  legalStatus: LegalStatus;
+  annualTaxableProfit: number;
+  reducedIsEligible: boolean;
+  isRateMode: IsRateMode;
+  bracket15Base: number;
+  bracket15Tax: number;
+  bracket25Base: number;
+  bracket25Tax: number;
+  totalIsTax: number;
+  effectiveRatePercent: number;
+  calculatedAt: string;
+  recordedBy?: string;
+  notes?: string;
+}
+
+export interface TaxSettingsAuditEntry {
+  id: string;
+  timestamp: string;
+  actorEmail: string;
+  summary: string;
+  changes: { field: string; oldValue: string; newValue: string }[];
+}
+
+export interface TransactionTaxSnapshot {
+  legalStatus: LegalStatus;
+  taxRegime: TaxRegime;
+  taxLabel: string;
+  vatRegime: VatRegime;
+  vatRatePercent: number;
+  vatBaseAmount: number;
+  vatAmount: number;
+  htAmount: number;
+  ttcAmount: number;
+  vatLegalMention: string;
+  salePrice: number;
+  purchasePrice: number;
+  repairCostTotal: number;
+  generalExpensesTotal: number;
+  profitBeforeTaxes: number;
+  urssafRate: number;
+  urssafAmount: number;
+  versementLiberatoireEnabled: boolean;
+  versementLiberatoireRate: number;
+  versementLiberatoireAmount: number;
+  microBicEstimatedTax: number;
+  corporateIsContextNote: string;
+  corporateTaxEstimatedAmount: number;
+  totalTaxAmount: number;
+  netProfitAfterTax: number;
+  effectiveDate: string;
+  capturedAt: string;
+  isHistoricalSnapshot: true;
+  disclaimerNote: string;
+}
+
 export interface GarageSettings {
   garageId?: string;
   entityType?: 'morale' | 'physique';
+  legalStatus?: LegalStatus;
   name: string;
   lastName?: string;
   firstName?: string;
@@ -44,9 +151,12 @@ export interface GarageSettings {
   theme?: 'dark' | 'light';
   layoutMode?: UserLayoutPreference;
   defaultMarginPercent?: number;
-  taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+  taxRegime?: TaxRegime;
   taxRatePercent?: number;
   currency?: 'EUR' | 'USD' | 'CHF' | 'GBP';
+  frenchTaxConfig?: FrenchTaxConfiguration;
+  isCalculationHistory?: IsCalculationHistoryEntry[];
+  taxAuditHistory?: TaxSettingsAuditEntry[];
 }
 
 export interface BuyerInfo {
@@ -65,6 +175,9 @@ export interface BuyerInfo {
   salePrice: number;
   saleDate: string;
   saleTime?: string;       // e.g. "14:30"
+  vatRegime?: VatRegime;
+  vatRatePercent?: number;
+  taxSnapshot?: TransactionTaxSnapshot;
 }
 
 export interface Vehicle {
@@ -136,6 +249,8 @@ export interface TaskPreset {
   id: string;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   labelEn: string;
   defaultCategory: string;
   estimatedParts?: number;
@@ -147,6 +262,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'oil_change',
     labelFr: 'Vidange & Filtres (Huile, Air, Habitacle)',
     labelRu: 'Замена масла и фильтров (масляный, воздушный, салонный)',
+    labelHy: 'Յուղի և ֆիլտրերի փոխարինում (յուղի, օդի, սրահի)',
+    labelKa: 'ზეთისა და ფილტრების შეცვლა (ზეთის, ჰაერის, სალონის)',
     labelEn: 'Oil & Filter Service',
     defaultCategory: 'Moteur',
     estimatedParts: 85,
@@ -156,6 +273,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'timing_belt',
     labelFr: 'Kit Distribution & Pompe à eau',
     labelRu: 'Комплект ремня ГРМ и водяной насос (помпа)',
+    labelHy: 'ԳՐՄ գոտու հավաքածու և ջրի պոմպ',
+    labelKa: 'ძრავის ღვედის (ГРМ) კომპლექტი და წყლის ტუმბო (პომპა)',
     labelEn: 'Timing Belt & Water Pump',
     defaultCategory: 'Moteur',
     estimatedParts: 220,
@@ -165,6 +284,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'clutch',
     labelFr: 'Remplacement Embrayage & Butée',
     labelRu: 'Замена сцепления и выжимного подшипника',
+    labelHy: 'Կցորդման համակարգի և առանցքակալի փոխարինում',
+    labelKa: 'გადაბმულობის კომპლექტის და საკისრის შეცვლა',
     labelEn: 'Clutch Replacement',
     defaultCategory: 'Transmission',
     estimatedParts: 280,
@@ -174,6 +295,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'brake_pads',
     labelFr: 'Disques & Plaquettes de frein avant/arrière',
     labelRu: 'Тормозные диски и колодки (перед / зад)',
+    labelHy: 'Արգելակման սկավառակներ և կոճղակներ (առջև / հետև)',
+    labelKa: 'სამუხრუჭე დისკები და ხუნდები (წინა / უკანა)',
     labelEn: 'Brake Discs & Pads',
     defaultCategory: 'Freinage',
     estimatedParts: 140,
@@ -183,6 +306,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'diagnostics',
     labelFr: 'Diagnostic valise OBD & Effacement défauts',
     labelRu: 'Компьютерная диагностика OBD и сброс ошибок',
+    labelHy: 'Համակարգչային OBD ախտորոշում և սխալների մաքրում',
+    labelKa: 'კომპიუტერული OBD დიაგნოსტიკა და შეცდომების წაშლა',
     labelEn: 'OBD Diagnostics Scan',
     defaultCategory: 'Électronique',
     estimatedParts: 0,
@@ -192,6 +317,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'controle_technique_prep',
     labelFr: 'Pré-Contrôle Technique & Réglage feux',
     labelRu: 'Подготовка к техосмотру и регулировка фар',
+    labelHy: 'Նախապատրաստում տեխզննմանը և լուսարձակների կարգավորում',
+    labelKa: 'ტექდათვალიერებისთვის მომზადება და ფარების რეგულირება',
     labelEn: 'Pre-MOT Inspection',
     defaultCategory: 'Contrôle',
     estimatedParts: 30,
@@ -201,6 +328,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'detailing',
     labelFr: 'Nettoyage Intérieur/Extérieur & Polissage carrosserie',
     labelRu: 'Химчистка салона, полировка и детейлинг кузова',
+    labelHy: 'Սրահի քիմմաքրում, փայլեցում և թափքի դեթեյլինգ',
+    labelKa: 'სალონის ქიმწმენდა, პოლირება და დეტეილინგი',
     labelEn: 'Detailing & Polish',
     defaultCategory: 'Esthétique',
     estimatedParts: 45,
@@ -210,6 +339,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'tires',
     labelFr: 'Remplacement Train de pneus & Géométrie',
     labelRu: 'Замена комплекта шин и сход-развал',
+    labelHy: 'Անվադողերի փոխարինում և անվաբացքի կարգավորում',
+    labelKa: 'საბურავების შეცვლა და თვლების გაწონასწორება/развал',
     labelEn: 'Tires & Alignment',
     defaultCategory: 'Châssis',
     estimatedParts: 180,
@@ -219,6 +350,8 @@ export const TASK_PRESETS: TaskPreset[] = [
     id: 'battery',
     labelFr: 'Remplacement Batterie 12V & Test alternateur',
     labelRu: 'Замена аккумулятора 12V и проверка генератора',
+    labelHy: '12V մարտկոցի փոխարինում և գեներատորի ստուգում',
+    labelKa: '12V აკუმულატორის შეცვლა და გენერატორის შემოწმება',
     labelEn: 'Battery Replacement',
     defaultCategory: 'Électrique',
     estimatedParts: 110,
@@ -226,14 +359,70 @@ export const TASK_PRESETS: TaskPreset[] = [
   },
 ];
 
-export const EXPENSE_CATEGORIES: { id: GeneralExpenseCategory; labelFr: string; labelRu: string; icon: string }[] = [
-  { id: 'transport', labelFr: 'Transport / Rapatriement', labelRu: 'Доставка / Эвакуатор', icon: 'Truck' },
-  { id: 'fuel', labelFr: 'Carburant', labelRu: 'Топливо', icon: 'Fuel' },
-  { id: 'controle_technique', labelFr: 'Contrôle Technique', labelRu: 'Техосмотр (Contrôle Technique)', icon: 'FileCheck' },
-  { id: 'detailing', labelFr: 'Lavage / Detailing', labelRu: 'Мойка / Детейлинг', icon: 'Sparkles' },
-  { id: 'admin', labelFr: 'Frais Administratifs / Carte Grise', labelRu: 'Госпошлины / Оформление документов', icon: 'FileText' },
-  { id: 'insurance', labelFr: 'Assurance garage / Flotte transit', labelRu: 'Страховка автопарка / Транзит', icon: 'ShieldCheck' },
-  { id: 'other', labelFr: 'Autre dépense', labelRu: 'Прочие расходы', icon: 'Coins' },
+export const EXPENSE_CATEGORIES: {
+  id: GeneralExpenseCategory;
+  labelFr: string;
+  labelRu: string;
+  labelHy: string;
+  labelKa: string;
+  icon: string;
+}[] = [
+  {
+    id: 'transport',
+    labelFr: 'Transport / Rapatriement',
+    labelRu: 'Доставка / Эвакуатор',
+    labelHy: 'Տեղափոխում / Էվակուատոր',
+    labelKa: 'ტრანსპორტირება / ევაკუატორი',
+    icon: 'Truck',
+  },
+  {
+    id: 'fuel',
+    labelFr: 'Carburant',
+    labelRu: 'Топливо',
+    labelHy: 'Վառելիք',
+    labelKa: 'საწვავი',
+    icon: 'Fuel',
+  },
+  {
+    id: 'controle_technique',
+    labelFr: 'Contrôle Technique',
+    labelRu: 'Техосмотр (Contrôle Technique)',
+    labelHy: 'Տեխզննում (Contrôle Technique)',
+    labelKa: 'ტექდათვალიერება (Contrôle Technique)',
+    icon: 'FileCheck',
+  },
+  {
+    id: 'detailing',
+    labelFr: 'Lavage / Detailing',
+    labelRu: 'Мойка / Детейлинг',
+    labelHy: 'Լվացում / Դեթեյլինգ',
+    labelKa: 'რეცხვა / დეტეილინგი',
+    icon: 'Sparkles',
+  },
+  {
+    id: 'admin',
+    labelFr: 'Frais Administratifs / Carte Grise',
+    labelRu: 'Госпошлины / Оформление документов',
+    labelHy: 'Պետտուրքեր / Փաստաթղթերի ձևակերպում',
+    labelKa: 'ადმინისტრაციული ხარჯები / Carte Grise',
+    icon: 'FileText',
+  },
+  {
+    id: 'insurance',
+    labelFr: 'Assurance garage / Flotte transit',
+    labelRu: 'Страховка автопарка / Транзит',
+    labelHy: 'Ավտոպարկի ապահովագրություն / Տրանզիտ',
+    labelKa: 'ავტოპარკის დაზღვევა / ტრანზიტი',
+    icon: 'ShieldCheck',
+  },
+  {
+    id: 'other',
+    labelFr: 'Autre dépense',
+    labelRu: 'Прочие расходы',
+    labelHy: 'Այլ ծախսեր',
+    labelKa: 'სხვა ხარჯები',
+    icon: 'Coins',
+  },
 ];
 
 export type UserRole = 'user' | 'superadmin';
@@ -263,6 +452,8 @@ export interface SubscriptionPlan {
   vehicleLimit: number;
   featuresFr: string[];
   featuresRu: string[];
+  featuresHy?: string[];
+  featuresKa?: string[];
 }
 
 export interface CerfaGlobalAdjustments {
@@ -326,10 +517,12 @@ export interface GarageWorkspace {
   userId: string;
   name: string;
   entityType: 'morale' | 'physique';
+  legalStatus?: LegalStatus;
   city?: string;
   siret?: string;
-  taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+  taxRegime?: TaxRegime;
   taxRatePercent?: number;
+  frenchTaxConfig?: FrenchTaxConfiguration;
   createdAt: string;
   updatedAt: string;
 }
@@ -338,6 +531,8 @@ export interface DynamicExpenseCategory {
   id: string;
   labelFr: string;
   labelRu: string;
+  labelHy?: string;
+  labelKa?: string;
   icon: string;
   defaultAmount?: number;
   order: number;
@@ -353,7 +548,7 @@ export interface FeatureFlagsConfig {
 
 export type GlobalTextOverrides = Record<
   string,
-  { fr?: string; ru?: string; color?: string }
+  { fr?: string; ru?: string; hy?: string; ka?: string; color?: string }
 >;
 
 export type SupplierType =
@@ -501,6 +696,8 @@ export type UserActivityAction =
   | 'purchase_created'
   | 'document_uploaded'
   | 'settings_updated'
+  | 'tax_settings_updated'
+  | 'is_calculation_recorded'
   | 'auth_login';
 
 export interface UserActivityLog {

@@ -11,11 +11,10 @@ export const VehiclePhotoPlaceholder: React.FC<VehiclePhotoPlaceholderProps> = (
   variant = 'card',
   className = '',
 }) => {
-  const { lang } = useI18n();
-  const isRu = lang === 'ru';
+  const { t } = useI18n();
 
-  const label = isRu ? 'Фото не добавлено' : 'Aucune photo';
-  const subLabel = isRu ? 'Загрузите с устройства или выберите шаблон' : 'Importez ou choisissez un modèle';
+  const label = t('noPhotosAdded');
+  const subLabel = t('noPhotosSub');
 
   return (
     <div

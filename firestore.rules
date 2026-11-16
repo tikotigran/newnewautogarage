@@ -40,7 +40,10 @@ service cloud.firestore {
              data.year is number && data.year >= 1900 && data.year <= 2100 &&
              data.mileage is number && data.mileage >= 0 &&
              data.purchasePrice is number && data.purchasePrice >= 0 &&
-             data.status in ['preparation', 'repair', 'for_sale', 'sold'];
+             data.status in ['preparation', 'repair', 'for_sale', 'sold'] &&
+             (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 30)) &&
+             (!('totalExpenses' in data) || (data.totalExpenses is number && data.totalExpenses >= 0)) &&
+             (!('totalInvested' in data) || (data.totalInvested is number && data.totalInvested >= 0));
     }
 
     function isValidRepairTask(data) {
@@ -92,14 +95,14 @@ service cloud.firestore {
              data.userId == request.auth.uid &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
              data.entityType in ['morale', 'physique'] &&
-             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'micro', 'custom', 'none']) &&
+             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
              (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
 
     function isValidGarageSettings(data) {
       return data.name is string && data.name.size() <= 120 &&
              (!('entityType' in data) || data.entityType in ['morale', 'physique']) &&
-             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'micro', 'custom', 'none']) &&
+             (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
              (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
 
@@ -215,6 +218,8 @@ service cloud.firestore {
                'purchase_created',
                'document_uploaded',
                'settings_updated',
+               'tax_settings_updated',
+               'is_calculation_recorded',
                'auth_login'
              ] &&
              data.targetLabel is string && data.targetLabel.size() > 0 && data.targetLabel.size() <= 200 &&
@@ -310,6 +315,12 @@ service cloud.firestore {
     match /settings/copywriting {
       allow get: if true;
       allow create, update, delete: if isSuperAdmin() && isValidUiCustomization(incoming());
+    }
+
+    // Platform-wide default French tax rules (/settings/tax_defaults)
+    match /settings/tax_defaults {
+      allow get: if true;
+      allow create, update, delete: if isSuperAdmin() && ('config' in incoming()) && incoming().config is map;
     }
 
     // Scoped Garage Settings collection ({userId}_{garageId})

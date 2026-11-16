@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {
-  Navbar,
-} from './components/Navbar';
 import { Sidebar, SidebarNavTarget } from './components/Sidebar';
 import { VehicleList } from './components/VehicleList';
 import { VehicleDetail } from './components/VehicleDetail';
@@ -16,7 +13,7 @@ import { ExportsBackupView } from './components/ExportsBackupView';
 import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
-import { Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord } from './types/garage';
+import { Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense } from './types/garage';
 import {
   auth,
   onAuthStateChanged,
@@ -26,7 +23,9 @@ import {
 import {
   subscribeVehicles,
   subscribeGarages,
+  subscribeAllFleetExpensesAndRepairs,
   createGarage,
+  getGarageSettings,
   setActiveGarageId as persistActiveGarageId,
   fetchGarageSettingsFromCloud,
   createVehicle,
@@ -34,6 +33,7 @@ import {
   deleteVehicle,
   seedDemoGarageData,
 } from './services/garageService';
+import { buildTransactionTaxSnapshot } from './utils/frenchTaxEngine';
 import {
   ensureAndGetUserProfile,
   subscribeFeatureFlags,
@@ -80,11 +80,13 @@ import {
 } from './services/auditAndBackupService';
 import { computeEntityFieldDiffs, filterAuditLogsByGarage } from './utils/exportBackup';
 import { createDemoCerfaVehicle } from './utils/cerfa15776';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Menu } from 'lucide-react';
+import { useI18n } from './i18n/I18nContext';
 
 export type ActiveAppView = 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
 
 export default function App() {
+  const { t } = useI18n();
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemThemeConfig>(DEFAULT_SYSTEM_THEME_CONFIG);
@@ -93,6 +95,8 @@ export default function App() {
   const [garages, setGarages] = useState<GarageWorkspace[]>([]);
   const [activeGarageId, setActiveGarageId] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [fleetRepairs, setFleetRepairs] = useState<RepairTask[]>([]);
+  const [fleetExpenses, setFleetExpenses] = useState<GeneralExpense[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [documents, setDocuments] = useState<GarageDocument[]>([]);
@@ -164,7 +168,6 @@ export default function App() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [sellingVehicle, setSellingVehicle] = useState<Vehicle | null>(null);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isQuickAlignerOpen, setIsQuickAlignerOpen] = useState(false);
   const [documentsAlignerMode, setDocumentsAlignerMode] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -226,7 +229,7 @@ export default function App() {
     };
   }, []);
 
-  // Enforce multiGarage, expenseAnalytics & dual-layout route transitions
+  // Enforce multiGarage & expenseAnalytics guards
   useEffect(() => {
     if (!featureFlags.multiGarage && !activeGarageId) {
       setActiveGarageId(DEFAULT_GARAGE_ID);
@@ -236,19 +239,6 @@ export default function App() {
       setActiveView('desktop');
     }
   }, [featureFlags.multiGarage, featureFlags.expenseAnalytics, activeGarageId, activeView]);
-
-  // Smoothly transition page views <-> modals when switching Classic <-> Sidebar mode
-  useEffect(() => {
-    if (effectiveLayoutMode === 'classic') {
-      if (activeView === 'settings') {
-        setActiveView('desktop');
-        setIsSettingsModalOpen(true);
-      }
-    } else if (effectiveLayoutMode === 'sidebar' && isSettingsModalOpen) {
-      setIsSettingsModalOpen(false);
-      setActiveView('settings');
-    }
-  }, [effectiveLayoutMode, activeView, isSettingsModalOpen]);
 
   // Initialize Auth & RBAC Profile
   useEffect(() => {
@@ -325,9 +315,10 @@ export default function App() {
   const handleCreateGarage = async (input: {
     name: string;
     entityType: 'morale' | 'physique';
+    legalStatus?: LegalStatus;
     city?: string;
     siret?: string;
-    taxRegime?: 'sarl' | 'micro' | 'custom' | 'none';
+    taxRegime?: TaxRegime;
     taxRatePercent?: number;
   }) => {
     const created = await createGarage(effectiveUserId, input);
@@ -350,6 +341,23 @@ export default function App() {
 
     return () => unsubscribe();
   }, [authReady, effectiveUserId]);
+
+  // Subscribe to all fleet repair tasks and general expenses for accurate Active Inventory financial totals
+  useEffect(() => {
+    if (!authReady || vehicles.length === 0) {
+      setFleetRepairs([]);
+      setFleetExpenses([]);
+      return;
+    }
+    const unsub = subscribeAllFleetExpensesAndRepairs(
+      vehicles,
+      ({ repairs, expenses }) => {
+        setFleetRepairs(repairs);
+        setFleetExpenses(expenses);
+      }
+    );
+    return () => unsub();
+  }, [authReady, vehicles]);
 
   // Subscribe to real-time suppliers, purchases, documents & document history
   useEffect(() => {
@@ -504,18 +512,39 @@ export default function App() {
     setIsBuyerModalOpen(true);
   };
 
-  // Confirm sale
+  // Confirm sale (always preserves or freezes an immutable TransactionTaxSnapshot)
   const handleConfirmSale = async (vehicleId: string, buyerInfo: BuyerInfo) => {
     const targetVehicle = vehicles.find((v) => v.id === vehicleId);
     if (!targetVehicle) return;
 
-    const netProfit = Number(buyerInfo.salePrice) - (targetVehicle.totalInvested || 0);
+    const settingsForGarage = getGarageSettings(targetVehicle.garageId || activeGarageId || undefined);
+    const enrichedBuyerInfo: BuyerInfo = buyerInfo.taxSnapshot?.isHistoricalSnapshot
+      ? buyerInfo
+      : {
+          ...buyerInfo,
+          vatRegime: buyerInfo.vatRegime || settingsForGarage.frenchTaxConfig?.vatRegime || 'tva_marge',
+          vatRatePercent:
+            buyerInfo.vatRatePercent ?? settingsForGarage.frenchTaxConfig?.vatRatePercent ?? 20,
+          taxSnapshot: buildTransactionTaxSnapshot({
+            salePrice: Number(buyerInfo.salePrice) || 0,
+            purchasePrice: Number(targetVehicle.purchasePrice) || 0,
+            repairCostTotal: Number(targetVehicle.repairCostTotal) || 0,
+            generalExpensesTotal: Number(targetVehicle.generalExpensesTotal) || 0,
+            settings: settingsForGarage,
+            vatRegimeOverride: buyerInfo.vatRegime,
+            vatRateOverride: buyerInfo.vatRatePercent,
+          }),
+        };
+
+    const netProfit = Number(enrichedBuyerInfo.salePrice) - (targetVehicle.totalInvested || 0);
     const marginPercentage =
-      Number(buyerInfo.salePrice) > 0 ? (netProfit / Number(buyerInfo.salePrice)) * 100 : 0;
+      Number(enrichedBuyerInfo.salePrice) > 0
+        ? (netProfit / Number(enrichedBuyerInfo.salePrice)) * 100
+        : 0;
 
     await updateVehicle(vehicleId, {
       status: 'sold',
-      buyerInfo,
+      buyerInfo: enrichedBuyerInfo,
       netProfit,
       marginPercentage,
     });
@@ -681,70 +710,56 @@ export default function App() {
     }
   };
 
+  const showInlineMobileNavTrigger =
+    activeView !== 'desktop' ||
+    Boolean(selectedVehicle) ||
+    Boolean(featureFlags.multiGarage && !activeGarageId);
+
   return (
     <div
-      data-layout-mode={effectiveLayoutMode}
-      className={`min-h-screen bg-[var(--background)] text-[var(--foreground)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-foreground)] ${
-        effectiveLayoutMode === 'sidebar' ? 'flex' : 'flex flex-col'
-      }`}
+      data-layout-mode="sidebar"
+      className="min-h-screen bg-[var(--background)] text-[var(--foreground)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-foreground)] flex"
     >
-      {/* Left Collapsible Sidebar & Mobile Drawer (Modern Sidebar Layout) */}
-      {effectiveLayoutMode === 'sidebar' && (
-        <Sidebar
-          isCollapsed={sidebarCollapsed}
-          onToggleCollapse={handleToggleSidebarCollapse}
-          mobileOpen={mobileSidebarOpen}
-          onCloseMobile={() => setMobileSidebarOpen(false)}
-          activeView={activeView}
-          onNavigate={handleSidebarNavigate}
-          garages={garages}
-          activeGarageId={activeGarageId}
-          onSelectGarage={handleSelectGarage}
-          featureFlags={featureFlags}
-          isSuperAdmin={isSuperAdmin}
-        />
-      )}
+      {/* Left Collapsible Sidebar & Mobile Drawer */}
+      <Sidebar
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={handleToggleSidebarCollapse}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+        activeView={activeView}
+        onNavigate={handleSidebarNavigate}
+        garages={garages}
+        activeGarageId={activeGarageId}
+        onSelectGarage={handleSelectGarage}
+        featureFlags={featureFlags}
+        isSuperAdmin={isSuperAdmin}
+        theme={theme}
+        onThemeChange={setTheme}
+        user={user}
+        activeSessionEmail={userProfile?.email || null}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onSignOut={handleSignOut}
+      />
 
-      {/* Workspace Column (Top Header + Main Container) */}
+      {/* Workspace Column (Maximized vertical height — no top horizontal header bar) */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top Navbar (Classic Full Top-Nav OR Minimal Header in Sidebar Layout) */}
-        <Navbar
-          vehicles={vehicles}
-          user={user}
-          activeView={activeView}
-          setActiveView={handleSetActiveView}
-          onNewVehicle={() => {
-            setEditingVehicle(null);
-            setIsVehicleModalOpen(true);
-          }}
-          onSeedData={handleSeedData}
-          isSeeding={isSeeding}
-          onOpenSettings={() =>
-            effectiveLayoutMode === 'sidebar'
-              ? handleSetActiveView('settings')
-              : setIsSettingsModalOpen(true)
-          }
-          theme={theme}
-          onThemeChange={setTheme}
-          isSuperAdmin={isSuperAdmin}
-          onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          onSignOut={handleSignOut}
-          activeSessionEmail={userProfile?.email || null}
-          garages={garages}
-          activeGarageId={activeGarageId}
-          onSelectGarage={handleSelectGarage}
-          featureFlags={featureFlags}
-          layoutMode={effectiveLayoutMode}
-          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-          selectedVehicleLabel={
-            selectedVehicle
-              ? `${selectedVehicle.make} ${selectedVehicle.model}`
-              : null
-          }
-        />
-
         {/* Main App Container */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+          {showInlineMobileNavTrigger && (
+            <div className="lg:hidden flex items-center justify-between gap-2 mb-4">
+              <button
+                type="button"
+                data-testid="sidebar-mobile-trigger"
+                onClick={() => setMobileSidebarOpen(true)}
+                aria-label={t('openNavMenu')}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-bold shadow-sm"
+              >
+                <Menu className="w-4 h-4 text-[var(--primary)]" />
+                <span>{t('navSectionLabel')}</span>
+              </button>
+            </div>
+          )}
+
           {activeView === 'admin' ? (
             <AdminPanel
               isSuperAdmin={isSuperAdmin}
@@ -755,7 +770,7 @@ export default function App() {
               onBackToApp={() => handleSetActiveView('desktop')}
               onSignIn={() => setIsAuthModalOpen(true)}
               onOpenAlignerMode={() => {
-                if (effectiveLayoutMode === 'sidebar' && featureFlags.cerfaGenerator) {
+                if (featureFlags.cerfaGenerator) {
                   setDocumentsAlignerMode(true);
                   handleSetActiveView('documents');
                 } else {
@@ -848,13 +863,9 @@ export default function App() {
               userId={effectiveUserId}
               userEmail={userProfile?.email || user?.email || null}
               activeGarageId={activeGarageId}
-              onNavigateSettings={() =>
-                effectiveLayoutMode === 'sidebar'
-                  ? handleSetActiveView('settings')
-                  : setIsSettingsModalOpen(true)
-              }
+              onNavigateSettings={() => handleSetActiveView('settings')}
             />
-          ) : activeView === 'settings' && effectiveLayoutMode === 'sidebar' ? (
+          ) : activeView === 'settings' ? (
             <Settings
               key={activeGarageId || DEFAULT_GARAGE_ID}
               variant="page"
@@ -876,7 +887,7 @@ export default function App() {
               userRole={isSuperAdmin ? 'superadmin' : (userProfile?.role || 'user')}
               layoutPreference={userLayoutPreference}
               effectiveLayoutMode={effectiveLayoutMode}
-              globalLayoutMode={systemConfig.layoutMode || 'classic'}
+              globalLayoutMode={systemConfig.layoutMode || 'sidebar'}
               onLayoutPreferenceChange={handleLayoutPreferenceChange}
             />
           ) : featureFlags.multiGarage && !activeGarageId ? (
@@ -902,7 +913,13 @@ export default function App() {
           ) : (
             <VehicleList
               vehicles={garageVehicles}
+              repairs={fleetRepairs}
+              expenses={fleetExpenses}
               onSelectVehicle={(v) => setSelectedVehicle(v)}
+              onEditVehicle={(v) => {
+                setEditingVehicle(v);
+                setIsVehicleModalOpen(true);
+              }}
               onNewVehicle={() => {
                 setEditingVehicle(null);
                 setIsVehicleModalOpen(true);
@@ -913,6 +930,7 @@ export default function App() {
               onSeedData={handleSeedData}
               isSeeding={isSeeding}
               featureFlags={featureFlags}
+              onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             />
           )}
         </main>
@@ -938,29 +956,9 @@ export default function App() {
           setSellingVehicle(null);
         }}
         vehicle={sellingVehicle}
+        garageSettings={getGarageSettings(sellingVehicle?.garageId || activeGarageId || undefined)}
         onConfirmSale={handleConfirmSale}
       />
-
-      {/* Settings Module (Modal in Classic mode; Page in Sidebar mode) */}
-      {effectiveLayoutMode === 'classic' && (
-        <Settings
-          key={activeGarageId || DEFAULT_GARAGE_ID}
-          variant="modal"
-          isOpen={isSettingsModalOpen}
-          onClose={() => setIsSettingsModalOpen(false)}
-          userId={effectiveUserId}
-          vehicles={garageVehicles}
-          theme={theme}
-          onThemeChange={setTheme}
-          onOpenAlignerMode={() => setIsQuickAlignerOpen(true)}
-          userEmail={userProfile?.email || user?.email || null}
-          userRole={isSuperAdmin ? 'superadmin' : (userProfile?.role || 'user')}
-          layoutPreference={userLayoutPreference}
-          effectiveLayoutMode={effectiveLayoutMode}
-          globalLayoutMode={systemConfig.layoutMode || 'classic'}
-          onLayoutPreferenceChange={handleLayoutPreferenceChange}
-        />
-      )}
 
       {/* Quick Aligner Mode triggered from Settings -> Document Templates (Classic mode) */}
       <Cerfa15776Modal

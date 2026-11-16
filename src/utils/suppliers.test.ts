@@ -230,17 +230,28 @@ test('computeSupplierSummaries calculates deal history, spend, realized net prof
     taxRatePercent: 15,
   });
 
-  // Auction: gross = 22500 - 19000 = 3500; tax 15% = 525; net = 2975; ROI = 2975 / 19000 = 15.66%
+  // In SARL/SAS, corporate IS is assessed annually on company profit (never flat 15% per car):
+  // Auction: profit before IS = 22500 - 19000 = 3500; ROI = 3500 / 19000 = 18.42%
   const auctionSummary = summaries.find((s) => s.supplier.id === 'sup_auction')!;
   assert.equal(auctionSummary.totalSpent, 18000);
   assert.equal(auctionSummary.soldVehiclesCount, 1);
-  assert.equal(auctionSummary.realizedNetProfit, 2975);
-  assert.equal(auctionSummary.roiPercent, 15.66);
+  assert.equal(auctionSummary.realizedNetProfit, 3500);
+  assert.equal(auctionSummary.roiPercent, 18.42);
 
-  // Private seller: gross = 14000 - 11500 = 2500; tax 15% = 375; net = 2125; ROI = 2125 / 11500 = 18.48%
+  // Private seller: profit before IS = 14000 - 11500 = 2500; ROI = 2500 / 11500 = 21.74%
   const privateSummary = summaries.find((s) => s.supplier.id === 'sup_private')!;
-  assert.equal(privateSummary.realizedNetProfit, 2125);
-  assert.equal(privateSummary.roiPercent, 18.48);
+  assert.equal(privateSummary.realizedNetProfit, 2500);
+  assert.equal(privateSummary.roiPercent, 21.74);
+
+  // Micro-entreprise (13.3% on turnover): Auction sale 22500 -> tax 2992.5 -> net 507.5
+  const microSummaries = computeSupplierSummaries({
+    suppliers: suppliers.slice(0, 1),
+    purchases: purchases.slice(0, 1),
+    vehicles,
+    taxRegime: 'micro',
+    taxRatePercent: 13.3,
+  });
+  assert.equal(microSummaries[0].realizedNetProfit, 507.5);
 });
 
 test('computeChannelProfitability identifies most profitable sourcing channel', () => {
@@ -256,5 +267,5 @@ test('computeChannelProfitability identifies most profitable sourcing channel', 
   assert.equal(result.totalPurchasesSpend, 29320);
   assert.equal(result.totalVehiclesSourced, 2);
   assert.equal(result.bestVehicleChannel?.type, 'auction');
-  assert.equal(result.bestVehicleChannel?.realizedNetProfit, 2975);
+  assert.equal(result.bestVehicleChannel?.realizedNetProfit, 3500);
 });

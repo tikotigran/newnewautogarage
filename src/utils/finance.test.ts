@@ -99,42 +99,43 @@ test('calculateVehicleFinancials and hasDefinedSalePrice return 0/false when sel
   assert.equal(getEffectiveSalePrice({ status: 'sold', targetSalePrice: 0, buyerInfo: { salePrice: 3000 } }), 3000);
 });
 
-test('calculateSaleTaxReport computes gross margin, tax from settings, and net profit after tax (Peugeot 207 case)', () => {
-  // Exact Peugeot 207 scenario: 5000 sale - 3000 purchase - 500 repairs = 1500 gross; SARL 15% = 225; net = 1275
+test('calculateSaleTaxReport computes Profit Before Taxes, Micro turnover taxes, SARL annual IS separation, and VAT breakdown', () => {
+  // SARL / SAS: corporate IS is annual (not blind flat 15% per car), so single-vehicle report isolates Profit Before Taxes
   const sarlReport = calculateSaleTaxReport({
     salePrice: 5000,
     purchasePrice: 3000,
     repairCostTotal: 500,
     taxRegime: 'sarl',
-    taxRatePercent: 15,
   });
   assert.equal(sarlReport.grossMargin, 1500);
-  assert.equal(sarlReport.taxLabel, 'SARL 15%');
-  assert.equal(sarlReport.taxAmount, 225);
-  assert.equal(sarlReport.netProfitAfterTax, 1275);
+  assert.equal(sarlReport.taxAmount, 0);
+  assert.equal(sarlReport.netProfitAfterTax, 1500);
+  assert.match(sarlReport.corporateIsContextNote, /42 500/);
 
-  // Micro-entreprise default rate (12.3%)
+  // Micro-entreprise default (12.3% URSSAF + 1% VL = 13.3% strictly on Turnover 5000 = 665€)
   const microReport = calculateSaleTaxReport({
+    salePrice: 5000,
+    purchasePrice: 2000,
+    repairCostTotal: 5000,
+    taxRegime: 'micro',
+  });
+  assert.equal(microReport.grossMargin, -2000);
+  assert.equal(microReport.urssafAmount, 615);
+  assert.equal(microReport.versementLiberatoireAmount, 50);
+  assert.equal(microReport.taxAmount, 665);
+  assert.equal(microReport.netProfitAfterTax, -2665);
+
+  // Micro-entreprise without VL (only 12.3% URSSAF on Turnover)
+  const microNoVlReport = calculateSaleTaxReport({
     salePrice: 5000,
     purchasePrice: 3000,
     repairCostTotal: 500,
     taxRegime: 'micro',
+    taxRatePercent: 12.3,
   });
-  assert.equal(microReport.taxLabel, 'Micro 12.3%');
-  assert.equal(microReport.taxAmount, 184.5);
-  assert.equal(microReport.netProfitAfterTax, 1315.5);
-
-  // Zero tax when gross margin is <= 0
-  const lossReport = calculateSaleTaxReport({
-    salePrice: 3000,
-    purchasePrice: 3200,
-    repairCostTotal: 500,
-    taxRegime: 'sarl',
-    taxRatePercent: 15,
-  });
-  assert.equal(lossReport.grossMargin, -700);
-  assert.equal(lossReport.taxAmount, 0);
-  assert.equal(lossReport.netProfitAfterTax, -700);
+  assert.equal(microNoVlReport.urssafAmount, 615);
+  assert.equal(microNoVlReport.versementLiberatoireAmount, 0);
+  assert.equal(microNoVlReport.taxAmount, 615);
 });
 
 test('canDisplaySaleFinancialReport and getRealizedSalePrice strictly require status === sold and salePrice > 0', () => {

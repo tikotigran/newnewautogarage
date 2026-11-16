@@ -84,3 +84,53 @@ test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte
   assert.equal(hasVehicleCerfaDetails(fullPayload), true);
   assert.equal(hasVehicleCerfaDetails(quickPayload), false);
 });
+
+test('buildVehicleSubmitPayload recalculates totalInvested when purchasePrice or mileage is edited on an existing vehicle', () => {
+  const existing = {
+    id: 'veh_99',
+    userId: 'user_1',
+    make: 'Renault',
+    model: 'Clio V',
+    trim: 'Intens',
+    year: 2020,
+    mileage: 50000,
+    vin: '',
+    registrationNumber: 'AA-111-BB',
+    purchaseDate: '2026-09-01',
+    purchasePrice: 8900,
+    targetSalePrice: 12500,
+    status: 'repair' as const,
+    photos: [],
+    documents: [],
+    repairCostTotal: 700,
+    generalExpensesTotal: 500,
+    totalExpenses: 1200,
+    totalInvested: 10100,
+    netProfit: 2400,
+    marginPercentage: 19.2,
+    createdAt: '2026-09-01T10:00:00Z',
+    updatedAt: '2026-09-01T10:00:00Z',
+  };
+
+  const edited = buildVehicleSubmitPayload(
+    createBaseInput({
+      make: 'Renault',
+      model: 'Clio V',
+      year: 2020,
+      registrationNumber: 'cc-222-dd',
+      mileage: 54320,
+      purchasePrice: 9500,
+      targetSalePrice: 12500,
+      status: 'repair',
+    }),
+    'user_1',
+    existing
+  );
+
+  assert.equal(edited.registrationNumber, 'CC-222-DD');
+  assert.equal(edited.mileage, 54320);
+  assert.equal(edited.repairCostTotal, 700);
+  assert.equal(edited.generalExpensesTotal, 500);
+  assert.equal(edited.totalExpenses, 1200);
+  assert.equal(edited.totalInvested, 10700);
+});

@@ -31,8 +31,10 @@ import {
   RepairTask,
   Supplier,
   UserActivityLog,
+  VatRegime,
   Vehicle,
 } from '../types/garage';
+import { FRENCH_TAX_DEFAULTS } from '../utils/frenchTaxEngine';
 import {
   getGarageSettings,
   subscribeAllFleetExpensesAndRepairs,
@@ -142,7 +144,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   // Factur-X state
   const [facturxVehicleId, setFacturxVehicleId] = useState<string>('');
   const [paymentMeansCode, setPaymentMeansCode] = useState<'30' | '48' | '10' | '20'>('30');
-  const [vatMode, setVatMode] = useState<'margin' | 'standard_20'>('margin');
+  const [vatMode, setVatMode] = useState<VatRegime>(
+    () => garageSettings.frenchTaxConfig?.vatRegime || 'tva_marge'
+  );
+  const [vatRatePercent, setVatRatePercent] = useState<number>(
+    () => garageSettings.frenchTaxConfig?.vatRatePercent ?? 20
+  );
   const [showXmlPreview, setShowXmlPreview] = useState<boolean>(true);
   const [isGeneratingFacturx, setIsGeneratingFacturx] = useState(false);
 
@@ -194,6 +201,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       timeRange: periodRange,
       taxRegime: garageSettings.taxRegime,
       taxRatePercent: garageSettings.taxRatePercent,
+      frenchTaxConfig: garageSettings.frenchTaxConfig,
     });
   }, [
     vehicles,
@@ -202,6 +210,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     periodRange,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
+    garageSettings.frenchTaxConfig,
   ]);
 
   const periodLabelMap: Record<AnalyticsTimeRange, string> = {
@@ -226,6 +235,22 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     [vehicles, facturxVehicleId]
   );
 
+  useEffect(() => {
+    if (!facturxVehicle) return;
+    setVatMode(
+      facturxVehicle.buyerInfo?.vatRegime ||
+        facturxVehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+        garageSettings.frenchTaxConfig?.vatRegime ||
+        'tva_marge'
+    );
+    setVatRatePercent(
+      facturxVehicle.buyerInfo?.vatRatePercent ??
+        facturxVehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+        garageSettings.frenchTaxConfig?.vatRatePercent ??
+        20
+    );
+  }, [facturxVehicle, garageSettings.frenchTaxConfig?.vatRegime, garageSettings.frenchTaxConfig?.vatRatePercent]);
+
   const facturxReadiness = useMemo(() => {
     if (!facturxVehicle) return null;
     return validateFacturXReadiness(facturxVehicle, garageSettings);
@@ -236,8 +261,9 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     return buildFacturXXml(facturxVehicle, garageSettings, {
       paymentMeansCode,
       vatMode,
+      vatRatePercent,
     });
-  }, [facturxVehicle, garageSettings, paymentMeansCode, vatMode]);
+  }, [facturxVehicle, garageSettings, paymentMeansCode, vatMode, vatRatePercent]);
 
   const filteredActivityLogs = useMemo(() => {
     const q = auditSearch.trim().toLowerCase();
@@ -396,7 +422,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     if (!selectedPdfVehicle) return;
     const vRepairs = fleetData.repairs.filter((r) => r.vehicleId === selectedPdfVehicle.id);
     const vExpenses = fleetData.expenses.filter((e) => e.vehicleId === selectedPdfVehicle.id);
-    generateVehicleFinancialReportPDF(selectedPdfVehicle, vRepairs, vExpenses);
+    generateVehicleFinancialReportPDF(selectedPdfVehicle, vRepairs, vExpenses, garageSettings);
     await logUserActivity({
       userId,
       garageId: activeGarageId,
@@ -447,6 +473,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
         garageSettings,
         paymentMeansCode,
         vatMode,
+        vatRatePercent,
       });
       await logUserActivity({
         userId,
@@ -809,6 +836,16 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 </div>
               </div>
             </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
+              <span className="tabular-nums">
+                TVA: {formatEuro(analyticsReport.salesPerformance.vatAmount)} · URSSAF:{' '}
+                {formatEuro(analyticsReport.salesPerformance.urssafAmount)} · VL:{' '}
+                {formatEuro(analyticsReport.salesPerformance.versementLiberatoireAmount)} · IS:{' '}
+                {formatEuro(analyticsReport.salesPerformance.corporateIsAmount)}
+              </span>
+              <span>{isRu ? FRENCH_TAX_DEFAULTS.DISCLAIMER_RU : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR}</span>
+            </div>
           </div>
 
           {/* 3 Export Pillars */}
@@ -1039,22 +1076,60 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                       <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
                         {isRu ? 'Режим НДС (TVA)' : 'Régime de TVA'}
                       </label>
-                      <ThemedSelect
-                        testId="facturx-vat-select"
-                        ariaLabel="Régime TVA"
-                        value={vatMode}
-                        onChange={(v) => setVatMode(v as 'margin' | 'standard_20')}
-                        options={[
-                          {
-                            value: 'margin',
-                            label: 'AE — TVA sur la marge (Art. 297 A CGI)',
-                          },
-                          {
-                            value: 'standard_20',
-                            label: 'S — TVA normale 20%',
-                          },
-                        ]}
-                      />
+                      <div className="flex items-center gap-2">
+                        <ThemedSelect<VatRegime>
+                          testId="facturx-vat-select"
+                          ariaLabel="Régime TVA"
+                          value={vatMode}
+                          onChange={(v) => {
+                            setVatMode(v);
+                            if (v === 'franchise_base') {
+                              setVatRatePercent(0);
+                            } else if (vatRatePercent === 0) {
+                              setVatRatePercent(20);
+                            }
+                          }}
+                          options={[
+                            {
+                              value: 'tva_marge',
+                              label: 'AE — TVA sur la marge (Art. 297 A CGI)',
+                            },
+                            {
+                              value: 'tva_total',
+                              label: 'S — TVA sur le prix total (20%)',
+                            },
+                            {
+                              value: 'franchise_base',
+                              label: 'E — Franchise en base (0% · Art. 293 B)',
+                            },
+                            {
+                              value: 'custom',
+                              label: isRu ? 'S — Своя ставка НДС (%)' : 'S — Taux TVA personnalisé (%)',
+                            },
+                          ]}
+                          triggerClassName="flex-1 min-w-0"
+                        />
+                        {vatMode !== 'franchise_base' && (
+                          <div className="relative w-20 shrink-0">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step="0.1"
+                              data-testid="facturx-vat-rate-input"
+                              aria-label={isRu ? 'Ставка НДС %' : 'Taux TVA %'}
+                              value={vatRatePercent}
+                              onChange={(e) =>
+                                setVatRatePercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                              }
+                              className="w-full px-2.5 py-2 pr-6 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)] tabular-nums"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--muted-foreground)]">
+                              %
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 

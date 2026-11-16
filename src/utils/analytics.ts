@@ -1,4 +1,11 @@
-import { Vehicle, RepairTask, GeneralExpense, GeneralExpenseCategory, VehicleStatus } from '../types/garage';
+import {
+  Vehicle,
+  RepairTask,
+  GeneralExpense,
+  GeneralExpenseCategory,
+  VehicleStatus,
+  FrenchTaxConfiguration,
+} from '../types/garage';
 import {
   calculateSaleTaxReport,
   getRealizedSalePrice,
@@ -6,6 +13,11 @@ import {
   roundToTwo,
   TaxRegime,
 } from './finance';
+import {
+  calculateCorporateIS,
+  CorporateIsResult,
+  normalizeFrenchTaxConfig,
+} from './frenchTaxEngine';
 
 export type AnalyticsExpenseCategoryId =
   | 'parts_labor'
@@ -35,6 +47,8 @@ export interface AnalyticsCategoryMeta {
   id: AnalyticsExpenseCategoryId;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   colorClass: string;
   barColorHex: string;
 }
@@ -44,6 +58,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'parts_labor',
     labelFr: 'Pièces & Main d’œuvre',
     labelRu: 'Запчасти и ремонт',
+    labelHy: 'Պահեստամասեր և աշխատանք',
+    labelKa: 'ნაწილები და ხელობა',
     colorClass: 'bg-amber-500',
     barColorHex: '#f59e0b',
   },
@@ -51,6 +67,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'fuel',
     labelFr: 'Carburant',
     labelRu: 'Топливо',
+    labelHy: 'Վառելիք',
+    labelKa: 'საწვავი',
     colorClass: 'bg-sky-500',
     barColorHex: '#0ea5e9',
   },
@@ -58,6 +76,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'detailing',
     labelFr: 'Lavage / Detailing',
     labelRu: 'Мойка / Детейлинг',
+    labelHy: 'Լվացում / Դեթեյլինգ',
+    labelKa: 'რეცხვა / დეტეილინგი',
     colorClass: 'bg-emerald-500',
     barColorHex: '#10b981',
   },
@@ -65,6 +85,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'registration',
     labelFr: 'Immatriculation & Carte Grise',
     labelRu: 'Оформление и Carte Grise',
+    labelHy: 'Գրանցում և Carte Grise',
+    labelKa: 'რეგისტრაცია და Carte Grise',
     colorClass: 'bg-indigo-500',
     barColorHex: '#6366f1',
   },
@@ -72,6 +94,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'transport',
     labelFr: 'Dépannage / Logistique',
     labelRu: 'Эвакуатор / Логистика',
+    labelHy: 'Էվակուատոր / Լոգիստիկա',
+    labelKa: 'ევაკუატორი / ლოგისტიკა',
     colorClass: 'bg-orange-500',
     barColorHex: '#f97316',
   },
@@ -79,6 +103,8 @@ export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
     id: 'other',
     labelFr: 'Autres frais généraux',
     labelRu: 'Прочие накладные расходы',
+    labelHy: 'Այլ ընդհանուր ծախսեր',
+    labelKa: 'სხვა ზოგადი ხარჯები',
     colorClass: 'bg-slate-500',
     barColorHex: '#64748b',
   },
@@ -108,6 +134,8 @@ export interface CategoryBreakdown {
   id: AnalyticsExpenseCategoryId;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   colorClass: string;
   barColorHex: string;
   amount: number;
@@ -140,9 +168,9 @@ export interface SalesPerformanceMetrics {
   soldCount: number;
   /** 1. Revenue — Total gross sales proceeds (never mixed with Gross or Net Profit) */
   revenue: number;
-  /** 2. Gross Profit — Sale proceeds minus purchase price, repairs, and expenses (before tax) */
+  /** 2. Gross Profit — Profit Before Taxes: Sale proceeds minus purchase price, repairs, and expenses */
   grossProfit: number;
-  /** Estimated tax deducted based on garage tax regime */
+  /** Total estimated tax deducted (Micro URSSAF/VL + Corporate IS + Custom) */
   taxAmount: number;
   /** 3. Net Profit — Gross Profit after taxes */
   netProfit: number;
@@ -152,6 +180,13 @@ export interface SalesPerformanceMetrics {
   averageGrossMarginEuro: number;
   averageNetMarginEuro: number;
   averageDaysToSell: number | null;
+  // Strictly separated tax & VAT buckets
+  urssafAmount: number;
+  versementLiberatoireAmount: number;
+  microBicEstimatedIrAmount: number;
+  corporateIsAmount: number;
+  vatAmount: number;
+  corporateIsBreakdown?: CorporateIsResult;
 }
 
 export interface MonthlySnapshotMetrics {
@@ -480,6 +515,7 @@ export function computeDealershipAnalytics(params: {
   customRange?: CustomDateRange;
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
+  frenchTaxConfig?: FrenchTaxConfiguration;
   now?: Date;
 }): DealershipAnalyticsReport {
   const {
@@ -490,10 +526,21 @@ export function computeDealershipAnalytics(params: {
     customRange,
     taxRegime = 'sarl',
     taxRatePercent,
+    frenchTaxConfig,
     now = new Date(),
   } = params;
 
-  const { label: taxLabel } = resolveTaxRatePercent(taxRegime, taxRatePercent);
+  const normalizedTaxConfig = normalizeFrenchTaxConfig({
+    taxRegime,
+    taxRatePercent,
+    frenchTaxConfig,
+  });
+
+  const { label: taxLabel } = resolveTaxRatePercent(
+    normalizedTaxConfig.businessTaxRegime,
+    taxRatePercent,
+    normalizedTaxConfig
+  );
   const nowDayKey = getUtcDayKey(now);
 
   // Aggregate lifetime repairs and general expenses per vehicle
@@ -588,8 +635,11 @@ export function computeDealershipAnalytics(params: {
 
   let revenue = 0;
   let grossProfit = 0;
-  let taxAmount = 0;
-  let netProfit = 0;
+  let perVehicleTaxSum = 0;
+  let urssafAmount = 0;
+  let versementLiberatoireAmount = 0;
+  let microBicEstimatedIrAmount = 0;
+  let vatAmount = 0;
   const daysToSellSamples: number[] = [];
   const mostProfitableVehicles: ProfitableVehicleRow[] = [];
 
@@ -603,14 +653,25 @@ export function computeDealershipAnalytics(params: {
       purchasePrice,
       repairCostTotal: repairsTotal,
       generalExpensesTotal,
-      taxRegime,
+      taxRegime: normalizedTaxConfig.businessTaxRegime,
       taxRatePercent,
+      frenchTaxConfig: normalizedTaxConfig,
+      vatRegime: v.buyerInfo?.vatRegime,
+      vatRatePercent: v.buyerInfo?.vatRatePercent,
+      taxSnapshot: v.buyerInfo?.taxSnapshot,
     });
 
     revenue = roundToTwo(revenue + report.salePrice);
     grossProfit = roundToTwo(grossProfit + report.grossMargin);
-    taxAmount = roundToTwo(taxAmount + report.taxAmount);
-    netProfit = roundToTwo(netProfit + report.netProfitAfterTax);
+    perVehicleTaxSum = roundToTwo(perVehicleTaxSum + report.taxAmount);
+    urssafAmount = roundToTwo(urssafAmount + report.urssafAmount);
+    versementLiberatoireAmount = roundToTwo(
+      versementLiberatoireAmount + report.versementLiberatoireAmount
+    );
+    microBicEstimatedIrAmount = roundToTwo(
+      microBicEstimatedIrAmount + report.microBicEstimatedTax
+    );
+    vatAmount = roundToTwo(vatAmount + report.vatAmount);
 
     const effectiveSaleDate = v.buyerInfo?.saleDate || v.updatedAt?.slice(0, 10) || '';
     const daysToSell = getDaysBetween(v.purchaseDate, effectiveSaleDate);
@@ -641,6 +702,35 @@ export function computeDealershipAnalytics(params: {
       roiPercent: roiPct,
     });
   }
+
+  // Corporate IS (SARL / SAS) calculated progressively on company annual/period taxable profit
+  let corporateIsAmount = 0;
+  let corporateIsBreakdown: CorporateIsResult | undefined;
+  if (
+    normalizedTaxConfig.businessTaxRegime === 'sarl' ||
+    normalizedTaxConfig.businessTaxRegime === 'sas'
+  ) {
+    // Only apply IS to profit from vehicles that don't already have an immutable non-corporate snapshot
+    const corporateProfitBase = soldInPeriod.reduce((sum, v) => {
+      const snap = v.buyerInfo?.taxSnapshot;
+      if (snap?.isHistoricalSnapshot && snap.taxRegime !== 'sarl' && snap.taxRegime !== 'sas') {
+        return sum;
+      }
+      const { purchasePrice, repairsTotal, generalExpensesTotal } = getVehicleLifetimeCosts(v);
+      return roundToTwo(
+        sum + (getRealizedSalePrice(v) - purchasePrice - repairsTotal - generalExpensesTotal)
+      );
+    }, 0);
+
+    corporateIsBreakdown = calculateCorporateIS({
+      annualTaxableProfit: corporateProfitBase,
+      config: normalizedTaxConfig,
+    });
+    corporateIsAmount = corporateIsBreakdown.totalIsTax;
+  }
+
+  const taxAmount = roundToTwo(perVehicleTaxSum + corporateIsAmount);
+  const netProfit = roundToTwo(grossProfit - taxAmount);
 
   mostProfitableVehicles.sort((a, b) => b.netProfit - a.netProfit);
 
@@ -745,6 +835,9 @@ export function computeDealershipAnalytics(params: {
       addBucket(row.saleDate, 'outflow', row.taxAmount);
     }
   }
+  if (corporateIsAmount > 0 && mostProfitableVehicles.length > 0) {
+    addBucket(mostProfitableVehicles[0].saleDate, 'outflow', corporateIsAmount);
+  }
 
   const inflow = revenue;
   const taxesOutflow = taxAmount;
@@ -790,6 +883,12 @@ export function computeDealershipAnalytics(params: {
       averageGrossMarginEuro,
       averageNetMarginEuro,
       averageDaysToSell,
+      urssafAmount,
+      versementLiberatoireAmount,
+      microBicEstimatedIrAmount,
+      corporateIsAmount,
+      vatAmount,
+      corporateIsBreakdown,
     },
     monthlySnapshot: {
       monthlyRevenue,
