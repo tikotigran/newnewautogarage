@@ -3,7 +3,6 @@ import {
   X,
   Car,
   Upload,
-  Image as ImageIcon,
   Check,
   AlertCircle,
   ChevronDown,
@@ -13,8 +12,8 @@ import {
 import { Vehicle, VehicleStatus } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
-import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 import { ThemedSelect } from './ThemedSelect';
+import { LocaleDateInput } from './LocaleDateInput';
 import {
   buildVehicleSubmitPayload,
   validateQuickVehicleForm,
@@ -27,14 +26,6 @@ interface VehicleModalProps {
   initialVehicle?: Vehicle | null;
   userId: string;
 }
-
-const SAMPLE_PHOTO_PRESETS = [
-  { label: 'Citadine Moderne (Peugeot)', url: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80' },
-  { label: 'Berline Compacte (Golf)', url: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80' },
-  { label: 'Premium Sportback (Audi)', url: 'https://images.unsplash.com/photo-1603584173870-7f23fdae1b7a?auto=format&fit=crop&w=1200&q=80' },
-  { label: 'Crossover / SUV (Renault)', url: 'https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1200&q=80' },
-  { label: 'Utilitaire / Van', url: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80' },
-];
 
 export const VehicleModal: React.FC<VehicleModalProps> = ({
   isOpen,
@@ -69,6 +60,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   const [targetSalePrice, setTargetSalePrice] = useState<number | ''>('');
   const [status, setStatus] = useState<VehicleStatus>('preparation');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,9 +116,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  const processPhotoFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
@@ -134,13 +127,31 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
         }
       };
       reader.readAsDataURL(file);
-    }
+    });
   };
 
-  const handleAddPresetPhoto = (url: string) => {
-    if (!photos.includes(url)) {
-      setPhotos((prev) => [...prev, url]);
-    }
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    processPhotoFiles(e.target.files);
+    e.target.value = '';
+  };
+
+  const handlePhotoDragOver = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingPhoto) setIsDraggingPhoto(true);
+  };
+
+  const handlePhotoDragLeave = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhoto(false);
+  };
+
+  const handlePhotoDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingPhoto(false);
+    processPhotoFiles(e.dataTransfer.files);
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -210,9 +221,9 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       aria-modal="true"
       aria-labelledby="vehicle-modal-title"
     >
-      <div className="bg-[var(--ag-modal-bg)] border border-[var(--border)] rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-[var(--ag-modal-bg)] border border-[var(--border)] rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--background)]/50">
+        <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--background)]/50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[var(--primary)] flex items-center justify-center">
               <Car className="w-5 h-5" />
@@ -230,14 +241,15 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label={t('closeBtn')}
-            className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl hover:bg-[var(--surface-muted)] transition"
+            className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl hover:bg-[var(--surface-muted)] transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[82vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto">
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
@@ -358,6 +370,166 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 />
               </div>
             </div>
+
+            {/* Fuel & Gearbox (Optional) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="vehicle-fuel" className={labelClass}>
+                  {t('fuelTypeLabel')}
+                </label>
+                <ThemedSelect
+                  id="vehicle-fuel"
+                  testId="vehicle-fuel-select"
+                  ariaLabel={t('fuelTypeLabel')}
+                  value={fuelType}
+                  onChange={setFuelType}
+                  options={[
+                    { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
+                    { value: 'Essence', label: L('Essence', 'Бензин (Essence)', 'Բենզին (Essence)', 'ბენზინი (Essence)') },
+                    { value: 'Diesel', label: L('Diesel', 'Дизель (Diesel)', 'Դիզել (Diesel)', 'დიზელი (Diesel)') },
+                    { value: 'Hybride', label: L('Hybride', 'Гибрид (Hybride)', 'Հիբրիդ (Hybride)', 'ჰიბრიდი (Hybride)') },
+                    { value: 'Électrique', label: L('Électrique', 'Электро (Électrique)', 'Էլեկտրական (Électrique)', 'ელექტრო (Électrique)') },
+                    { value: 'GPL', label: L('GPL', 'Газ (GPL)', 'Գազ (GPL)', 'გაზი (GPL)') },
+                  ]}
+                  triggerClassName={inputClass}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="vehicle-gearbox" className={labelClass}>
+                  {t('gearboxLabel')}
+                </label>
+                <ThemedSelect
+                  id="vehicle-gearbox"
+                  testId="vehicle-gearbox-select"
+                  ariaLabel={t('gearboxLabel')}
+                  value={gearbox}
+                  onChange={setGearbox}
+                  options={[
+                    { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
+                    { value: 'Manuelle', label: L('Manuelle', 'Механика (Manuelle)', 'Մեխանիկական (Manuelle)', 'მექანიკა (Manuelle)') },
+                    { value: 'Automatique', label: L('Automatique', 'Автомат (Automatique)', 'Ավտոմատ (Automatique)', 'ავტომატიკა (Automatique)') },
+                    { value: 'Séquentielle', label: L('Séquentielle / BVA', 'Робот / Вариатор', 'Ռոբոտ / Վարիատոր', 'რობოტი / ვარიატორი') },
+                  ]}
+                  triggerClassName={inputClass}
+                />
+              </div>
+            </div>
+
+            {/* Required Initial Status */}
+            <div>
+              <label className={labelClass}>{t('taskStatusLabel')} *</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  data-testid="vehicle-status-preparation"
+                  onClick={() => setStatus('preparation')}
+                  className={`p-2.5 rounded-xl text-xs font-bold border text-center transition cursor-pointer ${
+                    status === 'preparation'
+                      ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                      : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  🛠️ {t('statusPreparation')}
+                </button>
+                <button
+                  type="button"
+                  data-testid="vehicle-status-repair"
+                  onClick={() => setStatus('repair')}
+                  className={`p-2.5 rounded-xl text-xs font-bold border text-center transition cursor-pointer ${
+                    status === 'repair'
+                      ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                      : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  🔧 {t('statusRepair')}
+                </button>
+                <button
+                  type="button"
+                  data-testid="vehicle-status-for_sale"
+                  onClick={() => setStatus('for_sale')}
+                  className={`p-2.5 rounded-xl text-xs font-bold border text-center transition cursor-pointer ${
+                    status === 'for_sale'
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                      : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  🏷️ {t('statusForSale')}
+                </button>
+                <button
+                  type="button"
+                  data-testid="vehicle-status-sold"
+                  onClick={() => setStatus('sold')}
+                  className={`p-2.5 rounded-xl text-xs font-bold border text-center transition cursor-pointer ${
+                    status === 'sold'
+                      ? 'bg-purple-500/20 border-purple-500 text-purple-400'
+                      : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                  }`}
+                >
+                  ✅ {t('statusSold')}
+                </button>
+              </div>
+            </div>
+
+            {/* Optional Photos Upload (Drag-and-Drop / File Upload Box Only) */}
+            <div data-testid="vehicle-photos-section" className="space-y-2">
+              <label htmlFor="vehicle-photo-upload" className={labelClass}>
+                {t('photosVehicleLabel')}
+              </label>
+
+              {photos.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {photos.map((url, index) => (
+                    <div
+                      key={index}
+                      className="relative w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-[var(--border)] group"
+                    >
+                      <img
+                        src={url}
+                        alt={`Photo ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(index)}
+                        aria-label={t('deleteBtn')}
+                        className="absolute top-1 right-1 p-0.5 rounded-full bg-slate-900/80 text-red-400 hover:bg-red-500 hover:text-white transition opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <label
+                htmlFor="vehicle-photo-upload"
+                onDragOver={handlePhotoDragOver}
+                onDragLeave={handlePhotoDragLeave}
+                onDrop={handlePhotoDrop}
+                className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed px-4 py-4 text-center cursor-pointer transition ${
+                  isDraggingPhoto
+                    ? 'border-[var(--primary)] bg-[var(--primary)]/10'
+                    : 'border-[var(--border)] bg-[var(--background)]/60 hover:border-[var(--primary)]/60 hover:bg-[var(--background)]'
+                }`}
+              >
+                <Upload className="w-4 h-4 text-[var(--primary)]" />
+                <span className="text-xs font-semibold text-[var(--foreground)]">
+                  {t('uploadFromDevice')}
+                </span>
+                <span className="text-[10px] text-[var(--muted-foreground)]">
+                  PNG, JPG, WEBP
+                </span>
+                <input
+                  id="vehicle-photo-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
           </div>
 
           {/* Collapsible Accordion Toggle for Administrative & Carte Grise Details */}
@@ -368,7 +540,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               aria-expanded={isExtendedOpen}
               aria-controls="vehicle-modal-extra-section"
               onClick={() => setIsExtendedOpen((prev) => !prev)}
-              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-[var(--ag-button-radius)] border border-dashed border-[var(--border)] bg-[var(--surface-muted)]/50 hover:bg-[var(--surface-muted)] text-xs sm:text-sm font-bold text-[var(--foreground)] transition"
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-[var(--ag-button-radius)] border border-dashed border-[var(--border)] bg-[var(--surface-muted)]/50 hover:bg-[var(--surface-muted)] text-xs sm:text-sm font-bold text-[var(--foreground)] transition cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-[var(--primary)] shrink-0" />
@@ -387,38 +559,37 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 data-testid="vehicle-modal-extra-section"
                 className="mt-4 space-y-5 p-4 sm:p-5 rounded-2xl border border-[var(--border)] bg-[var(--background)]/45"
               >
-                {/* Technical Details: VIN */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label
-                      htmlFor="vehicle-vin"
-                      className="text-xs font-semibold text-[var(--secondary-foreground)]"
-                    >
-                      VIN (E)
-                    </label>
-                    <span
-                      className={`text-[10px] font-mono ${
-                        vin.replace(/\s+/g, '').length === 17
-                          ? 'text-emerald-400'
-                          : 'text-[var(--muted-foreground)]'
-                      }`}
-                    >
-                      {vin.replace(/\s+/g, '').length}/17
-                    </span>
+                {/* Technical Details: VIN & Finition / Version */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        htmlFor="vehicle-vin"
+                        className="text-xs font-semibold text-[var(--secondary-foreground)]"
+                      >
+                        VIN (E)
+                      </label>
+                      <span
+                        className={`text-[10px] font-mono ${
+                          vin.replace(/\s+/g, '').length === 17
+                            ? 'text-emerald-400'
+                            : 'text-[var(--muted-foreground)]'
+                        }`}
+                      >
+                        {vin.replace(/\s+/g, '').length}/17
+                      </span>
+                    </div>
+                    <input
+                      id="vehicle-vin"
+                      type="text"
+                      maxLength={17}
+                      value={vin}
+                      onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                      placeholder="ex. VF3UPHNK0MT129841"
+                      className={`${inputClass} font-mono uppercase placeholder:normal-case`}
+                    />
                   </div>
-                  <input
-                    id="vehicle-vin"
-                    type="text"
-                    maxLength={17}
-                    value={vin}
-                    onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                    placeholder="ex. VF3UPHNK0MT129841"
-                    className={`${inputClass} font-mono uppercase placeholder:normal-case`}
-                  />
-                </div>
 
-                {/* Specs: Trim, Fuel, Gearbox */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label htmlFor="vehicle-trim" className={labelClass}>
                       {t('trimVersion')}
@@ -430,48 +601,6 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       onChange={(e) => setTrim(e.target.value)}
                       placeholder="ex. GT Line 130ch"
                       className={inputClass}
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="vehicle-fuel" className={labelClass}>
-                      {t('fuelTypeLabel')}
-                    </label>
-                    <ThemedSelect
-                      id="vehicle-fuel"
-                      testId="vehicle-fuel-select"
-                      ariaLabel={t('fuelTypeLabel')}
-                      value={fuelType}
-                      onChange={setFuelType}
-                      options={[
-                        { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
-                        { value: 'Essence', label: L('Essence', 'Бензин (Essence)', 'Բենզին (Essence)', 'ბენზინი (Essence)') },
-                        { value: 'Diesel', label: L('Diesel', 'Дизель (Diesel)', 'Դիզել (Diesel)', 'დიზელი (Diesel)') },
-                        { value: 'Hybride', label: L('Hybride', 'Гибрид (Hybride)', 'Հիբրիդ (Hybride)', 'ჰიბრიდი (Hybride)') },
-                        { value: 'Électrique', label: L('Électrique', 'Электро (Électrique)', 'Էլեկտրական (Électrique)', 'ელექტრო (Électrique)') },
-                        { value: 'GPL', label: L('GPL', 'Газ (GPL)', 'Գազ (GPL)', 'გაზი (GPL)') },
-                      ]}
-                      triggerClassName={inputClass}
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="vehicle-gearbox" className={labelClass}>
-                      {t('gearboxLabel')}
-                    </label>
-                    <ThemedSelect
-                      id="vehicle-gearbox"
-                      testId="vehicle-gearbox-select"
-                      ariaLabel={t('gearboxLabel')}
-                      value={gearbox}
-                      onChange={setGearbox}
-                      options={[
-                        { value: '', label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის') },
-                        { value: 'Manuelle', label: L('Manuelle', 'Механика (Manuelle)', 'Մեխանիկական (Manuelle)', 'მექანიკა (Manuelle)') },
-                        { value: 'Automatique', label: L('Automatique', 'Автомат (Automatique)', 'Ավտոմատ (Automatique)', 'ავტომატიკა (Automatique)') },
-                        { value: 'Séquentielle', label: L('Séquentielle / BVA', 'Робот / Вариатор', 'Ռոբոտ / Վարիատոր', 'რობოტი / ვარიატორი') },
-                      ]}
-                      triggerClassName={inputClass}
                     />
                   </div>
                 </div>
@@ -552,29 +681,31 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       <label htmlFor="vehicle-cert-date" className={labelClass}>
                         {t('certificateDateLabel')}
                       </label>
-                      <input
+                      <LocaleDateInput
                         id="vehicle-cert-date"
-                        type="date"
+                        testId="vehicle-cert-date"
+                        ariaLabel={t('certificateDateLabel')}
                         value={certificateDate}
-                        onChange={(e) => setCertificateDate(e.target.value)}
+                        onChange={setCertificateDate}
                         className={inputClass}
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Acquisition Date, Target Price & Status */}
-                <div className="pt-3 border-t border-[var(--border)] space-y-4">
+                {/* Acquisition Date & Target Price */}
+                <div className="pt-3 border-t border-[var(--border)]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="vehicle-purchase-date" className={labelClass}>
                         {t('purchaseDate')}
                       </label>
-                      <input
+                      <LocaleDateInput
                         id="vehicle-purchase-date"
-                        type="date"
+                        testId="vehicle-purchase-date"
+                        ariaLabel={t('purchaseDate')}
                         value={purchaseDate}
-                        onChange={(e) => setPurchaseDate(e.target.value)}
+                        onChange={setPurchaseDate}
                         className={inputClass}
                       />
                     </div>
@@ -598,131 +729,19 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       />
                     </div>
                   </div>
-
-                  <div>
-                    <label className={labelClass}>{t('taskStatusLabel')}</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setStatus('preparation')}
-                        className={`p-2.5 rounded-xl text-xs font-bold border text-center transition ${
-                          status === 'preparation'
-                            ? 'bg-amber-500/20 border-amber-500 text-amber-400'
-                            : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                        }`}
-                      >
-                        🛠️ {t('statusPreparation')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStatus('repair')}
-                        className={`p-2.5 rounded-xl text-xs font-bold border text-center transition ${
-                          status === 'repair'
-                            ? 'bg-blue-500/20 border-blue-500 text-blue-400'
-                            : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                        }`}
-                      >
-                        🔧 {t('statusRepair')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStatus('for_sale')}
-                        className={`p-2.5 rounded-xl text-xs font-bold border text-center transition ${
-                          status === 'for_sale'
-                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                            : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                        }`}
-                      >
-                        🏷️ {t('statusForSale')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStatus('sold')}
-                        className={`p-2.5 rounded-xl text-xs font-bold border text-center transition ${
-                          status === 'sold'
-                            ? 'bg-purple-500/20 border-purple-500 text-purple-400'
-                            : 'bg-[var(--background)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                        }`}
-                      >
-                        ✅ {t('statusSold')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Photos Upload */}
-                <div className="space-y-2 pt-3 border-t border-[var(--border)]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[var(--secondary-foreground)] flex items-center gap-1.5">
-                      <ImageIcon className="w-4 h-4 text-[var(--primary)]" />
-                      {t('photosVehicleLabel')}
-                    </label>
-                    <label className="cursor-pointer inline-flex items-center gap-1 text-xs text-[var(--primary)] hover:opacity-80">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>{t('uploadFromDevice')}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5 pb-1">
-                    <span className="text-[11px] text-[var(--muted-foreground)] self-center">
-                      {t('quickPresetsPhotos')}
-                    </span>
-                    {SAMPLE_PHOTO_PRESETS.map((p, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleAddPresetPhoto(p.url)}
-                        className="text-[11px] px-2 py-0.5 rounded bg-[var(--surface-muted)] hover:opacity-80 text-[var(--secondary-foreground)] transition"
-                      >
-                        + {p.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {photos.length > 0 ? (
-                    <div className="flex gap-2 overflow-x-auto py-2">
-                      {photos.map((url, index) => (
-                        <div
-                          key={index}
-                          className="relative w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-[var(--border)] group"
-                        >
-                          <img
-                            src={url}
-                            alt={`Photo ${index + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePhoto(index)}
-                            className="absolute top-1 right-1 p-0.5 rounded-full bg-slate-900/80 text-red-400 hover:bg-red-500 hover:text-white transition opacity-0 group-hover:opacity-100"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="h-28 rounded-2xl overflow-hidden border border-dashed border-[var(--border)]">
-                      <VehiclePhotoPlaceholder variant="modal" />
-                    </div>
-                  )}
                 </div>
               </div>
             )}
           </div>
 
+          </div>
+
           {/* Footer Submit */}
-          <div className="pt-4 border-t border-[var(--border)] flex items-center justify-end gap-3">
+          <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--background)]/50 flex items-center justify-end gap-3 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition"
+              className="px-4 py-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-xl transition cursor-pointer"
             >
               {t('cancelBtn')}
             </button>
@@ -730,7 +749,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               type="submit"
               data-testid="vehicle-modal-submit"
               disabled={isSubmitting}
-              className="px-6 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] hover:opacity-95 text-[var(--primary-foreground)] shadow-md transition flex items-center gap-2"
+              className="px-6 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] hover:opacity-95 text-[var(--primary-foreground)] shadow-md transition flex items-center gap-2 cursor-pointer"
             >
               {isSubmitting ? (
                 <span>{t('loading')}</span>

@@ -4,7 +4,7 @@ export const LANGUAGE_STORAGE_KEY = 'autogarage_lang';
 
 export interface LanguageOptionMeta {
   code: Language;
-  shortCode: 'RU' | 'FR' | 'HY' | 'KA';
+  shortCode: 'RU' | 'FR' | 'GE' | 'HY';
   nativeLabel: string;
   menuLabel: string;
   intlLocale: string;
@@ -26,18 +26,18 @@ export const SUPPORTED_LANGUAGES: LanguageOptionMeta[] = [
     intlLocale: 'fr-FR',
   },
   {
+    code: 'ka',
+    shortCode: 'GE',
+    nativeLabel: 'ქართული',
+    menuLabel: 'ქართული / Georgian (GE)',
+    intlLocale: 'ka-GE',
+  },
+  {
     code: 'hy',
     shortCode: 'HY',
     nativeLabel: 'Հայերեն',
     menuLabel: 'Հայերեն / Armenian (HY)',
     intlLocale: 'hy-AM',
-  },
-  {
-    code: 'ka',
-    shortCode: 'KA',
-    nativeLabel: 'ქართული',
-    menuLabel: 'ქართული / Georgian (KA)',
-    intlLocale: 'ka-GE',
   },
 ];
 

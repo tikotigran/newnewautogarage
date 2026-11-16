@@ -602,7 +602,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
     setConfirmDeletePurchaseId(null);
   };
 
-  const renderAttachmentBadge = (name: string, url?: string, iconType: 'invoice' | 'doc' = 'doc') => {
+  const renderAttachmentBadge = (
+    name: string,
+    url?: string,
+    iconType: 'invoice' | 'doc' = 'doc',
+    maxWidthClass = 'max-w-[135px]'
+  ) => {
     const hasFile = Boolean(url && (url.startsWith('data:') || url.startsWith('http')));
     const Icon = iconType === 'invoice' ? FileCheck : FileText;
     if (hasFile && url) {
@@ -610,7 +615,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
         <button
           type="button"
           onClick={() => setPreviewDoc({ name, url })}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline text-left max-w-[200px]"
+          className={`inline-flex items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline text-left ${maxWidthClass} cursor-pointer`}
           title={name}
         >
           <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -621,7 +626,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
     }
     return (
       <span
-        className="inline-flex items-center gap-1.5 text-xs text-[var(--secondary-foreground)] max-w-[200px]"
+        className={`inline-flex items-center gap-1.5 text-xs text-[var(--secondary-foreground)] ${maxWidthClass}`}
         title={name}
       >
         <Icon className="w-3.5 h-3.5 shrink-0 text-[var(--muted-foreground)]" />
@@ -631,31 +636,31 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
   };
 
   return (
-    <div data-testid="suppliers-view" className="space-y-6">
+    <div data-testid="suppliers-view" className="space-y-4">
       {/* Page Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 flex items-center justify-center text-[var(--primary)] shrink-0">
-              <Handshake className="w-5 h-5" />
+              <Handshake className="w-4 h-4" />
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[var(--foreground)]">
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)]">
               {t('suppliersTitle')}
             </h1>
           </div>
-          <p className="mt-1 text-xs sm:text-sm text-[var(--muted-foreground)]">
+          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {t('suppliersSubtitle')}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
           {suppliers.length === 0 && (
             <button
               type="button"
               data-testid="seed-suppliers-btn"
               onClick={handleSeed}
               disabled={isSeeding}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 transition cursor-pointer"
+              className="inline-flex items-center gap-1.5 h-9 px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 transition cursor-pointer whitespace-nowrap"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{isSeeding ? t('loading') : t('seedSuppliersBtn')}</span>
@@ -665,7 +670,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
             type="button"
             data-testid="new-supplier-btn"
             onClick={openNewSupplierModal}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--card)] transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] hover:bg-[var(--card)] transition cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5 text-[var(--primary)]" />
             <span>{t('newSupplierBtn')}</span>
@@ -674,7 +679,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
             type="button"
             data-testid="new-purchase-btn"
             onClick={() => openNewPurchaseModal()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{t('newPurchaseBtn')}</span>
@@ -685,7 +690,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       {/* Top Channel Sourcing & Profitability Strip */}
       <section
         data-testid="suppliers-channel-overview"
-        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4"
+        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3"
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -810,19 +815,20 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       </section>
 
       {/* Workspace Tabs + Filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="flex flex-col gap-3">
         <div
           role="tablist"
           aria-label={t('suppliersTitle')}
-          className="inline-flex items-center gap-1 bg-[var(--card)] border border-[var(--border)] rounded-xl p-1 self-start overflow-x-auto max-w-full"
+          className="flex sm:inline-flex items-center gap-0.5 sm:gap-1 w-full sm:w-fit bg-[var(--card)] border border-[var(--border)] rounded-xl p-1"
         >
           <button
             type="button"
             role="tab"
             aria-selected={activeTab === 'purchases'}
             data-testid="tab-purchases"
+            title={t('tabPurchases').replace('{count}', String(purchases.length))}
             onClick={() => setActiveTab('purchases')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+            className={`flex-auto sm:flex-none px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-sm font-bold truncate text-center transition cursor-pointer ${
               activeTab === 'purchases'
                 ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
                 : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
@@ -835,8 +841,9 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
             role="tab"
             aria-selected={activeTab === 'suppliers'}
             data-testid="tab-suppliers"
+            title={t('tabSuppliers').replace('{count}', String(suppliers.length))}
             onClick={() => setActiveTab('suppliers')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+            className={`flex-auto sm:flex-none px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-sm font-bold truncate text-center transition cursor-pointer ${
               activeTab === 'suppliers'
                 ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
                 : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
@@ -849,8 +856,9 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
             role="tab"
             aria-selected={activeTab === 'channels'}
             data-testid="tab-channels"
+            title={t('tabChannels')}
             onClick={() => setActiveTab('channels')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+            className={`flex-auto sm:flex-none px-1.5 sm:px-3.5 py-2 rounded-lg text-[11px] sm:text-sm font-bold truncate text-center transition cursor-pointer ${
               activeTab === 'channels'
                 ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
                 : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
@@ -862,8 +870,11 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
 
         {/* Search & Filter Controls */}
         {activeTab !== 'channels' && (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[240px] sm:w-[275px] flex-1 sm:flex-initial">
+          <div
+            data-testid="suppliers-filter-bar"
+            className="flex flex-wrap lg:flex-nowrap items-center gap-2.5 w-full"
+          >
+            <div className="relative w-full lg:w-auto lg:flex-1 min-w-[200px]">
               <Search className="w-3.5 h-3.5 text-[var(--muted-foreground)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -875,51 +886,57 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
               />
             </div>
 
-            <ThemedSelect
-              testId="filter-supplier-type"
-              ariaLabel={t('allSupplierTypes')}
-              value={typeFilter}
-              onChange={(val) => setTypeFilter(val as 'all' | SupplierType)}
-              options={[
-                { value: 'all', label: t('allSupplierTypes') },
-                ...SUPPLIER_TYPES.map((st) => ({
-                  value: st.id,
-                  label: isRu ? st.labelRu : st.labelFr,
-                })),
-              ]}
-              triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
-            />
+            <div className="shrink-0">
+              <ThemedSelect
+                testId="filter-supplier-type"
+                ariaLabel={t('allSupplierTypes')}
+                value={typeFilter}
+                onChange={(val) => setTypeFilter(val as 'all' | SupplierType)}
+                options={[
+                  { value: 'all', label: t('allSupplierTypes') },
+                  ...SUPPLIER_TYPES.map((st) => ({
+                    value: st.id,
+                    label: isRu ? st.labelRu : st.labelFr,
+                  })),
+                ]}
+                triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
+              />
+            </div>
 
             {activeTab === 'purchases' && (
               <>
-                <ThemedSelect
-                  testId="filter-purchase-category"
-                  ariaLabel={t('allCategoriesFilter')}
-                  value={categoryFilter}
-                  onChange={(val) => setCategoryFilter(val as 'all' | PurchaseCategory)}
-                  options={[
-                    { value: 'all', label: t('allCategoriesFilter') },
-                    ...PURCHASE_CATEGORIES.map((c) => ({
-                      value: c.id,
-                      label: isRu ? c.labelRu : c.labelFr,
-                    })),
-                  ]}
-                  triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
-                />
-                <ThemedSelect
-                  testId="filter-payment-method"
-                  ariaLabel={t('allPaymentsFilter')}
-                  value={paymentFilter}
-                  onChange={(val) => setPaymentFilter(val as 'all' | PurchasePaymentMethod)}
-                  options={[
-                    { value: 'all', label: t('allPaymentsFilter') },
-                    ...PAYMENT_METHODS.map((pm) => ({
-                      value: pm.id,
-                      label: isRu ? pm.labelRu : pm.labelFr,
-                    })),
-                  ]}
-                  triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)]"
-                />
+                <div className="shrink-0">
+                  <ThemedSelect
+                    testId="filter-purchase-category"
+                    ariaLabel={t('allCategoriesFilter')}
+                    value={categoryFilter}
+                    onChange={(val) => setCategoryFilter(val as 'all' | PurchaseCategory)}
+                    options={[
+                      { value: 'all', label: t('allCategoriesFilter') },
+                      ...PURCHASE_CATEGORIES.map((c) => ({
+                        value: c.id,
+                        label: isRu ? c.labelRu : c.labelFr,
+                      })),
+                    ]}
+                    triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
+                  />
+                </div>
+                <div className="shrink-0">
+                  <ThemedSelect
+                    testId="filter-payment-method"
+                    ariaLabel={t('allPaymentsFilter')}
+                    value={paymentFilter}
+                    onChange={(val) => setPaymentFilter(val as 'all' | PurchasePaymentMethod)}
+                    options={[
+                      { value: 'all', label: t('allPaymentsFilter') },
+                      ...PAYMENT_METHODS.map((pm) => ({
+                        value: pm.id,
+                        label: isRu ? pm.labelRu : pm.labelFr,
+                      })),
+                    ]}
+                    triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
+                  />
+                </div>
               </>
             )}
 
@@ -935,7 +952,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   setPaymentFilter('all');
                   setSearchQuery('');
                 }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 cursor-pointer"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <Filter className="w-3 h-3" />
                 <span>{isRu ? 'Сброс' : 'Réinit.'}</span>
@@ -980,44 +997,34 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr
-                    style={{ backgroundColor: 'var(--ag-table-header-bg)' }}
-                    className="border-b border-[var(--border)] text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]"
-                  >
-                    <th className="py-3 px-4 whitespace-nowrap">{t('thPurchaseDate')}</th>
-                    <th className="py-3 px-4 whitespace-nowrap">{t('thSupplierAndType')}</th>
-                    <th className="py-3 px-4">{t('thPurchaseItem')}</th>
-                    <th className="py-3 px-4 whitespace-nowrap">{t('thPaymentMethod')}</th>
-                    <th className="py-3 px-4">{t('thInvoiceAndDocs')}</th>
-                    <th className="py-3 px-4 text-right whitespace-nowrap">{t('thSupplierPurchasePrice')}</th>
-                    <th className="py-3 px-4 text-right whitespace-nowrap">
-                      {isRu ? 'Действия' : 'Actions'}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)] text-xs">
-                  {filteredPurchases.map((p) => {
-                    const supplier = supplierMap.get(p.supplierId);
-                    const effectiveType = supplier?.type || p.supplierType;
-                    const linkedVehicle = p.vehicleId ? vehicleMap.get(p.vehicleId) : undefined;
-                    const isConfirmingDelete = confirmDeletePurchaseId === p.id;
-                    return (
-                      <tr
-                        key={p.id}
-                        data-testid={`purchase-row-${p.id}`}
-                        className="hover:bg-[var(--ag-table-row-hover)] transition-colors"
-                      >
-                        <td className="py-3 px-4 whitespace-nowrap font-medium text-[var(--foreground)] tabular-nums align-top">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                            <span>{p.date}</span>
-                          </span>
-                        </td>
+            <>
+              {/* Mobile & Narrow Tablet Card Stack (< 768px) */}
+              <div
+                data-testid="purchases-mobile-cards"
+                className="block md:hidden p-3 space-y-2.5"
+              >
+                {filteredPurchases.map((p) => {
+                  const supplier = supplierMap.get(p.supplierId);
+                  const effectiveType = supplier?.type || p.supplierType;
+                  const linkedVehicle = p.vehicleId ? vehicleMap.get(p.vehicleId) : undefined;
+                  const isConfirmingDelete = confirmDeletePurchaseId === p.id;
+                  const metaLine = [
+                    p.date,
+                    getPaymentMethodLabel(p.paymentMethod, lang),
+                    p.invoiceNumber ? `№ ${p.invoiceNumber}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ');
 
-                        <td className="py-3 px-4 align-top">
+                  return (
+                    <div
+                      key={p.id}
+                      data-testid={`purchase-card-${p.id}`}
+                      className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3.5 space-y-2"
+                    >
+                      {/* Top row: Supplier + Category badge | Price + Edit/Delete */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 space-y-1">
                           <button
                             type="button"
                             onClick={() => {
@@ -1026,108 +1033,43 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                                 setActiveTab('suppliers');
                               }
                             }}
-                            className="font-bold text-[var(--foreground)] hover:text-[var(--primary)] text-left transition cursor-pointer"
+                            className="font-bold text-xs text-[var(--foreground)] hover:text-[var(--primary)] text-left truncate block max-w-full cursor-pointer"
                           >
                             {supplier?.name || p.supplierName}
                           </button>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
-                            <span className="text-[var(--primary)]">
-                              {getSupplierTypeIcon(effectiveType)}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--surface-muted)] border border-[var(--border)] text-[10px] font-semibold text-[var(--secondary-foreground)]">
+                              <span className="text-[var(--primary)]">
+                                {getSupplierTypeIcon(effectiveType)}
+                              </span>
+                              <span>{getPurchaseCategoryLabel(p.category, lang)}</span>
                             </span>
-                            <span>{getSupplierTypeLabel(effectiveType, lang)}</span>
                           </div>
-                        </td>
+                        </div>
 
-                        <td className="py-3 px-4 align-top max-w-[260px]">
-                          <div className="font-semibold text-[var(--foreground)]">
-                            {p.description}
-                          </div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--muted-foreground)]">
-                            <span>{getPurchaseCategoryLabel(p.category, lang)}</span>
-                            {(linkedVehicle || p.vehicleLabel) && (
-                              <>
-                                <span>·</span>
-                                {linkedVehicle ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => onSelectVehicle(linkedVehicle)}
-                                    className="inline-flex items-center gap-1 font-semibold text-[var(--primary)] hover:underline cursor-pointer"
-                                  >
-                                    <span>
-                                      {linkedVehicle.make} {linkedVehicle.model}
-                                    </span>
-                                    <ExternalLink className="w-3 h-3" />
-                                  </button>
-                                ) : (
-                                  <span>{p.vehicleLabel}</span>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-4 whitespace-nowrap align-top">
-                          <span className="inline-flex items-center gap-1.5 text-[var(--secondary-foreground)]">
-                            <CreditCard className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                            <span>{getPaymentMethodLabel(p.paymentMethod, lang)}</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-sm font-extrabold text-[var(--foreground)] tabular-nums whitespace-nowrap">
+                            {formatEuro(p.amount)}
                           </span>
-                        </td>
-
-                        <td className="py-3 px-4 align-top space-y-1">
-                          {p.invoiceNumber && (
-                            <div className="text-[11px] font-semibold text-[var(--foreground)] tabular-nums">
-                              № {p.invoiceNumber}
-                            </div>
-                          )}
-                          {p.invoiceProofName && (
-                            <div>
-                              {renderAttachmentBadge(
-                                p.invoiceProofName,
-                                p.invoiceProofUrl,
-                                'invoice'
-                              )}
-                            </div>
-                          )}
-                          {p.vehicleDocuments && p.vehicleDocuments.length > 0 && (
-                            <div className="pt-0.5 space-y-0.5">
-                              {p.vehicleDocuments.map((docItem) => (
-                                <div key={docItem.id}>
-                                  {renderAttachmentBadge(docItem.name, docItem.url, 'doc')}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {!p.invoiceNumber &&
-                            !p.invoiceProofName &&
-                            (!p.vehicleDocuments || p.vehicleDocuments.length === 0) && (
-                              <span className="text-[11px] text-[var(--muted-foreground)]">—</span>
-                            )}
-                        </td>
-
-                        <td className="py-3 px-4 text-right whitespace-nowrap font-extrabold text-[var(--foreground)] tabular-nums align-top">
-                          {formatEuro(p.amount)}
-                        </td>
-
-                        <td className="py-3 px-4 text-right whitespace-nowrap align-top">
                           {isConfirmingDelete ? (
                             <div className="inline-flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleDeletePurchase(p.id)}
-                                className="px-2 py-1 rounded-md text-[11px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                                className="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
                               >
                                 {isRu ? 'Удалить' : 'Suppr.'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeletePurchaseId(null)}
-                                className="px-2 py-1 rounded-md text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] cursor-pointer"
+                                className="px-1.5 py-1 rounded-md text-[10px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] cursor-pointer"
                               >
                                 {t('cancelBtn')}
                               </button>
                             </div>
                           ) : (
-                            <div className="inline-flex items-center gap-1">
+                            <div className="inline-flex items-center gap-0.5">
                               <button
                                 type="button"
                                 onClick={() => openEditPurchaseModal(p)}
@@ -1148,13 +1090,246 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                               </button>
                             </div>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      </div>
+
+                      {/* Middle row: Description + Linked car badge */}
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-[var(--foreground)] leading-snug">
+                          {p.description}
+                        </div>
+                        {(linkedVehicle || p.vehicleLabel) && (
+                          <div>
+                            {linkedVehicle ? (
+                              <button
+                                type="button"
+                                onClick={() => onSelectVehicle(linkedVehicle)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--primary)]/10 border border-[var(--primary)]/25 text-[11px] font-semibold text-[var(--primary)] hover:underline cursor-pointer"
+                              >
+                                <span>
+                                  {linkedVehicle.make} {linkedVehicle.model}
+                                </span>
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[var(--surface-muted)] border border-[var(--border)] text-[11px] text-[var(--secondary-foreground)]">
+                                {p.vehicleLabel}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bottom row: Metadata line + Clickable PDF chip(s) */}
+                      <div className="pt-2 border-t border-[var(--border)]/60 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
+                          {metaLine}
+                        </span>
+                        {(p.invoiceProofName ||
+                          (p.vehicleDocuments && p.vehicleDocuments.length > 0)) && (
+                          <div className="flex flex-wrap items-center gap-2 min-w-0">
+                            {p.invoiceProofName &&
+                              renderAttachmentBadge(
+                                p.invoiceProofName,
+                                p.invoiceProofUrl,
+                                'invoice',
+                                'max-w-[230px]'
+                              )}
+                            {p.vehicleDocuments?.map((docItem) => (
+                              <React.Fragment key={docItem.id}>
+                                {renderAttachmentBadge(
+                                  docItem.name,
+                                  docItem.url,
+                                  'doc',
+                                  'max-w-[230px]'
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View (>= 768px) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="hidden md:table w-full text-left border-collapse">
+                  <thead>
+                    <tr
+                      style={{ backgroundColor: 'var(--ag-table-header-bg)' }}
+                      className="border-b border-[var(--border)] text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]"
+                    >
+                      <th className="py-3 px-3 whitespace-nowrap">{t('thPurchaseDate')}</th>
+                      <th className="py-3 px-3">{t('thSupplierAndType')}</th>
+                      <th className="py-3 px-3 min-w-[200px]">{t('thPurchaseItem')}</th>
+                      <th className="py-3 px-3">{t('thPaymentMethod')}</th>
+                      <th className="py-3 px-3">{t('thInvoiceAndDocs')}</th>
+                      <th className="py-3 px-3 text-right whitespace-nowrap">{t('thSupplierPurchasePrice')}</th>
+                      <th className="py-3 px-3 text-right whitespace-nowrap">
+                        {isRu ? 'Действия' : 'Actions'}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)] text-xs">
+                    {filteredPurchases.map((p) => {
+                      const supplier = supplierMap.get(p.supplierId);
+                      const effectiveType = supplier?.type || p.supplierType;
+                      const linkedVehicle = p.vehicleId ? vehicleMap.get(p.vehicleId) : undefined;
+                      const isConfirmingDelete = confirmDeletePurchaseId === p.id;
+                      return (
+                        <tr
+                          key={p.id}
+                          data-testid={`purchase-row-${p.id}`}
+                          className="hover:bg-[var(--ag-table-row-hover)] transition-colors"
+                        >
+                          <td className="py-3 px-3 whitespace-nowrap font-medium text-[var(--foreground)] tabular-nums align-top">
+                            <span className="inline-flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0" />
+                              <span>{p.date}</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 align-top">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (supplier) {
+                                  setSelectedSupplierId(supplier.id);
+                                  setActiveTab('suppliers');
+                                }
+                              }}
+                              className="font-bold text-[var(--foreground)] hover:text-[var(--primary)] text-left transition cursor-pointer"
+                            >
+                              {supplier?.name || p.supplierName}
+                            </button>
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+                              <span className="text-[var(--primary)]">
+                                {getSupplierTypeIcon(effectiveType)}
+                              </span>
+                              <span>{getSupplierTypeLabel(effectiveType, lang)}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3 align-top min-w-[200px]">
+                            <div className="font-semibold text-[var(--foreground)] leading-snug">
+                              {p.description}
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--muted-foreground)]">
+                              <span>{getPurchaseCategoryLabel(p.category, lang)}</span>
+                              {(linkedVehicle || p.vehicleLabel) && (
+                                <>
+                                  <span>·</span>
+                                  {linkedVehicle ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => onSelectVehicle(linkedVehicle)}
+                                      className="inline-flex items-center gap-1 font-semibold text-[var(--primary)] hover:underline cursor-pointer"
+                                    >
+                                      <span>
+                                        {linkedVehicle.make} {linkedVehicle.model}
+                                      </span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </button>
+                                  ) : (
+                                    <span>{p.vehicleLabel}</span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3 align-top">
+                            <span className="inline-flex items-center gap-1 text-[var(--secondary-foreground)]">
+                              <CreditCard className="w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0" />
+                              <span>{getPaymentMethodLabel(p.paymentMethod, lang)}</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 align-top space-y-1">
+                            {p.invoiceNumber && (
+                              <div className="text-[11px] font-semibold text-[var(--foreground)] tabular-nums">
+                                № {p.invoiceNumber}
+                              </div>
+                            )}
+                            {p.invoiceProofName && (
+                              <div>
+                                {renderAttachmentBadge(
+                                  p.invoiceProofName,
+                                  p.invoiceProofUrl,
+                                  'invoice'
+                                )}
+                              </div>
+                            )}
+                            {p.vehicleDocuments && p.vehicleDocuments.length > 0 && (
+                              <div className="pt-0.5 space-y-0.5">
+                                {p.vehicleDocuments.map((docItem) => (
+                                  <div key={docItem.id}>
+                                    {renderAttachmentBadge(docItem.name, docItem.url, 'doc')}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {!p.invoiceNumber &&
+                              !p.invoiceProofName &&
+                              (!p.vehicleDocuments || p.vehicleDocuments.length === 0) && (
+                                <span className="text-[11px] text-[var(--muted-foreground)]">—</span>
+                              )}
+                          </td>
+
+                          <td className="py-3 px-3 text-right whitespace-nowrap font-extrabold text-[var(--foreground)] tabular-nums align-top">
+                            {formatEuro(p.amount)}
+                          </td>
+
+                          <td className="py-3 px-3 text-right whitespace-nowrap align-top">
+                            {isConfirmingDelete ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePurchase(p.id)}
+                                  className="px-2 py-1 rounded-md text-[11px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
+                                >
+                                  {isRu ? 'Удалить' : 'Suppr.'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeletePurchaseId(null)}
+                                  className="px-2 py-1 rounded-md text-[11px] font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] cursor-pointer"
+                                >
+                                  {t('cancelBtn')}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditPurchaseModal(p)}
+                                  aria-label={`${isRu ? 'Изменить' : 'Modifier'} ${p.description}`}
+                                  title={isRu ? 'Изменить' : 'Modifier'}
+                                  className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)] transition cursor-pointer"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeletePurchaseId(p.id)}
+                                  aria-label={`${t('deleteTooltip')} ${p.description}`}
+                                  title={t('deleteTooltip')}
+                                  className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

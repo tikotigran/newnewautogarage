@@ -216,21 +216,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6" data-testid="analytics-page">
+    <div className="space-y-4" data-testid="analytics-page">
       {/* Header & Period Switcher */}
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] space-y-4">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2.5">
-              <BarChart3 className="w-5 h-5 shrink-0" style={{ color: 'var(--ag-chart-accent)' }} />
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 shrink-0" style={{ color: 'var(--ag-chart-accent)' }} />
               <h1
                 style={getTextStyle('analyticsTitle')}
-                className="text-xl font-bold text-[var(--foreground)] tracking-tight"
+                className="text-lg sm:text-xl font-bold text-[var(--foreground)] tracking-tight"
               >
                 {t('analyticsTitle')}
               </h1>
             </div>
-            <p className="text-xs text-[var(--muted-foreground)] mt-1">{t('analyticsSubtitle')}</p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{t('analyticsSubtitle')}</p>
           </div>
 
           {/* 7-option Period Segmented Control (Today, Week, Month, Quarter, Year, Custom, All) */}
@@ -308,7 +308,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {/* 1. REVENUE */}
             <div
               data-testid="pillar-revenue"
-              className="bg-[var(--card)] border border-sky-500/30 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between"
+              className="bg-[var(--card)] border border-sky-500/30 rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between gap-2">
@@ -319,12 +319,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </div>
                 <p
                   data-testid="pillar-revenue-value"
-                  className="text-2xl sm:text-3xl font-bold text-[var(--foreground)] tabular-nums mt-2"
+                  className="text-xl sm:text-2xl font-bold text-[var(--foreground)] tabular-nums mt-1.5"
                 >
                   {formatEuro(salesPerformance.revenue)}
                 </p>
               </div>
-              <p className="text-xs text-[var(--muted-foreground)] mt-2 tabular-nums">
+              <p className="text-xs text-[var(--muted-foreground)] mt-1.5 tabular-nums">
                 {t('pillarRevenueHint', { count: salesPerformance.soldCount })}
               </p>
             </div>
@@ -332,7 +332,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {/* 2. GROSS PROFIT */}
             <div
               data-testid="pillar-gross-profit"
-              className="bg-[var(--card)] border border-indigo-500/30 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between"
+              className="bg-[var(--card)] border border-indigo-500/30 rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between gap-2">
@@ -345,7 +345,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </div>
                 <p
                   data-testid="pillar-gross-profit-value"
-                  className="text-2xl sm:text-3xl font-bold tabular-nums mt-2"
+                  className="text-xl sm:text-2xl font-bold tabular-nums mt-1.5"
                   style={{
                     color:
                       salesPerformance.grossProfit >= 0
@@ -357,7 +357,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   {formatEuro(salesPerformance.grossProfit)}
                 </p>
               </div>
-              <p className="text-xs text-[var(--muted-foreground)] mt-2">
+              <p className="text-xs text-[var(--muted-foreground)] mt-1.5">
                 {t('pillarGrossProfitHint')}
               </p>
             </div>
@@ -365,7 +365,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             {/* 3. NET PROFIT (After expenses & taxes) */}
             <div
               data-testid="pillar-net-profit"
-              className="bg-[var(--card)] border border-emerald-500/40 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between"
+              className="bg-[var(--card)] border border-emerald-500/40 rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between gap-2">
@@ -653,7 +653,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* SECTION 3: Cash Flow Panel */}
       <section
         data-testid="analytics-cash-flow"
-        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] space-y-5"
+        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
@@ -799,7 +799,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       </section>
 
       {/* SECTION 4: Rankings — Most Profitable Vehicles & Aging Unsold Stock */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         {/* Top Most Profitable Sold Vehicles (6 cols) */}
         <div
           data-testid="analytics-top-profitable"
@@ -1022,13 +1022,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       </div>
 
       {analytics.totalSpent === 0 ? (
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-8 text-center">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 text-center">
           <p className="text-sm font-semibold text-[var(--secondary-foreground)]">{t('analyticsNoExpensesPeriod')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* Left: Category Breakdown (7 cols) */}
-          <div className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] space-y-5">
+          <div className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-bold text-[var(--foreground)]">{t('analyticsBreakdownTitle')}</h2>
               {selectedCategoryId && (

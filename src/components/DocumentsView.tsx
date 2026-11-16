@@ -572,16 +572,16 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
   }, [previewDoc, historyEvents]);
 
   return (
-    <div data-testid="documents-view" className="space-y-6 animate-fade-in">
+    <div data-testid="documents-view" className="space-y-4 animate-fade-in">
       {/* Top Page Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-sm">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 shadow-sm">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-[var(--ag-button-radius)] bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30 flex items-center justify-center shrink-0">
-              <FileText className="w-5 h-5" />
+              <FileText className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)]">
+              <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-[var(--foreground)]">
                 {t('docsPageTitle')}
               </h2>
               <p className="text-xs text-[var(--muted-foreground)]">
@@ -598,7 +598,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               data-testid="seed-demo-docs-btn"
               onClick={handleSeedDemo}
               disabled={isSeedingDocs}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 transition"
+              className="inline-flex items-center gap-1.5 h-9 px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 transition cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>{isSeedingDocs ? t('loading') : t('seedDemoDocsBtn')}</span>
@@ -610,7 +610,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               type="button"
               data-testid="open-cerfa-generator-btn"
               onClick={() => onOpenCerfaGenerator(vehicles[0])}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--primary)]/50 transition"
+              className="inline-flex items-center gap-1.5 h-9 px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--primary)]/50 transition cursor-pointer"
             >
               <FileCheck2 className="w-3.5 h-3.5 text-[var(--primary)]" />
               <span>{t('cerfaGeneratorBtn')}</span>
@@ -621,16 +621,16 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
             type="button"
             data-testid="new-document-btn"
             onClick={() => openCreateModal()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition cursor-pointer"
           >
-            <FilePlus2 className="w-4 h-4" />
+            <FilePlus2 className="w-3.5 h-3.5" />
             <span>{t('newDocumentBtn')}</span>
           </button>
         </div>
       </div>
 
       {/* 4-Card KPI Summary Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4">
           <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] font-medium">
             <span>{t('docsKpiTotal')}</span>

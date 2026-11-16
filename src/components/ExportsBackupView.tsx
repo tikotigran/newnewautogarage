@@ -658,16 +658,16 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     }`;
 
   return (
-    <div data-testid="exports-backup-view" className="space-y-5">
+    <div data-testid="exports-backup-view" className="space-y-4">
       {/* Header & Top Action Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5">
-        <div className="space-y-1">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4">
+        <div className="space-y-0.5">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 flex items-center justify-center text-[var(--primary)]">
-              <DatabaseBackup className="w-4.5 h-4.5" />
+              <DatabaseBackup className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)]">
+              <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-[var(--foreground)]">
                 {t('exportsPageTitle')}
               </h2>
               <p className="text-xs text-[var(--muted-foreground)]">

@@ -4,7 +4,7 @@ import { VehicleList } from './components/VehicleList';
 import { VehicleDetail } from './components/VehicleDetail';
 import { VehicleModal } from './components/VehicleModal';
 import { BuyerModal } from './components/BuyerModal';
-import { Settings } from './components/Settings';
+import { Settings, SettingsTab } from './components/Settings';
 import { Cerfa15776Modal } from './components/Cerfa15776Modal';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SuppliersView } from './components/SuppliersView';
@@ -80,13 +80,14 @@ import {
 } from './services/auditAndBackupService';
 import { computeEntityFieldDiffs, filterAuditLogsByGarage } from './utils/exportBackup';
 import { createDemoCerfaVehicle } from './utils/cerfa15776';
-import { Loader2, Menu } from 'lucide-react';
+import { ArrowLeft, Loader2, Menu } from 'lucide-react';
 import { useI18n } from './i18n/I18nContext';
+import { pickLocalized } from './utils/i18nUtils';
 
 export type ActiveAppView = 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
 
 export default function App() {
-  const { t } = useI18n();
+  const { lang, t } = useI18n();
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemThemeConfig>(DEFAULT_SYSTEM_THEME_CONFIG);
@@ -111,6 +112,9 @@ export default function App() {
     }
     return 'desktop';
   });
+  const [previousViewBeforeSettings, setPreviousViewBeforeSettings] =
+    useState<Exclude<ActiveAppView, 'settings'>>('desktop');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('company');
 
   // Dual-Layout Architecture state (Classic Top-Nav vs Modern Sidebar Layout)
   const [userLayoutPreference, setUserLayoutPreference] = useState<UserLayoutPreference>(() => {
@@ -195,6 +199,9 @@ export default function App() {
 
   // Sync /admin URL path
   const handleSetActiveView = (view: ActiveAppView) => {
+    if (view === 'settings' && activeView !== 'settings') {
+      setPreviousViewBeforeSettings(activeView as Exclude<ActiveAppView, 'settings'>);
+    }
     if (view !== 'documents') {
       setDocumentsAlignerMode(false);
     }
@@ -728,6 +735,9 @@ export default function App() {
         onCloseMobile={() => setMobileSidebarOpen(false)}
         activeView={activeView}
         onNavigate={handleSidebarNavigate}
+        activeSettingsTab={activeSettingsTab}
+        onSelectSettingsTab={setActiveSettingsTab}
+        onExitSettings={() => handleSetActiveView(previousViewBeforeSettings)}
         garages={garages}
         activeGarageId={activeGarageId}
         onSelectGarage={handleSelectGarage}
@@ -744,7 +754,7 @@ export default function App() {
       {/* Workspace Column (Maximized vertical height — no top horizontal header bar) */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Main App Container */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6">
           {showInlineMobileNavTrigger && (
             <div className="lg:hidden flex items-center justify-between gap-2 mb-4">
               <button
@@ -755,8 +765,36 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-bold shadow-sm"
               >
                 <Menu className="w-4 h-4 text-[var(--primary)]" />
-                <span>{t('navSectionLabel')}</span>
+                <span>
+                  {activeView === 'settings'
+                    ? pickLocalized(lang, {
+                        fr: 'Menu paramètres',
+                        ru: 'Разделы настроек',
+                        hy: 'Կարգավորումներ',
+                        ka: 'პარამეტრების მენიუ',
+                      })
+                    : t('navSectionLabel')}
+                </span>
               </button>
+
+              {activeView === 'settings' && (
+                <button
+                  type="button"
+                  data-testid="settings-mobile-back-btn"
+                  onClick={() => handleSetActiveView(previousViewBeforeSettings)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-semibold shadow-sm"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Retour',
+                      ru: 'В приложение',
+                      hy: 'Վերադառնալ',
+                      ka: 'დაბრუნება',
+                    })}
+                  </span>
+                </button>
+              )}
             </div>
           )}
 
@@ -870,7 +908,9 @@ export default function App() {
               key={activeGarageId || DEFAULT_GARAGE_ID}
               variant="page"
               isOpen={true}
-              onClose={() => handleSetActiveView('desktop')}
+              activeTab={activeSettingsTab}
+              onTabChange={setActiveSettingsTab}
+              onClose={() => handleSetActiveView(previousViewBeforeSettings)}
               userId={effectiveUserId}
               vehicles={garageVehicles}
               theme={theme}

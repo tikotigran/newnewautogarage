@@ -173,13 +173,13 @@ export const VehicleList: React.FC<VehicleListProps> = ({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Page Header & Primary Action Row */}
       <div
         data-testid="inventory-page-header"
         className="flex items-center justify-between gap-3"
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0">
           {onOpenMobileSidebar && (
             <button
               type="button"
@@ -188,15 +188,15 @@ export const VehicleList: React.FC<VehicleListProps> = ({
               aria-label={t('openNavMenu')}
               className="lg:hidden p-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--primary)] transition shrink-0"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4" />
             </button>
           )}
-          <div className="w-10 h-10 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
-            <Car className="w-5 h-5" />
+          <div className="w-9 h-9 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
+            <Car className="w-4 h-4" />
           </div>
           <h1
             data-testid="page-header-title"
-            className="text-xl sm:text-2xl font-extrabold tracking-tight text-[var(--foreground)] truncate"
+            className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)] truncate"
           >
             {t('navInventory')}
           </h1>
@@ -206,7 +206,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           type="button"
           data-testid="page-header-new-vehicle"
           onClick={onNewVehicle}
-          className="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-md transition whitespace-nowrap shrink-0"
+          className="inline-flex items-center gap-1.5 h-9 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-sm transition whitespace-nowrap shrink-0 cursor-pointer"
         >
           <PlusCircle className="w-4 h-4 shrink-0" />
           <span>+ {t('newVehicle')}</span>
@@ -214,18 +214,18 @@ export const VehicleList: React.FC<VehicleListProps> = ({
       </div>
 
       {/* Controls Bar: Search & Status Filters */}
-      <div className="bg-[var(--card)] rounded-[var(--ag-card-radius)] border border-[var(--border)] p-4 shadow-sm space-y-4">
+      <div className="bg-[var(--card)] rounded-[var(--ag-card-radius)] border border-[var(--border)] p-3.5 sm:p-4 shadow-sm space-y-3">
         {/* Search & Sort Row */}
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
           <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
             <input
               type="text"
               data-testid="inventory-search-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('searchPlaceholder')}
-              className="w-full pl-10 pr-20 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition"
+              className="w-full h-9 pl-9 pr-20 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition"
             />
             {searchQuery && (
               <button
@@ -256,7 +256,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                   { value: 'price', label: t('sortPrice') },
                   { value: 'mileage', label: t('sortMileage') },
                 ]}
-                triggerClassName="text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 sm:px-3 py-2 max-w-[190px] sm:max-w-none"
+                triggerClassName="h-9 text-xs font-semibold bg-[var(--background)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-3 py-1.5 max-w-[190px] sm:max-w-none"
               />
             </div>
 

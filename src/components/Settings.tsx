@@ -77,12 +77,20 @@ import {
   roundCurrency,
 } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
+import { Language, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
 import {
   validateGarageSettings,
   serializeBackupPayload,
   parseBackupPayload,
   vehiclesToCsv,
 } from '../utils/settingsUtils';
+
+const LANGUAGE_FLAGS: Record<Language, string> = {
+  fr: '🇫🇷',
+  ru: '🇷🇺',
+  ka: '🇬🇪',
+  hy: '🇦🇲',
+};
 
 export type SettingsTab = 'company' | 'templates' | 'finance' | 'appearance' | 'security';
 
@@ -102,6 +110,8 @@ interface SettingsProps {
   globalLayoutMode?: LayoutMode;
   onLayoutPreferenceChange?: (pref: UserLayoutPreference) => void;
   variant?: 'modal' | 'page';
+  activeTab?: SettingsTab;
+  onTabChange?: (tab: SettingsTab) => void;
 }
 
 const STREET_TYPES = [
@@ -135,9 +145,19 @@ export const Settings: React.FC<SettingsProps> = ({
   globalLayoutMode = 'classic',
   onLayoutPreferenceChange,
   variant = 'modal',
+  activeTab: controlledActiveTab,
+  onTabChange,
 }) => {
   const { lang, setLang } = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('company');
+  const [internalActiveTab, setInternalActiveTab] = useState<SettingsTab>('company');
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+  const setActiveTab = (tab: SettingsTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalActiveTab(tab);
+    }
+  };
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settings, setSettings] = useState<GarageSettings>(DEFAULT_GARAGE_SETTINGS);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -601,7 +621,7 @@ export const Settings: React.FC<SettingsProps> = ({
   ];
 
   const inputClass =
-    'w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition';
+    'w-full h-9 px-3.5 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition';
   const labelClass = 'block text-xs font-semibold text-slate-300 mb-1';
   const siretDigits = (settings.siret || '').replace(/\s+/g, '');
 
@@ -2132,7 +2152,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
             {/* 4. APPEARANCE */}
             {activeTab === 'appearance' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
                     {isRu ? 'Внешний вид' : 'Apparence & Affichage'}
@@ -2144,78 +2164,82 @@ export const Settings: React.FC<SettingsProps> = ({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-bold text-white">
-                      {theme === 'dark' ? (
-                        <Moon className="w-4 h-4 text-amber-400" />
-                      ) : (
-                        <Sun className="w-4 h-4 text-amber-500" />
-                      )}
-                      <span>{isRu ? 'Тема оформления' : 'Thème d’affichage'}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onThemeChange('dark')}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
-                          theme === 'dark'
-                            ? 'bg-amber-500 text-slate-950 border-amber-400'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <Moon className="w-3.5 h-3.5" />
-                        <span>Dark Mode</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onThemeChange('light')}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 ${
-                          theme === 'light'
-                            ? 'bg-amber-500 text-slate-950 border-amber-400'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <Sun className="w-3.5 h-3.5" />
-                        <span>Light Mode</span>
-                      </button>
-                    </div>
+                {/* Theme Card */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-white">
+                    {theme === 'dark' ? (
+                      <Moon className="w-4 h-4 text-amber-400" />
+                    ) : (
+                      <Sun className="w-4 h-4 text-amber-500" />
+                    )}
+                    <span>{isRu ? 'Тема оформления' : 'Thème d’affichage'}</span>
                   </div>
+                  <div className="grid grid-cols-2 sm:max-w-md gap-2">
+                    <button
+                      type="button"
+                      data-testid="settings-theme-dark"
+                      onClick={() => onThemeChange('dark')}
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        theme === 'dark'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Dark Mode</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="settings-theme-light"
+                      onClick={() => onThemeChange('light')}
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                        theme === 'light'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <Sun className="w-3.5 h-3.5" />
+                      <span>Light Mode</span>
+                    </button>
+                  </div>
+                </div>
 
-                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-bold text-white">
-                      <Languages className="w-4 h-4 text-blue-400" />
-                      <span>{isRu ? 'Язык интерфейса' : 'Langue de l’interface'}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setLang('fr')}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                          lang === 'fr'
-                            ? 'bg-blue-600 text-white border-blue-500'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        🇫🇷 Français (FR)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLang('ru')}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                          lang === 'ru'
-                            ? 'bg-blue-600 text-white border-blue-500'
-                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                        }`}
-                      >
-                        🇷🇺 Русский (RU)
-                      </button>
-                    </div>
+                {/* 4-Language Interface Card */}
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-white">
+                    <Languages className="w-4 h-4 text-blue-400" />
+                    <span>{isRu ? 'Язык интерфейса' : 'Langue de l’interface'}</span>
+                  </div>
+                  <div
+                    data-testid="settings-language-grid"
+                    className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+                  >
+                    {SUPPORTED_LANGUAGES.map((option) => {
+                      const active = lang === option.code;
+                      return (
+                        <button
+                          key={option.code}
+                          type="button"
+                          data-testid={`settings-lang-${option.code}`}
+                          onClick={() => setLang(option.code)}
+                          className={`h-9 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                            active
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                              : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          <span aria-hidden="true">{LANGUAGE_FLAGS[option.code]}</span>
+                          <span className="truncate">
+                            {option.nativeLabel} ({option.shortCode})
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Layout Switcher: Classic Top-Nav vs Modern Sidebar Layout */}
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs font-bold text-white">
                       <PanelLeft className="w-4 h-4 text-amber-400" />
@@ -2245,7 +2269,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       </button>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       data-testid="settings-layout-classic"
@@ -2258,13 +2282,13 @@ export const Settings: React.FC<SettingsProps> = ({
                             : 'Disposition classique (Top-Nav) activée.',
                         });
                       }}
-                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
                         effectiveLayoutMode === 'classic'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      <PanelTop className="w-4 h-4" />
+                      <PanelTop className="w-3.5 h-3.5" />
                       <span>{isRu ? 'Классическая шапка' : 'En-tête Classique'}</span>
                     </button>
                     <button
@@ -2279,46 +2303,46 @@ export const Settings: React.FC<SettingsProps> = ({
                             : 'Nouveau design (Sidebar Layout) activé.',
                         });
                       }}
-                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
                         effectiveLayoutMode === 'sidebar'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      <PanelLeft className="w-4 h-4" />
+                      <PanelLeft className="w-3.5 h-3.5" />
                       <span>{isRu ? 'Новый дизайн (Sidebar)' : 'Nouveau Design (Sidebar)'}</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Compact Grid / List Default View */}
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                   <div className="text-xs font-bold text-white">
                     {isRu ? 'Режим отображения инвентаря по умолчанию' : 'Mode d’affichage par défaut du parc'}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() => handleViewModeChange('grid')}
-                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
                         defaultViewMode === 'grid'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      <LayoutGrid className="w-4 h-4" />
+                      <LayoutGrid className="w-3.5 h-3.5" />
                       <span>{isRu ? 'Компактная сетка (Grid)' : 'Grille Compacte (Grid)'}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleViewModeChange('list')}
-                      className={`py-2.5 px-4 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 ${
+                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
                         defaultViewMode === 'list'
                           ? 'bg-amber-500 text-slate-950 border-amber-500'
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      <List className="w-4 h-4" />
+                      <List className="w-3.5 h-3.5" />
                       <span>{isRu ? 'Табличный список (List)' : 'Vue Liste (Tableau)'}</span>
                     </button>
                   </div>
@@ -2328,7 +2352,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
             {/* 5. SECURITY & ACCOUNT */}
             {activeTab === 'security' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
                     {isRu ? 'Безопасность и Аккаунт' : 'Sécurité & Compte'}
@@ -2424,19 +2448,19 @@ export const Settings: React.FC<SettingsProps> = ({
 
   if (isPage) {
     return (
-      <div data-testid="settings-page-view" className="space-y-5">
+      <div data-testid="settings-page-view" className="space-y-4">
         {/* Full-Page Header */}
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-11 h-11 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
-              <Building2 className="w-5 h-5" />
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 text-[var(--primary)] flex items-center justify-center shrink-0">
+              <Building2 className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-extrabold text-[var(--foreground)]">
+                <h2 className="text-base sm:text-lg font-extrabold text-[var(--foreground)]">
                   {isRu ? 'Настройки гаража' : 'Paramètres du Garage'}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[220px]">
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[200px]">
                   {settings.name || 'AutoGarage Manager'}
                 </span>
               </div>
@@ -2452,55 +2476,25 @@ export const Settings: React.FC<SettingsProps> = ({
             type="button"
             data-testid="settings-page-save-top"
             onClick={() => handleSaveSettings()}
-            className="px-5 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md hover:opacity-95 transition flex items-center gap-2 shrink-0"
+            className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
-            <CheckCircle2 className="w-4 h-4" />
+            <CheckCircle2 className="w-3.5 h-3.5" />
             <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
           </button>
         </div>
 
-        {/* Full-Width Horizontal Section Navigation */}
-        <div
-          role="tablist"
-          aria-label="Settings sections"
-          className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-2 flex flex-wrap items-center gap-1.5"
-        >
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                data-testid={`settings-page-tab-${item.id}`}
-                onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-semibold transition whitespace-nowrap ${
-                  active
-                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
-                    : 'text-[var(--secondary-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
         {/* Full-Width Natural-Scrolling Workspace Content */}
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 sm:p-6 space-y-5">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4">
           {mainContent}
 
-          <div className="pt-4 border-t border-[var(--border)] flex items-center justify-end">
+          <div className="pt-3 border-t border-[var(--border)] flex items-center justify-end">
             <button
               type="button"
               data-testid="settings-page-save-bottom"
               onClick={() => handleSaveSettings()}
-              className="px-6 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-md hover:opacity-95 transition flex items-center gap-2"
+              className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
+              <CheckCircle2 className="w-3.5 h-3.5" />
               <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
             </button>
           </div>

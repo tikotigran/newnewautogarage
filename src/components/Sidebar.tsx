@@ -11,21 +11,19 @@ import {
   X,
   Handshake,
   DatabaseBackup,
-  Globe,
-  Sun,
-  Moon,
-  LogIn,
   LogOut,
-  Check,
-  ChevronUp,
   User as UserIcon,
+  ArrowLeft,
+  Coins,
+  Palette,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
-import { getLanguageMeta, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
+import { pickLocalized } from '../utils/i18nUtils';
+import type { SettingsTab } from './Settings';
 
 export type SidebarNavTarget =
   | 'inventory'
@@ -54,6 +52,9 @@ interface SidebarProps {
   activeSessionEmail?: string | null;
   onOpenAuthModal: () => void;
   onSignOut: () => void;
+  activeSettingsTab?: SettingsTab;
+  onSelectSettingsTab?: (tab: SettingsTab) => void;
+  onExitSettings?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -74,22 +75,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeSessionEmail,
   onOpenAuthModal,
   onSignOut,
+  activeSettingsTab = 'company',
+  onSelectSettingsTab,
+  onExitSettings,
 }) => {
-  const { lang, setLang, t, getTextStyle } = useI18n();
-  const [desktopLangOpen, setDesktopLangOpen] = useState(false);
-  const [mobileLangOpen, setMobileLangOpen] = useState(false);
-  const desktopLangRef = useRef<HTMLDivElement | null>(null);
-  const mobileLangRef = useRef<HTMLDivElement | null>(null);
+  const { lang, t, getTextStyle } = useI18n();
+  const [desktopProfileOpen, setDesktopProfileOpen] = useState(false);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const [hoveredTooltip, setHoveredTooltip] = useState<{
+    label: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const desktopProfileRef = useRef<HTMLDivElement | null>(null);
+  const mobileProfileRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isCollapsed || desktopProfileOpen) {
+      setHoveredTooltip(null);
+    }
+  }, [isCollapsed, desktopProfileOpen]);
+
+  const showCollapsedTooltip = (
+    e: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
+    label: string,
+    collapsed: boolean
+  ) => {
+    if (!collapsed || desktopProfileOpen) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoveredTooltip({
+      label,
+      x: rect.right + 12,
+      y: rect.top + rect.height / 2,
+    });
+  };
+
+  const hideCollapsedTooltip = () => {
+    setHoveredTooltip(null);
+  };
 
   useEffect(() => {
     if (!mobileOpen) {
-      setMobileLangOpen(false);
+      setMobileProfileOpen(false);
       return;
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (mobileLangOpen) {
-          setMobileLangOpen(false);
+        if (mobileProfileOpen) {
+          setMobileProfileOpen(false);
         } else {
           onCloseMobile();
         }
@@ -97,17 +130,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mobileOpen, mobileLangOpen, onCloseMobile]);
+  }, [mobileOpen, mobileProfileOpen, onCloseMobile]);
 
   useEffect(() => {
-    if (!desktopLangOpen) return;
+    if (!desktopProfileOpen) return;
     const handleOutside = (e: MouseEvent) => {
-      if (desktopLangRef.current && !desktopLangRef.current.contains(e.target as Node)) {
-        setDesktopLangOpen(false);
+      if (desktopProfileRef.current && !desktopProfileRef.current.contains(e.target as Node)) {
+        setDesktopProfileOpen(false);
       }
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDesktopLangOpen(false);
+      if (e.key === 'Escape') setDesktopProfileOpen(false);
     };
     document.addEventListener('mousedown', handleOutside);
     document.addEventListener('keydown', handleEscape);
@@ -115,24 +148,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       document.removeEventListener('mousedown', handleOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [desktopLangOpen]);
+  }, [desktopProfileOpen]);
 
   useEffect(() => {
-    if (!mobileLangOpen) return;
+    if (!mobileProfileOpen) return;
     const handleOutside = (e: MouseEvent) => {
-      if (mobileLangRef.current && !mobileLangRef.current.contains(e.target as Node)) {
-        setMobileLangOpen(false);
+      if (mobileProfileRef.current && !mobileProfileRef.current.contains(e.target as Node)) {
+        setMobileProfileOpen(false);
       }
     };
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
-  }, [mobileLangOpen]);
+  }, [mobileProfileOpen]);
 
   const activeGarage = activeGarageId
     ? garages.find((g) => g.id === activeGarageId) || null
     : null;
 
-  const currentLangMeta = getLanguageMeta(lang);
   const signedInEmail = user?.email || activeSessionEmail || null;
   const displayName = user?.displayName || signedInEmail || t('signIn');
   const avatarInitial = (user?.displayName || signedInEmail || 'U').charAt(0).toUpperCase();
@@ -181,13 +213,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       visible: true,
     },
     {
-      id: 'settings',
-      label: t('navGarageSettings'),
-      icon: <Settings className="w-4 h-4 shrink-0" />,
-      active: activeView === 'settings',
-      visible: true,
-    },
-    {
       id: 'admin',
       label: t('navSuperAdmin'),
       icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
@@ -205,121 +230,340 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const renderSidebarBody = (collapsed: boolean, isMobileDrawer: boolean) => {
-    const langOpen = isMobileDrawer ? mobileLangOpen : desktopLangOpen;
-    const setLangOpen = isMobileDrawer ? setMobileLangOpen : setDesktopLangOpen;
-    const langContainerRef = isMobileDrawer ? mobileLangRef : desktopLangRef;
-    const langTriggerId = isMobileDrawer
-      ? 'sidebar-mobile-lang-trigger'
-      : 'sidebar-lang-trigger';
-    const langMenuId = isMobileDrawer ? 'sidebar-mobile-lang-menu' : 'sidebar-lang-menu';
-    const themeToggleId = isMobileDrawer
-      ? 'sidebar-mobile-theme-toggle'
-      : 'sidebar-theme-toggle';
+    const profileOpen = isMobileDrawer ? mobileProfileOpen : desktopProfileOpen;
+    const setProfileOpen = isMobileDrawer ? setMobileProfileOpen : setDesktopProfileOpen;
+    const profileContainerRef = isMobileDrawer ? mobileProfileRef : desktopProfileRef;
+
+    const iconHoverClass =
+      theme === 'light' ? 'hover:bg-black/5' : 'hover:bg-white/10';
+    const rowHoverClass =
+      theme === 'light' ? 'hover:bg-black/5' : 'hover:bg-white/5';
+
+    const logoutLabel = pickLocalized(lang, {
+      fr: 'Se déconnecter',
+      ru: 'Выйти из аккаунта',
+      hy: 'Դուրս գալ հաշվից',
+      ka: 'ანგარიშიდან გასვლა',
+    });
+
+    const isSettingsMode = activeView === 'settings';
+
+    const backToAppLabel = pickLocalized(lang, {
+      fr: 'Retour à l’application',
+      ru: 'Вернуться в приложение',
+      hy: 'Վերադառնալ հավելված',
+      ka: 'აპლიკაციაში დაბრუნება',
+    });
+
+    const settingsGroups: {
+      id: string;
+      label: string;
+      items: {
+        id: SettingsTab;
+        label: string;
+        icon: React.ReactNode;
+      }[];
+    }[] = [
+      {
+        id: 'garage-docs',
+        label: pickLocalized(lang, {
+          fr: 'GARAGE & DOCUMENTS',
+          ru: 'ГАРАЖ И ДОКУМЕНТЫ',
+          hy: 'ԱՎՏՈՍՐԱՀ ԵՎ ՓԱՍՏԱԹՂԹԵՐ',
+          ka: 'გარაჟი და დოკუმენტები',
+        }),
+        items: [
+          {
+            id: 'company',
+            label: pickLocalized(lang, {
+              fr: 'Profil Garage / EI',
+              ru: 'Профиль Гаража / ИП',
+              hy: 'Ավտոսրահի պրոֆիլ',
+              ka: 'გარაჟის პროფილი',
+            }),
+            icon: <Building2 className="w-4 h-4 shrink-0" />,
+          },
+          {
+            id: 'templates',
+            label: pickLocalized(lang, {
+              fr: 'Modèles & Cerfa',
+              ru: 'Бланки и Настройки Cerfa',
+              hy: 'Ձևաթղթեր և Cerfa',
+              ka: 'ბლანკები და Cerfa',
+            }),
+            icon: <FileText className="w-4 h-4 shrink-0" />,
+          },
+          {
+            id: 'finance',
+            label: pickLocalized(lang, {
+              fr: 'Finances & TVA',
+              ru: 'Финансы и Налоги',
+              hy: 'Ֆինանսներ և հարկեր',
+              ka: 'ფინანსები და გადასახადები',
+            }),
+            icon: <Coins className="w-4 h-4 shrink-0" />,
+          },
+        ],
+      },
+      {
+        id: 'app',
+        label: pickLocalized(lang, {
+          fr: 'APPLICATION',
+          ru: 'ПРИЛОЖЕНИЕ',
+          hy: 'ՀԱՎԵԼՎԱԾ',
+          ka: 'აპლიკაცია',
+        }),
+        items: [
+          {
+            id: 'appearance',
+            label: pickLocalized(lang, {
+              fr: 'Apparence',
+              ru: 'Внешний вид',
+              hy: 'Արտաքին տեսք',
+              ka: 'გარეგნობა',
+            }),
+            icon: <Palette className="w-4 h-4 shrink-0" />,
+          },
+          {
+            id: 'security',
+            label: pickLocalized(lang, {
+              fr: 'Sécurité & Compte',
+              ru: 'Безопасность и Аккаунт',
+              hy: 'Անվտանգություն և հաշիվ',
+              ka: 'უსაფრთხოება და ანგარიში',
+            }),
+            icon: <ShieldCheck className="w-4 h-4 shrink-0" />,
+          },
+        ],
+      },
+    ];
+
+    const backHoverClass =
+      theme === 'light' ? 'hover:bg-black/5' : 'hover:bg-white/5';
+
+    const renderProfilePopover = (positionClass: string) => (
+      <div
+        role="menu"
+        data-testid={
+          isMobileDrawer ? 'sidebar-mobile-profile-popover' : 'sidebar-profile-popover'
+        }
+        className={`${positionClass} rounded-xl border border-[var(--border)]/60 bg-[var(--card)] text-[var(--foreground)] shadow-xl p-2 w-60 z-50`}
+      >
+        {/* Header: Full email + Subscription badge */}
+        <div className="px-2 py-1.5 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/15 px-2 py-0.5 rounded-md whitespace-nowrap">
+              {t('proDealer')}
+            </span>
+          </div>
+          {user?.displayName && (
+            <p className="text-xs font-semibold text-[var(--foreground)] truncate">
+              {user.displayName}
+            </p>
+          )}
+          <p
+            title={signedInEmail || undefined}
+            className="text-xs text-[var(--muted-foreground)] truncate"
+          >
+            {signedInEmail}
+          </p>
+        </div>
+
+        {/* Status line */}
+        <div className="px-2 py-1 flex items-center gap-1.5 text-[11px] text-[var(--muted-foreground)]">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+          <span className="truncate">{t('liveSync')}</span>
+        </div>
+
+        <div className="border-t border-[var(--border)] my-1.5" />
+
+        {/* Logout button */}
+        <button
+          type="button"
+          data-testid={
+            isMobileDrawer ? 'sidebar-mobile-signout-btn' : 'sidebar-signout-btn'
+          }
+          onClick={() => {
+            setProfileOpen(false);
+            onSignOut();
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-semibold text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">{logoutLabel}</span>
+        </button>
+      </div>
+    );
 
     return (
       <div className="flex flex-col h-full">
-        {/* Top Brand Row inside Sidebar */}
-        <div
-          className={`flex items-center h-14 px-3 border-b border-[var(--ag-header-border)] shrink-0 ${
-            collapsed ? 'justify-center' : 'justify-between gap-2'
-          }`}
-        >
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => handleItemClick('inventory', isMobileDrawer)}
-              className="flex items-center gap-2.5 min-w-0 text-left hover:opacity-90 transition-opacity focus:outline-none"
-              title={t('appName')}
-            >
-              <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-md shrink-0">
-                <Car className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span
-                  style={getTextStyle('appName')}
-                  className="block font-extrabold text-sm tracking-tight truncate text-[var(--ag-header-text)]"
+        {/* Top Header inside Sidebar */}
+        {isSettingsMode ? (
+          <div
+            className={`flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
+              collapsed ? 'justify-center py-4' : 'justify-between px-2 py-2 gap-1'
+            }`}
+          >
+            {!collapsed ? (
+              <>
+                <button
+                  type="button"
+                  data-testid={
+                    isMobileDrawer ? 'sidebar-mobile-settings-back' : 'sidebar-settings-back'
+                  }
+                  onClick={() => {
+                    onExitSettings?.();
+                    if (isMobileDrawer) onCloseMobile();
+                  }}
+                  className={`flex-1 min-w-0 flex items-center gap-2 px-2 py-2 text-[13px] font-medium text-[var(--ag-header-text)] ${backHoverClass} rounded-xl cursor-pointer transition text-left`}
                 >
-                  {t('appName')}
-                </span>
-                <span
-                  style={getTextStyle('proDealer')}
-                  className="inline-block text-[9px] font-bold uppercase tracking-wider text-[var(--primary)]"
-                >
-                  {t('proDealer')}
-                </span>
-              </div>
-            </button>
-          )}
+                  <ArrowLeft className="w-4 h-4 shrink-0 text-[var(--muted-foreground)]" />
+                  <span className="truncate">{backToAppLabel}</span>
+                </button>
 
-          {collapsed && (
-            <button
-              type="button"
-              onClick={onToggleCollapse}
-              className="w-9 h-9 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-md hover:opacity-90 transition"
-              title={t('expandSidebar')}
-              aria-label={t('expandSidebar')}
-            >
-              <Car className="w-4 h-4" />
-            </button>
-          )}
-
-          {isMobileDrawer ? (
-            <button
-              type="button"
-              onClick={onCloseMobile}
-              data-testid="sidebar-mobile-close"
-              aria-label={t('closeNavMenu')}
-              className="p-1.5 rounded-lg bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:opacity-90 transition shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : (
-            !collapsed && (
+                {isMobileDrawer ? (
+                  <button
+                    type="button"
+                    onClick={onCloseMobile}
+                    data-testid="sidebar-mobile-close"
+                    aria-label={t('closeNavMenu')}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onToggleCollapse}
+                    data-testid="sidebar-collapse-toggle"
+                    aria-label={t('collapseSidebar')}
+                    title={t('collapseSidebar')}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0`}
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                )}
+              </>
+            ) : (
               <button
                 type="button"
                 onClick={onToggleCollapse}
                 data-testid="sidebar-collapse-toggle"
-                aria-label={t('collapseSidebar')}
-                title={t('collapseSidebar')}
-                className="p-1.5 rounded-lg bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:opacity-90 transition shrink-0"
+                onMouseEnter={(e) => showCollapsedTooltip(e, t('expandSidebar'), collapsed)}
+                onMouseLeave={hideCollapsedTooltip}
+                onFocus={(e) => showCollapsedTooltip(e, t('expandSidebar'), collapsed)}
+                onBlur={hideCollapsedTooltip}
+                aria-label={t('expandSidebar')}
+                className={`w-9 h-9 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0 cursor-pointer`}
               >
-                <ChevronsLeft className="w-4 h-4" />
+                <ChevronsRight className="w-4 h-4" />
               </button>
-            )
-          )}
-        </div>
+            )}
+          </div>
+        ) : (
+          <div
+            className={`flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
+              collapsed ? 'justify-center py-4' : 'h-13 justify-between px-3 gap-2'
+            }`}
+          >
+            {!collapsed ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleItemClick('inventory', isMobileDrawer)}
+                  className="flex items-center gap-2 min-w-0 text-left hover:opacity-90 transition-opacity focus:outline-none"
+                  title={t('appName')}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-sm shrink-0">
+                    <Car className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <span
+                      style={getTextStyle('appName')}
+                      className="block font-extrabold text-sm leading-tight tracking-tight truncate text-[var(--ag-header-text)]"
+                    >
+                      {t('appName')}
+                    </span>
+                    <span
+                      style={getTextStyle('proDealer')}
+                      className="block text-[9px] font-bold uppercase tracking-wider text-[var(--primary)] leading-tight"
+                    >
+                      {t('proDealer')}
+                    </span>
+                  </div>
+                </button>
 
-        {/* Collapsed Expand Strip */}
-        {collapsed && !isMobileDrawer && (
-          <div className="px-2 pt-2.5 flex justify-center">
-            <button
-              type="button"
-              onClick={onToggleCollapse}
-              data-testid="sidebar-collapse-toggle"
-              aria-label={t('expandSidebar')}
-              title={t('expandSidebar')}
-              className="w-full flex items-center justify-center py-1.5 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:opacity-90 transition"
-            >
-              <ChevronsRight className="w-4 h-4" />
-            </button>
+                {isMobileDrawer ? (
+                  <button
+                    type="button"
+                    onClick={onCloseMobile}
+                    data-testid="sidebar-mobile-close"
+                    aria-label={t('closeNavMenu')}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0`}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onToggleCollapse}
+                    data-testid="sidebar-collapse-toggle"
+                    aria-label={t('collapseSidebar')}
+                    title={t('collapseSidebar')}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0`}
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                data-testid="sidebar-collapse-toggle"
+                onMouseEnter={(e) => showCollapsedTooltip(e, t('expandSidebar'), collapsed)}
+                onMouseLeave={hideCollapsedTooltip}
+                onFocus={(e) => showCollapsedTooltip(e, t('expandSidebar'), collapsed)}
+                onBlur={hideCollapsedTooltip}
+                aria-label={t('expandSidebar')}
+                className={`w-9 h-9 rounded-full flex items-center justify-center text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition shrink-0 cursor-pointer`}
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 
-        {/* Tenant / Garage Switcher Card */}
-        {featureFlags.multiGarage && garages.length > 0 && onSelectGarage && (
-          <div className={`px-3 pt-3 shrink-0 ${collapsed ? 'flex justify-center' : ''}`}>
+        {/* Tenant / Garage Switcher (operational mode only) */}
+        {!isSettingsMode && featureFlags.multiGarage && garages.length > 0 && onSelectGarage && (
+          <div className={`shrink-0 ${collapsed ? 'pt-2 pb-1 flex justify-center' : 'px-3 pt-2.5 pb-1'}`}>
             {collapsed ? (
               <button
                 type="button"
                 onClick={onToggleCollapse}
-                title={activeGarage ? activeGarage.name : t('allGarages')}
+                onMouseEnter={(e) =>
+                  showCollapsedTooltip(
+                    e,
+                    activeGarage ? activeGarage.name : t('allGarages'),
+                    collapsed
+                  )
+                }
+                onMouseLeave={hideCollapsedTooltip}
+                onFocus={(e) =>
+                  showCollapsedTooltip(
+                    e,
+                    activeGarage ? activeGarage.name : t('allGarages'),
+                    collapsed
+                  )
+                }
+                onBlur={hideCollapsedTooltip}
                 aria-label={activeGarage ? activeGarage.name : t('allGarages')}
-                className="w-11 h-11 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] border border-[var(--border)] flex items-center justify-center text-[var(--primary)] hover:opacity-90 transition"
+                className={`w-9 h-9 rounded-full flex items-center justify-center text-[var(--primary)] ${iconHoverClass} transition`}
               >
                 <Building2 className="w-4 h-4" />
               </button>
             ) : (
-              <div className="rounded-[var(--ag-card-radius)] bg-[var(--surface-muted)]/75 border border-[var(--border)] p-2.5 space-y-1.5">
+              <div className="rounded-xl bg-[var(--surface-muted)]/60 border border-[var(--border)] p-2 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
                     <Building2 className="w-3 h-3 text-[var(--primary)]" />
@@ -343,152 +587,232 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     { value: '', label: t('allGarages') },
                     ...garages.map((g) => ({ value: g.id, label: g.name })),
                   ]}
-                  triggerClassName="w-full bg-[var(--card)] text-xs font-semibold text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5"
+                  triggerClassName="w-full bg-[var(--card)] text-xs font-semibold text-[var(--foreground)] border border-[var(--border)] rounded-lg px-2.5 py-1.5"
                 />
               </div>
             )}
           </div>
         )}
 
-        {/* Primary Vertical Navigation Links */}
-        <nav
-          aria-label={t('navSectionLabel')}
-          className="flex-1 overflow-y-auto px-3 py-4 space-y-1.5"
-        >
-          {!collapsed && (
-            <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
-              {t('navSectionLabel')}
-            </div>
-          )}
-
-          {navItems
-            .filter((item) => item.visible)
-            .map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                data-testid={
-                  isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
-                }
-                onClick={() => handleItemClick(item.id, isMobileDrawer)}
-                title={collapsed ? item.label : undefined}
-                aria-label={collapsed ? item.label : undefined}
-                className={`w-full flex items-center gap-3 rounded-[var(--ag-button-radius)] text-xs font-semibold transition-all ${
-                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-                } ${
-                  item.active
-                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
-                    : item.accentAdmin
-                    ? 'text-[var(--primary)] hover:bg-[var(--surface-muted)]'
-                    : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
-                }`}
-              >
-                {item.icon}
-                {!collapsed && <span className="truncate">{item.label}</span>}
-              </button>
-            ))}
-        </nav>
-
-        {/* Sidebar Footer: Language Dropdown, Theme Toggle, User Profile & Auth, Live Sync */}
-        <div
-          data-testid={isMobileDrawer ? 'sidebar-mobile-footer' : 'sidebar-footer'}
-          className={`border-t border-[var(--ag-header-border)] shrink-0 ${
-            collapsed ? 'px-2 py-3 flex flex-col items-center gap-2' : 'px-3 py-3 space-y-2.5'
-          }`}
-        >
-          {/* Language Dropdown + Theme Toggle */}
-          {collapsed ? (
-            <>
-              <div ref={langContainerRef} className="relative flex justify-center w-full">
+        {/* Primary Navigation OR Dedicated Settings Navigation */}
+        {isSettingsMode ? (
+          <nav
+            aria-label={t('navGarageSettings')}
+            data-testid={isMobileDrawer ? 'sidebar-mobile-settings-nav' : 'sidebar-settings-nav'}
+            className={`flex-1 overflow-y-auto no-scrollbar ${
+              collapsed ? 'px-2 py-2 flex flex-col items-center gap-1' : 'px-3 py-3 space-y-4'
+            }`}
+          >
+            {collapsed && (
+              <>
                 <button
                   type="button"
-                  data-testid={langTriggerId}
-                  onClick={() => setLangOpen((prev) => !prev)}
-                  aria-haspopup="menu"
-                  aria-expanded={langOpen}
-                  aria-label={`${t('languageLabel')}: ${currentLangMeta.menuLabel}`}
-                  title={currentLangMeta.menuLabel}
-                  className="w-10 h-10 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] flex items-center justify-center transition"
+                  data-testid="sidebar-settings-back"
+                  onClick={() => {
+                    hideCollapsedTooltip();
+                    onExitSettings?.();
+                  }}
+                  onMouseEnter={(e) => showCollapsedTooltip(e, backToAppLabel, collapsed)}
+                  onMouseLeave={hideCollapsedTooltip}
+                  onFocus={(e) => showCollapsedTooltip(e, backToAppLabel, collapsed)}
+                  onBlur={hideCollapsedTooltip}
+                  aria-label={backToAppLabel}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-[var(--ag-header-text)]/85 hover:text-[var(--ag-header-text)] ${iconHoverClass} transition cursor-pointer`}
                 >
-                  <Globe className="w-4 h-4 text-[var(--primary)]" />
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
+                <div className="w-6 h-px bg-[var(--ag-header-border)] my-1 shrink-0" />
+              </>
+            )}
 
-                {langOpen && (
-                  <div
-                    role="menu"
-                    data-testid={langMenuId}
-                    className="absolute left-full bottom-0 ml-2 w-56 rounded-xl bg-[var(--card)] border border-[var(--border)] shadow-2xl p-1.5 space-y-1 z-50"
-                  >
-                    {SUPPORTED_LANGUAGES.map((option) => {
-                      const active = option.code === lang;
-                      return (
-                        <button
-                          key={option.code}
-                          type="button"
-                          role="menuitemradio"
-                          aria-checked={active}
-                          data-testid={`lang-option-${option.code}`}
-                          onClick={() => {
-                            setLang(option.code);
-                            setLangOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition ${
-                            active
-                              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold'
-                              : 'text-[var(--foreground)] hover:bg-[var(--surface-muted)] font-medium'
-                          }`}
-                        >
-                          <span className="truncate">{option.menuLabel}</span>
-                          {active && <Check className="w-3.5 h-3.5 shrink-0" />}
-                        </button>
-                      );
-                    })}
+            {settingsGroups.map((group, groupIndex) => (
+              <div
+                key={group.id}
+                className={collapsed ? 'flex flex-col items-center gap-1 w-full' : 'space-y-1'}
+              >
+                {!collapsed ? (
+                  <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
+                    {group.label}
                   </div>
+                ) : (
+                  groupIndex > 0 && (
+                    <div className="w-6 h-px bg-[var(--ag-header-border)] my-1 shrink-0" />
+                  )
                 )}
-              </div>
 
+                {group.items.map((item) => {
+                  const active = activeSettingsTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-testid={
+                        isMobileDrawer
+                          ? `sidebar-mobile-settings-tab-${item.id}`
+                          : `sidebar-settings-tab-${item.id}`
+                      }
+                      onClick={() => {
+                        onSelectSettingsTab?.(item.id);
+                        if (isMobileDrawer) onCloseMobile();
+                      }}
+                      onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                      onMouseLeave={hideCollapsedTooltip}
+                      onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                      onBlur={hideCollapsedTooltip}
+                      aria-label={collapsed ? item.label : undefined}
+                      className={
+                        collapsed
+                          ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                                : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                            }`
+                          : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors cursor-pointer text-left ${
+                              active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                                : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
+                            }`
+                      }
+                    >
+                      {item.icon}
+                      {!collapsed && <span className="truncate">{item.label}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </nav>
+        ) : (
+          <nav
+            aria-label={t('navSectionLabel')}
+            className={`flex-1 overflow-y-auto no-scrollbar ${
+              collapsed ? 'px-2 py-2 flex flex-col items-center gap-1' : 'px-3 py-2 space-y-0.5'
+            }`}
+          >
+            {!collapsed && (
+              <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {t('navSectionLabel')}
+              </div>
+            )}
+
+            {navItems
+              .filter((item) => item.visible)
+              .map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={
+                    isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
+                  }
+                  onClick={() => handleItemClick(item.id, isMobileDrawer)}
+                  onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                  onMouseLeave={hideCollapsedTooltip}
+                  onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                  onBlur={hideCollapsedTooltip}
+                  aria-label={collapsed ? item.label : undefined}
+                  className={
+                    collapsed
+                      ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                          item.active
+                            ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                            : item.accentAdmin
+                            ? `text-[var(--primary)] ${iconHoverClass}`
+                            : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                        }`
+                      : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors ${
+                          item.active
+                            ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                            : item.accentAdmin
+                            ? 'text-[var(--primary)] hover:bg-[var(--surface-muted)]'
+                            : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
+                        }`
+                  }
+                >
+                  {item.icon}
+                  {!collapsed && <span className="truncate">{item.label}</span>}
+                </button>
+              ))}
+          </nav>
+        )}
+
+        {/* Sidebar Footer */}
+        <div
+          data-testid={isMobileDrawer ? 'sidebar-mobile-footer' : 'sidebar-footer'}
+          className={`shrink-0 ${
+            collapsed
+              ? 'px-2 py-2.5 flex flex-col items-center gap-1.5'
+              : 'px-3 py-2.5 flex items-center justify-between gap-1.5'
+          }`}
+        >
+          {collapsed ? (
+            <>
               <button
                 type="button"
-                data-testid={themeToggleId}
-                onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-                title={theme === 'dark' ? t('themeLight') : t('themeDark')}
-                aria-label={theme === 'dark' ? t('themeLight') : t('themeDark')}
-                className="w-10 h-10 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] flex items-center justify-center transition"
+                data-testid={
+                  isMobileDrawer ? 'sidebar-mobile-settings-btn' : 'sidebar-settings-btn'
+                }
+                onClick={() => {
+                  hideCollapsedTooltip();
+                  handleItemClick('settings', isMobileDrawer);
+                }}
+                onMouseEnter={(e) => showCollapsedTooltip(e, t('navGarageSettings'), collapsed)}
+                onMouseLeave={hideCollapsedTooltip}
+                onFocus={(e) => showCollapsedTooltip(e, t('navGarageSettings'), collapsed)}
+                onBlur={hideCollapsedTooltip}
+                aria-label={t('navGarageSettings')}
+                className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition cursor-pointer ${
+                  activeView === 'settings'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                    : `text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                }`}
               >
-                {theme === 'dark' ? (
-                  <Sun className="w-4 h-4 text-amber-400" />
-                ) : (
-                  <Moon className="w-4 h-4 text-indigo-500" />
-                )}
+                <Settings className="w-4 h-4" />
               </button>
 
               {signedInEmail ? (
-                <>
-                  <div
-                    title={displayName}
-                    className="w-9 h-9 rounded-full bg-[var(--primary)]/15 border border-[var(--primary)]/40 text-[var(--primary)] flex items-center justify-center text-xs font-extrabold overflow-hidden shrink-0"
-                  >
-                    {user?.photoURL ? (
-                      <img
-                        src={user.photoURL}
-                        alt={displayName}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span>{avatarInitial}</span>
-                    )}
-                  </div>
+                <div ref={profileContainerRef} className="relative flex justify-center">
                   <button
                     type="button"
-                    data-testid={isMobileDrawer ? 'sidebar-mobile-signout-btn' : 'sidebar-signout-btn'}
-                    onClick={onSignOut}
-                    title={t('signOut')}
-                    aria-label={t('signOut')}
-                    className="w-10 h-9 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--muted-foreground)] hover:text-rose-400 border border-[var(--border)] flex items-center justify-center transition"
+                    data-testid={
+                      isMobileDrawer
+                        ? 'sidebar-mobile-profile-trigger'
+                        : 'sidebar-profile-trigger'
+                    }
+                    onClick={() => {
+                      hideCollapsedTooltip();
+                      setProfileOpen((prev) => !prev);
+                    }}
+                    onMouseEnter={(e) => showCollapsedTooltip(e, displayName, collapsed)}
+                    onMouseLeave={hideCollapsedTooltip}
+                    onFocus={(e) => showCollapsedTooltip(e, displayName, collapsed)}
+                    onBlur={hideCollapsedTooltip}
+                    aria-haspopup="menu"
+                    aria-expanded={profileOpen}
+                    aria-label={displayName}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer ${iconHoverClass} transition`}
                   >
-                    <LogOut className="w-4 h-4" />
+                    <span className="relative w-8 h-8 rounded-full bg-[var(--primary)]/20 text-[var(--primary)] flex items-center justify-center text-xs font-extrabold">
+                      <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                        {user?.photoURL ? (
+                          <img
+                            src={user.photoURL}
+                            alt={displayName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span>{avatarInitial}</span>
+                        )}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--ag-header-bg)]"
+                      />
+                    </span>
                   </button>
-                </>
+
+                  {profileOpen &&
+                    renderProfilePopover('absolute left-full bottom-0 ml-3')}
+                </div>
               ) : (
                 <button
                   type="button"
@@ -497,128 +821,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onOpenAuthModal();
                     if (isMobileDrawer) onCloseMobile();
                   }}
-                  title={t('signIn')}
+                  onMouseEnter={(e) => showCollapsedTooltip(e, t('signIn'), collapsed)}
+                  onMouseLeave={hideCollapsedTooltip}
+                  onFocus={(e) => showCollapsedTooltip(e, t('signIn'), collapsed)}
+                  onBlur={hideCollapsedTooltip}
                   aria-label={t('signIn')}
-                  className="w-10 h-10 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] flex items-center justify-center transition"
+                  className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer ${iconHoverClass} transition`}
                 >
-                  <LogIn className="w-4 h-4 text-[var(--primary)]" />
+                  <span className="relative w-8 h-8 rounded-full bg-[var(--surface-muted)] text-[var(--muted-foreground)] flex items-center justify-center">
+                    <UserIcon className="w-4 h-4" />
+                    <span
+                      aria-hidden="true"
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--ag-header-bg)]"
+                    />
+                  </span>
                 </button>
               )}
-
-              <div className="flex justify-center pt-0.5" title={t('liveSync')}>
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--ag-profit-color)] animate-pulse" />
-              </div>
             </>
           ) : (
             <>
-              <div className="flex items-center gap-2">
-                <div ref={langContainerRef} className="relative flex-1 min-w-0">
-                  <button
-                    type="button"
-                    data-testid={langTriggerId}
-                    onClick={() => setLangOpen((prev) => !prev)}
-                    aria-haspopup="menu"
-                    aria-expanded={langOpen}
-                    aria-label={`${t('languageLabel')}: ${currentLangMeta.menuLabel}`}
-                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] text-xs font-bold transition"
-                  >
-                    <span className="inline-flex items-center gap-2 min-w-0">
-                      <Globe className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
-                      <span className="truncate">{currentLangMeta.shortCode}</span>
-                    </span>
-                    <ChevronUp
-                      className={`w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0 transition-transform ${
-                        langOpen ? '' : 'rotate-180'
-                      }`}
-                    />
-                  </button>
-
-                  {langOpen && (
-                    <div
-                      role="menu"
-                      data-testid={langMenuId}
-                      className="absolute bottom-full left-0 mb-2 w-full min-w-[228px] rounded-xl bg-[var(--card)] border border-[var(--border)] shadow-2xl p-1.5 space-y-1 z-50"
-                    >
-                      {SUPPORTED_LANGUAGES.map((option) => {
-                        const active = option.code === lang;
-                        return (
-                          <button
-                            key={option.code}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={active}
-                            data-testid={`lang-option-${option.code}`}
-                            onClick={() => {
-                              setLang(option.code);
-                              setLangOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition ${
-                              active
-                                ? 'bg-[var(--primary)] text-[var(--primary-foreground)] font-bold'
-                                : 'text-[var(--foreground)] hover:bg-[var(--surface-muted)] font-medium'
-                            }`}
-                          >
-                            <span className="truncate">{option.menuLabel}</span>
-                            {active && <Check className="w-3.5 h-3.5 shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  data-testid={themeToggleId}
-                  onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-                  title={theme === 'dark' ? t('themeLight') : t('themeDark')}
-                  aria-label={theme === 'dark' ? t('themeLight') : t('themeDark')}
-                  className="p-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] transition shrink-0"
-                >
-                  {theme === 'dark' ? (
-                    <Sun className="w-4 h-4 text-amber-400" />
-                  ) : (
-                    <Moon className="w-4 h-4 text-indigo-500" />
-                  )}
-                </button>
-              </div>
-
-              {/* User Profile Avatar & Auth Action */}
               {signedInEmail ? (
-                <div className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)]/70 border border-[var(--border)]">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-full bg-[var(--primary)]/15 border border-[var(--primary)]/40 text-[var(--primary)] flex items-center justify-center text-xs font-extrabold overflow-hidden shrink-0">
-                      {user?.photoURL ? (
-                        <img
-                          src={user.photoURL}
-                          alt={displayName}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span>{avatarInitial}</span>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <span className="block text-[11px] font-semibold text-[var(--ag-header-text)] truncate">
-                        {user?.displayName || signedInEmail}
-                      </span>
-                      {user?.displayName && (
-                        <span className="block text-[10px] text-[var(--muted-foreground)] truncate">
-                          {signedInEmail}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                <div ref={profileContainerRef} className="relative min-w-0 flex-1">
                   <button
                     type="button"
-                    data-testid={isMobileDrawer ? 'sidebar-mobile-signout-btn' : 'sidebar-signout-btn'}
-                    onClick={onSignOut}
-                    title={t('signOut')}
-                    aria-label={t('signOut')}
-                    className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-rose-400 hover:bg-[var(--background)]/60 transition shrink-0"
+                    data-testid={
+                      isMobileDrawer
+                        ? 'sidebar-mobile-profile-trigger'
+                        : 'sidebar-profile-trigger'
+                    }
+                    onClick={() => setProfileOpen((prev) => !prev)}
+                    aria-haspopup="menu"
+                    aria-expanded={profileOpen}
+                    className={`w-full flex items-center gap-2.5 px-2 py-1.5 ${rowHoverClass} rounded-xl cursor-pointer text-left transition`}
                   >
-                    <LogOut className="w-3.5 h-3.5" />
+                    <span className="relative w-8 h-8 rounded-full bg-[var(--primary)]/15 text-[var(--primary)] flex items-center justify-center text-xs font-extrabold shrink-0">
+                      <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                        {user?.photoURL ? (
+                          <img
+                            src={user.photoURL}
+                            alt={displayName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span>{avatarInitial}</span>
+                        )}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--ag-header-bg)]"
+                      />
+                    </span>
+                    <span className="text-sm font-medium text-[var(--ag-header-text)] truncate min-w-0 flex-1">
+                      {user?.displayName || signedInEmail}
+                    </span>
                   </button>
+
+                  {profileOpen &&
+                    renderProfilePopover('absolute bottom-full left-0 mb-2')}
                 </div>
               ) : (
                 <button
@@ -628,23 +887,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onOpenAuthModal();
                     if (isMobileDrawer) onCloseMobile();
                   }}
-                  className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:border-[var(--primary)] text-xs font-semibold transition"
+                  className={`min-w-0 flex-1 flex items-center gap-2.5 px-2 py-1.5 ${rowHoverClass} rounded-xl cursor-pointer text-left transition`}
                 >
-                  <span className="inline-flex items-center gap-2 min-w-0">
-                    <span className="w-6 h-6 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center shrink-0">
-                      <UserIcon className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                    </span>
-                    <span className="truncate">{t('signIn')}</span>
+                  <span className="relative w-8 h-8 rounded-full bg-[var(--surface-muted)] text-[var(--muted-foreground)] flex items-center justify-center shrink-0">
+                    <UserIcon className="w-4 h-4" />
+                    <span
+                      aria-hidden="true"
+                      className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[var(--ag-header-bg)]"
+                    />
                   </span>
-                  <LogIn className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
+                  <span className="text-sm font-medium text-[var(--ag-header-text)] truncate min-w-0 flex-1">
+                    {t('signIn')}
+                  </span>
                 </button>
               )}
 
-              {/* Bottom Live Sync Status */}
-              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-[var(--background)]/60 border border-[var(--border)] text-[11px] text-[var(--muted-foreground)]">
-                <span className="w-2 h-2 rounded-full bg-[var(--ag-profit-color)] animate-pulse shrink-0" />
-                <span className="truncate">{t('liveSync')}</span>
-              </div>
+              <button
+                type="button"
+                data-testid={
+                  isMobileDrawer ? 'sidebar-mobile-settings-btn' : 'sidebar-settings-btn'
+                }
+                onClick={() => handleItemClick('settings', isMobileDrawer)}
+                aria-label={t('navGarageSettings')}
+                title={t('navGarageSettings')}
+                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition cursor-pointer ${
+                  activeView === 'settings'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                    : `text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+              </button>
             </>
           )}
         </div>
@@ -659,11 +932,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         data-testid="desktop-sidebar"
         data-collapsed={isCollapsed ? 'true' : 'false'}
         className={`hidden lg:flex flex-col shrink-0 sticky top-0 h-screen z-30 bg-[var(--ag-header-bg)] text-[var(--ag-header-text)] border-r border-[var(--ag-header-border)] transition-all duration-200 ${
-          isCollapsed ? 'w-[76px]' : 'w-64'
+          isCollapsed ? 'w-[68px]' : 'w-64'
         }`}
       >
         {renderSidebarBody(isCollapsed, false)}
       </aside>
+
+      {/* Custom Floating Pill Tooltip for Collapsed Mode */}
+      {isCollapsed && hoveredTooltip && !desktopProfileOpen && (
+        <div
+          role="tooltip"
+          data-testid="sidebar-collapsed-tooltip"
+          style={{
+            top: hoveredTooltip.y,
+            left: hoveredTooltip.x,
+          }}
+          className={`fixed -translate-y-1/2 z-50 pointer-events-none whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium shadow-md ${
+            theme === 'dark'
+              ? 'bg-zinc-800 text-zinc-100'
+              : 'bg-zinc-200 text-zinc-900'
+          }`}
+        >
+          {hoveredTooltip.label}
+        </div>
+      )}
 
       {/* Mobile & Tablet Slide-Out Drawer (< lg / 1024px) */}
       {mobileOpen && (

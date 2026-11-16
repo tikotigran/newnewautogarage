@@ -73,6 +73,7 @@ import {
 } from '../utils/pdfGenerator';
 import { Cerfa15776Modal } from './Cerfa15776Modal';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 
 interface VehicleDetailProps {
@@ -102,6 +103,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [expensesLoaded, setExpensesLoaded] = useState(false);
   const [isLoadingSubdata, setIsLoadingSubdata] = useState(true);
   const [showCerfaWizard, setShowCerfaWizard] = useState(false);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
 
   // Inline Carte Grise / Cerfa technical editor state
   const [isEditingSpecs, setIsEditingSpecs] = useState(false);
@@ -131,6 +133,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     setSpecCertDate(vehicle.certificateDate || '');
     setSpecError(null);
   }, [vehicle]);
+
+  useEffect(() => {
+    setActivePhotoIndex(0);
+  }, [vehicle.id]);
 
   // New repair task form state
   const [showAddTask, setShowAddTask] = useState(false);
@@ -322,25 +328,25 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   return (
     <div className="space-y-[var(--ag-section-gap)]">
       {/* Top Breadcrumb & Actions Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm">
-        <div className="flex items-center gap-3">
+      <div
+        data-testid="vehicle-detail-header"
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] py-4 px-5 shadow-sm"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <button
             onClick={onBack}
-            className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition"
+            className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition shrink-0"
             title={t('backToFleet')}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black text-[var(--foreground)] tracking-tight">
                 {vehicle.make} {vehicle.model}
               </h1>
               <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] tabular-nums">
                 {vehicle.year}
-              </span>
-              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${statusBadge.bg}`}>
-                {statusBadge.label}
               </span>
             </div>
             <p className="text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-2 mt-0.5 font-mono tabular-nums">
@@ -352,20 +358,21 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <span>·</span>
                 </>
               )}
-              <span>VIN : {vehicle.vin || '—'}</span>
-              <span>·</span>
               <span>{vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km</span>
-              <span>·</span>
-              <span className="text-[var(--secondary-foreground)]">{vehicle.trim || 'Standard'}</span>
             </p>
           </div>
         </div>
 
         {/* Action Buttons: Status selector, Edit, Sell, Delete */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div
+          data-testid="vehicle-detail-actions"
+          className="flex flex-nowrap items-center gap-2 shrink-0"
+        >
           {/* Dynamic Lifecycle Status Selector */}
-          <div className="flex items-center bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)]">
-            <span className="text-[11px] text-[var(--muted-foreground)] px-2 font-medium">{t('statusLabel')}</span>
+          <div className="flex items-center bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)] shrink-0">
+            <span className="text-[11px] text-[var(--muted-foreground)] px-2 font-medium whitespace-nowrap">
+              {t('statusLabel')}
+            </span>
             <ThemedSelect<VehicleStatus>
               testId="vehicle-detail-status-select"
               ariaLabel={t('statusLabel')}
@@ -377,31 +384,31 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 { value: 'for_sale', label: `🏷️ ${t('statusForSale')}` },
                 { value: 'sold', label: `✅ ${t('statusSold')}` },
               ]}
-              triggerClassName="text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2.5 py-1.5 border border-[var(--border)]"
+              triggerClassName="text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] rounded-lg px-2.5 py-1.5 border border-[var(--border)] whitespace-nowrap"
             />
           </div>
 
           {!isSold ? (
             <button
               onClick={() => onOpenSellModal(vehicle)}
-              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
+              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <span style={getTextStyle('recordSaleBtn')}>{t('recordSaleBtn')}</span>
             </button>
           ) : (
             <button
               onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
-              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap"
+              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 shrink-0" />
               <span style={getTextStyle('invoicePdfBtn')}>{t('invoicePdfBtn')}</span>
             </button>
           )}
 
           <button
             onClick={() => onOpenEdit(vehicle)}
-            className="p-2 text-[var(--secondary-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition"
+            className="p-2 text-[var(--secondary-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-[var(--ag-button-radius)] transition shrink-0"
             title={t('editVehicleTitle')}
           >
             <Edit className="w-4 h-4" />
@@ -413,7 +420,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 onDeleteVehicle(vehicle.id);
               }
             }}
-            className="p-2 text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-[var(--ag-button-radius)] transition border border-red-500/30"
+            className="p-2 text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 rounded-[var(--ag-button-radius)] transition border border-red-500/30 shrink-0"
             title={t('deleteVehicleTitle')}
           >
             <Trash2 className="w-4 h-4" />
@@ -830,45 +837,155 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       </div>
 
       {/* TAB 1: OVERVIEW & PHOTOS */}
-      {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Photo Gallery & Details */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Main Photo & Carousel */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-sm">
-              <div className="relative h-72 sm:h-96 w-full bg-[var(--background)]">
-                {vehicle.photos && vehicle.photos.length > 0 ? (
-                  <img
-                    src={vehicle.photos[0]}
-                    alt={vehicle.model}
-                    className="w-full h-full object-cover"
-                  />
+      {activeTab === 'overview' && (() => {
+        const photos = vehicle.photos || [];
+        const safePhotoIndex = activePhotoIndex < photos.length ? activePhotoIndex : 0;
+        const primaryLabel = pickLocalized(lang, {
+          fr: 'Caractéristiques principales',
+          ru: 'Основные характеристики',
+          hy: 'Հիմնական տվյալներ',
+          ka: 'ძირითადი მახასიათებლები',
+        });
+        const cerfaLabel = pickLocalized(lang, {
+          fr: 'Immatriculation & Carte Grise',
+          ru: 'Регистрация и Carte Grise',
+          hy: 'Գրանցում և Carte Grise',
+          ka: 'რეგისტრაცია და Carte Grise',
+        });
+
+        const generalSpecs = [
+          { label: t('make'), value: vehicle.make || '—' },
+          { label: t('model'), value: vehicle.model || '—' },
+          { label: t('year'), value: String(vehicle.year || '—'), tabular: true },
+          {
+            label: t('mileage'),
+            value: `${(vehicle.mileage ?? 0).toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km`,
+            tabular: true,
+          },
+          { label: t('fuelTypeLabel'), value: vehicle.fuelType || '—' },
+          { label: t('gearboxLabel'), value: vehicle.gearbox || '—' },
+          {
+            label: t('purchaseDate'),
+            value: vehicle.purchaseDate ? formatDate(vehicle.purchaseDate) : '—',
+            tabular: true,
+          },
+          {
+            label: t('purchasePriceLabel'),
+            value: formatEuro(vehicle.purchasePrice),
+            tabular: true,
+            emphasize: true,
+          },
+        ];
+
+        const cerfaSpecs = [
+          {
+            label: t('plateFieldLabel'),
+            value: vehicle.registrationNumber || '—',
+            mono: true,
+            tone: vehicle.registrationNumber ? 'plate' : 'muted',
+          },
+          {
+            label: t('vinFieldLabel'),
+            value: vehicle.vin || '—',
+            mono: true,
+            tone: vehicle.vin ? 'accent' : 'muted',
+          },
+          {
+            label: t('d2TypeLabel'),
+            value: vehicle.typeVariantVersion || '—',
+            mono: true,
+          },
+          {
+            label: t('j1GenreLabel'),
+            value: vehicle.nationalGenre || '—',
+            mono: true,
+          },
+          {
+            label: t('j3BodyLabel'),
+            value: vehicle.bodyType || '—',
+            mono: true,
+          },
+          {
+            label: t('formulaNumberLabel'),
+            value: vehicle.formulaNumber || '—',
+            mono: true,
+          },
+          {
+            label: t('certificateDateLabel'),
+            value: vehicle.certificateDate ? formatDate(vehicle.certificateDate) : '—',
+            tabular: true,
+          },
+        ];
+
+        return (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Left Column: Compact Photo Gallery & Two-Column Spec Table */}
+          <div className="lg:col-span-2 space-y-5">
+            {/* Compact Photo Gallery (240px-256px) & Horizontal Thumbnail Strip */}
+            <div
+              data-testid="vehicle-photo-gallery"
+              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-sm"
+            >
+              <div className="relative h-[240px] sm:h-[256px] w-full bg-[var(--background)]">
+                {photos.length > 0 ? (
+                  <>
+                    <img
+                      src={photos[safePhotoIndex]}
+                      alt={`${vehicle.make} ${vehicle.model}`}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                    {photos.length > 1 && (
+                      <div className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-slate-950/75 backdrop-blur-sm text-[11px] font-semibold text-white tabular-nums border border-white/10">
+                        {safePhotoIndex + 1} / {photos.length}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <VehiclePhotoPlaceholder variant="detail" />
                 )}
               </div>
 
-              {/* Thumbnails */}
-              {vehicle.photos.length > 1 && (
-                <div className="p-4 bg-[var(--surface-muted)] border-t border-[var(--border)] flex gap-3 overflow-x-auto">
-                  {vehicle.photos.map((p, idx) => (
-                    <img
-                      key={idx}
-                      src={p}
-                      alt={`Vue ${idx + 1}`}
-                      className="w-20 h-14 rounded-lg object-cover border border-[var(--border)] shrink-0 cursor-pointer hover:border-[var(--primary)] transition"
-                    />
-                  ))}
+              {/* Sleek Horizontal Thumbnail Strip */}
+              {photos.length > 1 && (
+                <div className="px-3 py-2 bg-[var(--surface-muted)]/60 border-t border-[var(--border)] flex items-center gap-2 overflow-x-auto">
+                  {photos.map((p, idx) => {
+                    const isSelected = idx === safePhotoIndex;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActivePhotoIndex(idx)}
+                        aria-label={`${vehicle.make} ${vehicle.model} ${idx + 1}`}
+                        aria-pressed={isSelected}
+                        className={`relative w-16 h-11 rounded-lg overflow-hidden shrink-0 border transition ${
+                          isSelected
+                            ? 'border-[var(--primary)] ring-2 ring-[var(--primary)]/30 opacity-100'
+                            : 'border-[var(--border)] opacity-75 hover:opacity-100 hover:border-[var(--primary)]/60'
+                        }`}
+                      >
+                        <img
+                          src={p}
+                          alt={`${vehicle.make} ${vehicle.model} ${idx + 1}`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
             {/* Technical Specifications & Carte Grise Summary Card */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <div
+              data-testid="vehicle-tech-specs-card"
+              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border)]">
                 <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
-                  <Gauge className="w-4 h-4 text-[var(--primary)]" />
-                  {t('techSpecTitle')}
+                  <Gauge className="w-4 h-4 text-[var(--primary)] shrink-0" />
+                  <span>{t('techSpecTitle')}</span>
                 </h3>
                 <button
                   type="button"
@@ -877,7 +994,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     setSpecError(null);
                     setIsEditingSpecs((prev) => !prev);
                   }}
-                  className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--primary)] border border-[var(--border)] transition flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--primary)] border border-[var(--border)] transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
                 >
                   <Edit className="w-3.5 h-3.5" />
                   <span>
@@ -1086,72 +1203,70 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </div>
                 </form>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('make')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.make}</span>
+                <div
+                  data-testid="vehicle-specs-two-column"
+                  className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6"
+                >
+                  {/* Left Group: Основные характеристики */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--muted-foreground)] pb-2 mb-1 border-b border-[var(--border)]">
+                      {primaryLabel}
+                    </h4>
+                    <dl className="divide-y divide-[var(--border)]/40">
+                      {generalSpecs.map((item) => (
+                        <div
+                          key={item.label}
+                          className="py-2 flex items-baseline justify-between gap-4 text-sm"
+                        >
+                          <dt className="text-[var(--muted-foreground)] shrink-0">
+                            {item.label}
+                          </dt>
+                          <dd
+                            className={`text-right truncate ${
+                              item.emphasize
+                                ? 'font-bold text-[var(--foreground)]'
+                                : 'font-medium text-[var(--foreground)]'
+                            } ${item.tabular ? 'tabular-nums' : ''}`}
+                          >
+                            {item.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
                   </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('model')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm">{vehicle.model}</span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('year')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{vehicle.year}</span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('mileage')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
-                      {vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('vinFieldLabel')}</span>
-                    <span className="text-[var(--primary)] font-mono font-bold text-xs break-all">
-                      {vehicle.vin || '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('plateFieldLabel')}</span>
-                    <span className="text-blue-500 font-mono font-bold text-sm">
-                      {vehicle.registrationNumber || '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('fuelTypeLabel')} / {t('gearboxLabel')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-xs">
-                      {[vehicle.fuelType, vehicle.gearbox].filter(Boolean).join(' • ') || '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">D.2 / J.1 / J.3</span>
-                    <span className="text-[var(--foreground)] font-mono font-bold text-xs break-all">
-                      {[vehicle.typeVariantVersion, vehicle.nationalGenre, vehicle.bodyType]
-                        .filter(Boolean)
-                        .join(' · ') || '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('formulaNumberLabel')}</span>
-                    <span className="text-[var(--foreground)] font-mono font-bold text-xs break-all">
-                      {vehicle.formulaNumber || '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('certificateDateLabel')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-xs tabular-nums">
-                      {vehicle.certificateDate ? formatDate(vehicle.certificateDate) : '—'}
-                    </span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('purchaseDate')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">{formatDate(vehicle.purchaseDate)}</span>
-                  </div>
-                  <div className="bg-[var(--surface-muted)] p-3 rounded-xl border border-[var(--border)]">
-                    <span className="text-[var(--muted-foreground)] block">{t('purchasePriceLabel')}</span>
-                    <span className="text-[var(--foreground)] font-bold text-sm tabular-nums">
-                      {formatEuro(vehicle.purchasePrice)}
-                    </span>
+
+                  {/* Right Group: Регистрация и Carte Grise */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--muted-foreground)] pb-2 mb-1 border-b border-[var(--border)]">
+                      {cerfaLabel}
+                    </h4>
+                    <dl className="divide-y divide-[var(--border)]/40">
+                      {cerfaSpecs.map((item) => (
+                        <div
+                          key={item.label}
+                          className="py-2 flex items-baseline justify-between gap-4 text-sm"
+                        >
+                          <dt className="text-[var(--muted-foreground)] shrink-0">
+                            {item.label}
+                          </dt>
+                          <dd
+                            className={`text-right ${
+                              item.mono ? 'font-mono text-xs sm:text-sm' : ''
+                            } ${item.tabular ? 'tabular-nums' : ''} ${
+                              item.tone === 'plate'
+                                ? 'font-bold text-blue-500'
+                                : item.tone === 'accent'
+                                ? 'font-bold text-[var(--primary)] break-all'
+                                : item.tone === 'muted'
+                                ? 'text-[var(--muted-foreground)]'
+                                : 'font-medium text-[var(--foreground)] break-all'
+                            }`}
+                          >
+                            {item.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
                   </div>
                 </div>
               )}
@@ -1295,7 +1410,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* TAB 2: REPAIR WORKS & TASKS MODULE (TO-DO CHECKLIST) */}
       {featureFlags.repairChecklist && activeTab === 'repairs' && (

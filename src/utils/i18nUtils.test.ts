@@ -10,18 +10,18 @@ import {
   SUPPORTED_LANGUAGES,
 } from './i18nUtils';
 
-test('SUPPORTED_LANGUAGES exposes RU, FR, HY, KA in expected menu order', () => {
+test('SUPPORTED_LANGUAGES exposes RU, FR, GE, HY in expected menu order', () => {
   assert.deepEqual(
     SUPPORTED_LANGUAGES.map((l) => l.code),
-    ['ru', 'fr', 'hy', 'ka']
+    ['ru', 'fr', 'ka', 'hy']
   );
   assert.deepEqual(
     SUPPORTED_LANGUAGES.map((l) => l.menuLabel),
     [
       'Русский (RU)',
       'Français (FR)',
+      'ქართული / Georgian (GE)',
       'Հայերեն / Armenian (HY)',
-      'ქართული / Georgian (KA)',
     ]
   );
 });
@@ -62,7 +62,7 @@ test('getIntlLocale and getLanguageMeta return accurate locale metadata', () => 
   assert.equal(getIntlLocale('hy'), 'hy-AM');
   assert.equal(getIntlLocale('ka'), 'ka-GE');
   assert.equal(getLanguageMeta('hy').shortCode, 'HY');
-  assert.equal(getLanguageMeta('ka').shortCode, 'KA');
+  assert.equal(getLanguageMeta('ka').shortCode, 'GE');
 });
 
 test('pickLocalized selects the right variant for all 4 languages', () => {
