@@ -18,12 +18,17 @@ import {
   splitFrenchDateDigits,
 } from './cerfa15776';
 import {
+  CALIBRATION_DUMMY_TEMPLATE_VALUES,
   CERFA_15776_CONFIG,
   Cerfa15776Config,
+  CerfaCalibrationFieldEntry,
   CerfaCheckboxConfig,
   CerfaCombFieldConfig,
+  CerfaTemplateOffsetConfig,
   CerfaTextFieldConfig,
+  getEffectiveCerfa15776Config,
 } from './cerfaConfig';
+import { ensureCerfaCalibrationHydrated } from '../services/adminService';
 
 let cachedCerfaTemplateBytes: ArrayBuffer | null = null;
 
@@ -388,6 +393,12 @@ function drawCombField(
   }
 }
 
+export interface CerfaPdfRenderOptions {
+  highlightedFieldPath?: string | null;
+  customOffsets?: Partial<CerfaTemplateOffsetConfig> | null;
+  showCalibrationPlaceholderForSelected?: boolean;
+}
+
 /**
  * Builds the raw PDF bytes for Cerfa N° 15776*02 using the provided config
  * (defaults to CERFA_15776_CONFIG). Caches the official template in memory for
@@ -395,8 +406,21 @@ function drawCombField(
  */
 export async function buildCerfa15776PdfBytes(
   formData: Cerfa15776FormData,
-  config: Cerfa15776Config | typeof CERFA_15776_CONFIG = CERFA_15776_CONFIG
+  customConfig?: Cerfa15776Config | typeof CERFA_15776_CONFIG,
+  options?: CerfaPdfRenderOptions
 ): Promise<Uint8Array> {
+  let config: Cerfa15776Config;
+  if (customConfig) {
+    config = getEffectiveCerfa15776Config(customConfig, options?.customOffsets);
+  } else {
+    const cloudCalibration = await ensureCerfaCalibrationHydrated();
+    config = getEffectiveCerfa15776Config(
+      cloudCalibration.cerfa_15776_02.config,
+      options?.customOffsets ?? cloudCalibration.cerfa_15776_02.offsets
+    );
+  }
+  const highlightedPath = options?.highlightedFieldPath || null;
+  const showSelectedPlaceholder = Boolean(options?.showCalibrationPlaceholderForSelected);
   const { vehicle: v, seller: s, buyer: b } = formData;
 
   if (!cachedCerfaTemplateBytes) {
@@ -411,37 +435,120 @@ export async function buildCerfa15776PdfBytes(
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const dark = rgb(0.08, 0.08, 0.08);
+  const highlightTextColor = rgb(0.88, 0.12, 0.04);
+  const highlightFillColor = rgb(0.96, 0.62, 0.04);
+  const highlightBorderColor = rgb(0.92, 0.18, 0.05);
 
   const drawField = (
     page: ReturnType<PDFDocument['getPages']>[number],
     text: string,
-    cfg: CerfaTextFieldConfig
+    cfg: CerfaTextFieldConfig,
+    fieldPath?: string
   ) => {
-    const sliced = cfg.maxChars ? text.slice(0, cfg.maxChars) : text;
+    const isHighlighted = Boolean(highlightedPath && fieldPath === highlightedPath);
+    const effectiveText =
+      text || (isHighlighted && showSelectedPlaceholder ? 'EXEMPLE' : '');
+    const sliced = cfg.maxChars ? effectiveText.slice(0, cfg.maxChars) : effectiveText;
     const clean = sanitizeWinAnsi(sliced);
-    if (!clean) return;
-    page.drawText(clean, {
-      x: cfg.x,
-      y: cfg.y,
-      size: cfg.size,
-      font: cfg.bold ? fontBold : font,
-      color: dark,
-    });
+    if (!clean && !isHighlighted) return;
+
+    const activeFont = cfg.bold ? fontBold : font;
+    if (isHighlighted) {
+      const measuredW = clean
+        ? activeFont.widthOfTextAtSize(clean, cfg.size)
+        : Math.max(40, (cfg.maxChars || 12) * cfg.size * 0.52);
+      page.drawRectangle({
+        x: cfg.x - 2.5,
+        y: cfg.y - 2.5,
+        width: Math.max(24, measuredW + 5),
+        height: cfg.size + 5.5,
+        color: highlightFillColor,
+        opacity: 0.25,
+        borderColor: highlightBorderColor,
+        borderWidth: 1.15,
+        borderOpacity: 0.95,
+      });
+    }
+
+    if (clean) {
+      page.drawText(clean, {
+        x: cfg.x,
+        y: cfg.y,
+        size: cfg.size,
+        font: activeFont,
+        color: isHighlighted ? highlightTextColor : dark,
+      });
+    }
   };
 
   const drawCheck = (
     page: ReturnType<PDFDocument['getPages']>[number],
-    cfg: CerfaCheckboxConfig
+    cfg: CerfaCheckboxConfig,
+    fieldPath?: string,
+    isChecked = true
   ) => {
-    page.drawText('X', { x: cfg.x, y: cfg.y, size: cfg.size, font: fontBold, color: dark });
+    const isHighlighted = Boolean(highlightedPath && fieldPath === highlightedPath);
+    if (!isChecked && !isHighlighted) return;
+
+    if (isHighlighted) {
+      page.drawRectangle({
+        x: cfg.x - 2.5,
+        y: cfg.y - 2.5,
+        width: cfg.size + 5,
+        height: cfg.size + 5,
+        color: highlightFillColor,
+        opacity: 0.28,
+        borderColor: highlightBorderColor,
+        borderWidth: 1.2,
+        borderOpacity: 0.95,
+      });
+    }
+
+    if (isChecked || showSelectedPlaceholder) {
+      page.drawText('X', {
+        x: cfg.x,
+        y: cfg.y,
+        size: cfg.size,
+        font: fontBold,
+        color: isHighlighted ? highlightTextColor : dark,
+      });
+    }
   };
 
   const drawComb = (
     page: ReturnType<PDFDocument['getPages']>[number],
     value: string,
-    cfg: CerfaCombFieldConfig
+    cfg: CerfaCombFieldConfig,
+    fieldPath?: string
   ) => {
-    drawCombField(page, value, cfg, font, fontBold, dark);
+    const isHighlighted = Boolean(highlightedPath && fieldPath === highlightedPath);
+    const effectiveValue =
+      value || (isHighlighted && showSelectedPlaceholder ? '0'.repeat(Math.min(4, cfg.maxChars)) : '');
+    if (isHighlighted) {
+      const boxWidth = Math.max(
+        18,
+        (cfg.maxChars - 1) * cfg.stepX + cfg.size * 0.78 + 5
+      );
+      page.drawRectangle({
+        x: cfg.x - 2.5,
+        y: cfg.y - 2.5,
+        width: boxWidth,
+        height: cfg.size + 5.5,
+        color: highlightFillColor,
+        opacity: 0.25,
+        borderColor: highlightBorderColor,
+        borderWidth: 1.15,
+        borderOpacity: 0.95,
+      });
+    }
+    drawCombField(
+      page,
+      effectiveValue,
+      cfg,
+      font,
+      fontBold,
+      isHighlighted ? highlightTextColor : dark
+    );
   };
 
   const firstRegDigits = splitFrenchDateDigits(v.firstRegistrationDate);
@@ -464,133 +571,288 @@ export async function buildCerfa15776PdfBytes(
     // ==========================================
     // 1. LE VÉHICULE (à remplir par l'ancien propriétaire)
     // ==========================================
-    drawComb(page, v.registrationNumber.toUpperCase(), s1.registrationNumber);
-    drawComb(page, v.vin.toUpperCase(), s1.vin);
-    drawComb(page, firstRegDigits.dd, s1.firstRegistrationDate.dd);
-    drawComb(page, firstRegDigits.mm, s1.firstRegistrationDate.mm);
-    drawComb(page, firstRegDigits.yyyy, s1.firstRegistrationDate.yyyy);
+    drawComb(page, v.registrationNumber.toUpperCase(), s1.registrationNumber, 'section1Vehicle.registrationNumber');
+    drawComb(page, v.vin.toUpperCase(), s1.vin, 'section1Vehicle.vin');
+    drawComb(page, firstRegDigits.dd, s1.firstRegistrationDate.dd, 'section1Vehicle.firstRegistrationDate.dd');
+    drawComb(page, firstRegDigits.mm, s1.firstRegistrationDate.mm, 'section1Vehicle.firstRegistrationDate.mm');
+    drawComb(page, firstRegDigits.yyyy, s1.firstRegistrationDate.yyyy, 'section1Vehicle.firstRegistrationDate.yyyy');
 
-    drawField(page, v.make.toUpperCase(), s1.make);
-    drawField(page, v.typeVariantVersion, s1.typeVariantVersion);
-    drawField(page, (v.nationalGenre || 'VP').toUpperCase(), s1.nationalGenre);
-    drawField(page, v.commercialDesignation.toUpperCase(), s1.commercialDesignation);
+    drawField(page, v.make.toUpperCase(), s1.make, 'section1Vehicle.make');
+    drawField(page, v.typeVariantVersion, s1.typeVariantVersion, 'section1Vehicle.typeVariantVersion');
+    drawField(page, (v.nationalGenre || 'VP').toUpperCase(), s1.nationalGenre, 'section1Vehicle.nationalGenre');
+    drawField(page, v.commercialDesignation.toUpperCase(), s1.commercialDesignation, 'section1Vehicle.commercialDesignation');
 
     const mileageNum = v.mileage === '' ? 0 : Number(v.mileage);
-    drawField(page, `${mileageNum.toLocaleString('fr-FR')} km`, s1.mileage);
+    drawField(page, `${mileageNum.toLocaleString('fr-FR')} km`, s1.mileage, 'section1Vehicle.mileage');
+
+    drawCheck(page, s1.certificate.checkboxYes, 'section1Vehicle.certificate.checkboxYes', v.hasRegistrationCertificate);
+    drawCheck(page, s1.certificate.checkboxNo, 'section1Vehicle.certificate.checkboxNo', !v.hasRegistrationCertificate);
 
     if (v.hasRegistrationCertificate) {
-      drawCheck(page, s1.certificate.checkboxYes);
-      if (v.formulaNumber.trim()) {
-        const cleanFormula = v.formulaNumber.replace(/\s+/g, '').toUpperCase();
-        const suffix = cleanFormula.startsWith('20') ? cleanFormula.slice(2) : cleanFormula;
-        drawComb(page, suffix, s1.certificate.formulaNumber);
-      }
-      if (certDateDigits.dd && certDateDigits.mm && certDateDigits.yyyy) {
-        drawComb(page, certDateDigits.dd, s1.certificate.certificateDate.dd);
-        drawComb(page, certDateDigits.mm, s1.certificate.certificateDate.mm);
-        drawComb(page, certDateDigits.yyyy, s1.certificate.certificateDate.yyyy);
-      }
+      const cleanFormula = v.formulaNumber.replace(/\s+/g, '').toUpperCase();
+      const suffix = cleanFormula.startsWith('20') ? cleanFormula.slice(2) : cleanFormula;
+      drawComb(page, suffix, s1.certificate.formulaNumber, 'section1Vehicle.certificate.formulaNumber');
+      drawComb(page, certDateDigits.dd, s1.certificate.certificateDate.dd, 'section1Vehicle.certificate.certificateDate.dd');
+      drawComb(page, certDateDigits.mm, s1.certificate.certificateDate.mm, 'section1Vehicle.certificate.certificateDate.mm');
+      drawComb(page, certDateDigits.yyyy, s1.certificate.certificateDate.yyyy, 'section1Vehicle.certificate.certificateDate.yyyy');
     } else {
-      drawCheck(page, s1.certificate.checkboxNo);
-      if (v.absenceReason.trim()) {
-        drawField(page, v.absenceReason, s1.certificate.absenceReasonLine1);
-        const line1Len = s1.certificate.absenceReasonLine1.maxChars ?? 48;
-        if (v.absenceReason.length > line1Len) {
-          drawField(page, v.absenceReason.slice(line1Len), s1.certificate.absenceReasonLine2);
-        }
+      const line1Len = s1.certificate.absenceReasonLine1.maxChars ?? 48;
+      drawField(page, v.absenceReason, s1.certificate.absenceReasonLine1, 'section1Vehicle.certificate.absenceReasonLine1');
+      if (v.absenceReason.length > line1Len) {
+        drawField(page, v.absenceReason.slice(line1Len), s1.certificate.absenceReasonLine2, 'section1Vehicle.certificate.absenceReasonLine2');
       }
     }
 
     // ==========================================
     // 2. ANCIEN PROPRIÉTAIRE (CÉDANT)
     // ==========================================
-    if (s.entityType === 'physique') {
-      drawCheck(page, s2.checkboxes.personnePhysique);
-      if (s.sex === 'M') drawCheck(page, s2.checkboxes.sexM);
-      if (s.sex === 'F') drawCheck(page, s2.checkboxes.sexF);
-    } else {
-      drawCheck(page, s2.checkboxes.personneMorale);
+    drawCheck(page, s2.checkboxes.personnePhysique, 'section2Seller.checkboxes.personnePhysique', s.entityType === 'physique');
+    drawCheck(page, s2.checkboxes.sexM, 'section2Seller.checkboxes.sexM', s.entityType === 'physique' && s.sex === 'M');
+    drawCheck(page, s2.checkboxes.sexF, 'section2Seller.checkboxes.sexF', s.entityType === 'physique' && s.sex === 'F');
+    drawCheck(page, s2.checkboxes.personneMorale, 'section2Seller.checkboxes.personneMorale', s.entityType !== 'physique');
+
+    drawField(page, s.nameOrCompany, s2.nameOrCompany, 'section2Seller.nameOrCompany');
+    drawComb(
+      page,
+      s.entityType === 'morale' ? s.siret.replace(/\s+/g, '') : '',
+      s2.siret,
+      'section2Seller.siret'
+    );
+
+    drawField(page, s.streetNumber, s2.address.streetNumber, 'section2Seller.address.streetNumber');
+    drawField(page, s.streetExtension, s2.address.streetExtension, 'section2Seller.address.streetExtension');
+    drawField(page, sellerFullStreet, s2.address.streetFull, 'section2Seller.address.streetFull');
+    drawComb(page, s.postalCode.replace(/\s+/g, ''), s2.address.postalCode, 'section2Seller.address.postalCode');
+    drawField(page, s.city.toUpperCase(), s2.address.city, 'section2Seller.address.city');
+
+    drawCheck(page, s2.checkboxes.certifyDestruction, 'section2Seller.checkboxes.certifyDestruction', s.saleType === 'destruction');
+    drawCheck(page, s2.checkboxes.certifyCeder, 'section2Seller.checkboxes.certifyCeder', s.saleType !== 'destruction');
+
+    drawComb(page, saleDateDigits.dd, s2.saleDateTime.dd, 'section2Seller.saleDateTime.dd');
+    drawComb(page, saleDateDigits.mm, s2.saleDateTime.mm, 'section2Seller.saleDateTime.mm');
+    drawComb(page, saleDateDigits.yyyy, s2.saleDateTime.yyyy, 'section2Seller.saleDateTime.yyyy');
+    drawComb(page, saleHours.padStart(2, '0'), s2.saleDateTime.hours, 'section2Seller.saleDateTime.hours');
+    drawComb(page, saleMinutes.padStart(2, '0'), s2.saleDateTime.minutes, 'section2Seller.saleDateTime.minutes');
+
+    drawCheck(page, s2.checkboxes.certifyAdminSituation, 'section2Seller.checkboxes.certifyAdminSituation', s.certifyAdminSituation);
+    drawCheck(page, s2.checkboxes.certifyNoTransformation, 'section2Seller.checkboxes.certifyNoTransformation', s.certifyNoTransformation);
+    drawCheck(page, s2.checkboxes.certifyVhuDestruction, 'section2Seller.checkboxes.certifyVhuDestruction', s.certifyVhuDestruction);
+    if (s.certifyVhuDestruction && s.vhuAgreementNumber.trim()) {
+      drawField(page, s.vhuAgreementNumber, s2.vhuAgreementNumber, 'section2Seller.vhuAgreementNumber');
     }
 
-    drawField(page, s.nameOrCompany, s2.nameOrCompany);
-    if (s.entityType === 'morale' && s.siret.trim()) {
-      drawComb(page, s.siret.replace(/\s+/g, ''), s2.siret);
-    }
-
-    drawField(page, s.streetNumber, s2.address.streetNumber);
-    drawField(page, s.streetExtension, s2.address.streetExtension);
-    drawField(page, sellerFullStreet, s2.address.streetFull);
-    drawComb(page, s.postalCode.replace(/\s+/g, ''), s2.address.postalCode);
-    drawField(page, s.city.toUpperCase(), s2.address.city);
-
-    if (s.saleType === 'destruction') {
-      drawCheck(page, s2.checkboxes.certifyDestruction);
-    } else {
-      drawCheck(page, s2.checkboxes.certifyCeder);
-    }
-
-    drawComb(page, saleDateDigits.dd, s2.saleDateTime.dd);
-    drawComb(page, saleDateDigits.mm, s2.saleDateTime.mm);
-    drawComb(page, saleDateDigits.yyyy, s2.saleDateTime.yyyy);
-    drawComb(page, saleHours.padStart(2, '0'), s2.saleDateTime.hours);
-    drawComb(page, saleMinutes.padStart(2, '0'), s2.saleDateTime.minutes);
-
-    if (s.certifyAdminSituation) drawCheck(page, s2.checkboxes.certifyAdminSituation);
-    if (s.certifyNoTransformation) drawCheck(page, s2.checkboxes.certifyNoTransformation);
-    if (s.certifyVhuDestruction) {
-      drawCheck(page, s2.checkboxes.certifyVhuDestruction);
-      if (s.vhuAgreementNumber.trim()) {
-        drawField(page, s.vhuAgreementNumber, s2.vhuAgreementNumber);
-      }
-    }
-
-    drawField(page, s.signingCity.toUpperCase(), s2.signatures.faitA);
-    drawField(page, sellerSigningDateFr, s2.signatures.faitLe);
+    drawField(page, s.signingCity.toUpperCase(), s2.signatures.faitA, 'section2Seller.signatures.faitA');
+    drawField(page, sellerSigningDateFr, s2.signatures.faitLe, 'section2Seller.signatures.faitLe');
 
     // ==========================================
     // 3. NOUVEAU PROPRIÉTAIRE (ACQUÉREUR)
     // ==========================================
-    if (b.entityType === 'morale') {
-      drawCheck(page, s3.checkboxes.personneMorale);
-    } else {
-      drawCheck(page, s3.checkboxes.personnePhysique);
-      if (b.sex === 'M') drawCheck(page, s3.checkboxes.sexM);
-      if (b.sex === 'F') drawCheck(page, s3.checkboxes.sexF);
-    }
+    drawCheck(page, s3.checkboxes.personneMorale, 'section3Buyer.checkboxes.personneMorale', b.entityType === 'morale');
+    drawCheck(page, s3.checkboxes.personnePhysique, 'section3Buyer.checkboxes.personnePhysique', b.entityType !== 'morale');
+    drawCheck(page, s3.checkboxes.sexM, 'section3Buyer.checkboxes.sexM', b.entityType !== 'morale' && b.sex === 'M');
+    drawCheck(page, s3.checkboxes.sexF, 'section3Buyer.checkboxes.sexF', b.entityType !== 'morale' && b.sex === 'F');
 
-    drawField(page, b.nameOrCompany, s3.nameOrCompany);
-    if (b.entityType === 'morale' && b.siret.trim()) {
-      drawComb(page, b.siret.replace(/\s+/g, ''), s3.siret);
-    }
+    drawField(page, b.nameOrCompany, s3.nameOrCompany, 'section3Buyer.nameOrCompany');
+    drawComb(
+      page,
+      b.entityType === 'morale' ? b.siret.replace(/\s+/g, '') : '',
+      s3.siret,
+      'section3Buyer.siret'
+    );
 
-    if (buyerBirthDigits.dd && buyerBirthDigits.mm && buyerBirthDigits.yyyy) {
-      drawComb(page, buyerBirthDigits.dd, s3.birth.dd);
-      drawComb(page, buyerBirthDigits.mm, s3.birth.mm);
-      drawComb(page, buyerBirthDigits.yyyy, s3.birth.yyyy);
-    }
-    if (b.birthPlace.trim()) {
-      drawField(page, b.birthPlace, s3.birth.place);
-    }
+    drawComb(page, buyerBirthDigits.dd, s3.birth.dd, 'section3Buyer.birth.dd');
+    drawComb(page, buyerBirthDigits.mm, s3.birth.mm, 'section3Buyer.birth.mm');
+    drawComb(page, buyerBirthDigits.yyyy, s3.birth.yyyy, 'section3Buyer.birth.yyyy');
+    drawField(page, b.birthPlace, s3.birth.place, 'section3Buyer.birth.place');
 
-    drawField(page, b.streetNumber, s3.address.streetNumber);
-    drawField(page, b.streetExtension, s3.address.streetExtension);
-    drawField(page, buyerFullStreet, s3.address.streetFull);
-    drawComb(page, b.postalCode.replace(/\s+/g, ''), s3.address.postalCode);
-    drawField(page, b.city.toUpperCase(), s3.address.city);
+    drawField(page, b.streetNumber, s3.address.streetNumber, 'section3Buyer.address.streetNumber');
+    drawField(page, b.streetExtension, s3.address.streetExtension, 'section3Buyer.address.streetExtension');
+    drawField(page, buyerFullStreet, s3.address.streetFull, 'section3Buyer.address.streetFull');
+    drawComb(page, b.postalCode.replace(/\s+/g, ''), s3.address.postalCode, 'section3Buyer.address.postalCode');
+    drawField(page, b.city.toUpperCase(), s3.address.city, 'section3Buyer.address.city');
 
-    if (b.certifyAcquire) drawCheck(page, s3.checkboxes.certifyAcquire);
-    if (b.certifyInformedAdmin) drawCheck(page, s3.checkboxes.certifyInformedAdmin);
+    drawCheck(page, s3.checkboxes.certifyAcquire, 'section3Buyer.checkboxes.certifyAcquire', b.certifyAcquire);
+    drawCheck(page, s3.checkboxes.certifyInformedAdmin, 'section3Buyer.checkboxes.certifyInformedAdmin', b.certifyInformedAdmin);
 
-    drawField(page, (b.signingCity || b.city).toUpperCase(), s3.signatures.faitA);
-    drawField(page, buyerSigningDateFr, s3.signatures.faitLe);
+    drawField(page, (b.signingCity || b.city).toUpperCase(), s3.signatures.faitA, 'section3Buyer.signatures.faitA');
+    drawField(page, buyerSigningDateFr, s3.signatures.faitLe, 'section3Buyer.signatures.faitLe');
 
     // ==========================================
     // FOOTER CHECKBOXES
     // ==========================================
-    if (s.opposeProspecting || b.opposeProspecting) {
-      drawCheck(page, footerCb.opposeProspecting);
-    }
+    drawCheck(page, footerCb.opposeProspecting, 'checkboxes.opposeProspecting', s.opposeProspecting || b.opposeProspecting);
   });
+
+  return pdfDoc.save();
+}
+
+/**
+ * Generates an A4 calibration preview PDF for Cerfa 13750*07 or Déclaration d'Achat
+ * using 100% deterministic French dummy/test values and bright amber/red highlight on the selected field.
+ */
+export async function buildCerfaTemplatePreviewPdfBytes(params: {
+  templateKey: 'cerfa_13750_07' | 'declaration_achat';
+  fields: Record<string, CerfaCalibrationFieldEntry>;
+  offsets: CerfaTemplateOffsetConfig;
+  highlightedFieldKey?: string | null;
+}): Promise<Uint8Array> {
+  const { templateKey, fields, offsets, highlightedFieldKey } = params;
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  const gridColor = rgb(0.92, 0.94, 0.97);
+  const headerBg = rgb(0.1, 0.16, 0.28);
+  const borderColor = rgb(0.75, 0.8, 0.88);
+  const labelColor = rgb(0.42, 0.48, 0.56);
+  const inkColor = rgb(0.08, 0.08, 0.1);
+  const highlightTextColor = rgb(0.88, 0.12, 0.04);
+  const highlightFillColor = rgb(0.96, 0.62, 0.04);
+  const highlightBorderColor = rgb(0.92, 0.18, 0.05);
+
+  // Subtle calibration grid every 50pt
+  for (let gx = 50; gx < 595; gx += 50) {
+    page.drawLine({
+      start: { x: gx, y: 20 },
+      end: { x: gx, y: 760 },
+      thickness: 0.4,
+      color: gridColor,
+    });
+    page.drawText(`${gx}`, { x: gx + 2, y: 22, size: 6, font, color: labelColor });
+  }
+  for (let gy = 50; gy < 760; gy += 50) {
+    page.drawLine({
+      start: { x: 20, y: gy },
+      end: { x: 575, y: gy },
+      thickness: 0.4,
+      color: gridColor,
+    });
+    page.drawText(`${gy}`, { x: 22, y: gy + 2, size: 6, font, color: labelColor });
+  }
+
+  // Header Banner
+  page.drawRectangle({
+    x: 24,
+    y: 778,
+    width: 547.28,
+    height: 42,
+    color: headerBg,
+  });
+
+  const is13750 = templateKey === 'cerfa_13750_07';
+  const titleText = is13750
+    ? "CERFA N° 13750*07 — DEMANDE DE CERTIFICAT D'IMMATRICULATION"
+    : "CERFA N° 13751*02 — DÉCLARATION D'ACHAT D'UN VÉHICULE D'OCCASION";
+  page.drawText(sanitizeWinAnsi(titleText), {
+    x: 36,
+    y: 801,
+    size: 11,
+    font: fontBold,
+    color: rgb(1, 1, 1),
+  });
+  page.drawText(
+    sanitizeWinAnsi('MODE CALIBRATION SUPERADMIN — DONNÉES DE TEST COMPLÈTES (A4 595 × 842 pt)'),
+    {
+      x: 36,
+      y: 786,
+      size: 7.5,
+      font,
+      color: rgb(0.96, 0.72, 0.25),
+    }
+  );
+
+  // Section frames
+  const sectionBoxes = is13750
+    ? [
+        { title: '1. VÉHICULE (DONNÉES CARTE GRISE)', y: 598, h: 162 },
+        { title: '2. TITULAIRE / NOUVEAU PROPRIÉTAIRE', y: 445, h: 147 },
+        { title: '3. SIGNATURE & CERTIFICATION', y: 120, h: 70 },
+      ]
+    : [
+        { title: '1. VÉHICULE CÉDÉ', y: 598, h: 162 },
+        { title: '2. ANCIEN PROPRIÉTAIRE (VENDEUR)', y: 525, h: 66 },
+        { title: '3. PROFESSIONNEL ACQUÉREUR (GARAGE)', y: 370, h: 145 },
+        { title: '4. DATE D’ACHAT & SIGNATURE', y: 120, h: 235 },
+      ];
+
+  for (const box of sectionBoxes) {
+    page.drawRectangle({
+      x: 28,
+      y: box.y,
+      width: 539,
+      height: box.h,
+      borderColor,
+      borderWidth: 0.8,
+    });
+    page.drawText(sanitizeWinAnsi(box.title), {
+      x: 36,
+      y: box.y + box.h - 12,
+      size: 7.5,
+      font: fontBold,
+      color: labelColor,
+    });
+  }
+
+  // Render every calibrated field with dummy value
+  for (const [key, entry] of Object.entries(fields)) {
+    const x = Math.round((entry.x + offsets.offsetX) * 100) / 100;
+    const y = Math.round((entry.y + offsets.offsetY) * 100) / 100;
+    const size = Math.max(4, Math.round((entry.size + offsets.fontSizeDelta) * 100) / 100);
+    const dummyValue = sanitizeWinAnsi(CALIBRATION_DUMMY_TEMPLATE_VALUES[key] || 'TEST');
+    const isHighlighted = Boolean(highlightedFieldKey && highlightedFieldKey === key);
+
+    // Subtle field label above the value
+    page.drawText(sanitizeWinAnsi(entry.label), {
+      x,
+      y: y + size + 3.5,
+      size: 6,
+      font,
+      color: isHighlighted ? highlightTextColor : labelColor,
+    });
+
+    if (isHighlighted) {
+      const boxWidth =
+        typeof entry.stepX === 'number'
+          ? Math.max(28, (dummyValue.length - 1) * entry.stepX + size * 0.78 + 6)
+          : Math.max(36, fontBold.widthOfTextAtSize(dummyValue, size) + 6);
+      page.drawRectangle({
+        x: x - 3,
+        y: y - 3,
+        width: boxWidth,
+        height: size + 6,
+        color: highlightFillColor,
+        opacity: 0.25,
+        borderColor: highlightBorderColor,
+        borderWidth: 1.2,
+        borderOpacity: 0.95,
+      });
+    }
+
+    if (typeof entry.stepX === 'number') {
+      const step = entry.stepX;
+      for (let i = 0; i < dummyValue.length; i++) {
+        const ch = dummyValue[i];
+        if (ch && ch !== ' ') {
+          page.drawText(ch, {
+            x: x + i * step,
+            y,
+            size,
+            font: fontBold,
+            color: isHighlighted ? highlightTextColor : inkColor,
+          });
+        }
+      }
+    } else {
+      page.drawText(dummyValue, {
+        x,
+        y,
+        size,
+        font: fontBold,
+        color: isHighlighted ? highlightTextColor : inkColor,
+      });
+    }
+  }
 
   return pdfDoc.save();
 }
@@ -602,14 +864,15 @@ export async function buildCerfa15776PdfBytes(
 export async function generateCerfa15776FromFormData(
   formData: Cerfa15776FormData,
   action: 'download' | 'print' = 'download',
-  customConfig?: Cerfa15776Config
+  customConfig?: Cerfa15776Config,
+  options?: CerfaPdfRenderOptions
 ): Promise<void> {
   const { vehicle: v } = formData;
   const cleanVin = sanitizeWinAnsi(v.vin).replace(/[^a-zA-Z0-9]/g, '');
   const cleanMake = sanitizeWinAnsi(v.make).replace(/[^a-zA-Z0-9_-]/g, '_');
   const fileName = `Cerfa_15776_02_${cleanMake || 'Vehicule'}_${cleanVin || 'auto'}.pdf`;
 
-  const modifiedBytes = await buildCerfa15776PdfBytes(formData, customConfig || CERFA_15776_CONFIG);
+  const modifiedBytes = await buildCerfa15776PdfBytes(formData, customConfig, options);
   const blob = new Blob([new Uint8Array(modifiedBytes)], { type: 'application/pdf' });
 
   if (action === 'print') {

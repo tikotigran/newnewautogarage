@@ -10,6 +10,7 @@ export interface Cerfa15776VehicleStep {
   commercialDesignation: string; // (D.3) Dénomination commerciale
   firstRegistrationDate: string; // (B) Date de 1re immatriculation (YYYY-MM-DD or DD/MM/YYYY)
   nationalGenre: string;      // (J.1) Genre national (VP, CTTE, etc.)
+  bodywork?: string;          // (J.3) Carrosserie (CI, BREAK, etc.)
   mileage: number | '';       // Kilométrage inscrit au compteur
   hasRegistrationCertificate: boolean; // Présence du certificat d'immatriculation (OUI / NON)
   formulaNumber: string;      // Numéro de formule (ex: 2019AB12345)
@@ -124,7 +125,7 @@ export function sanitizeWinAnsi(input: string): string {
     .replace(/[\u201C\u201D\u201E]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/\u2026/g, '...')
-    .replace(/\u00A0/g, ' ')
+    .replace(/[\u00A0\u202F]/g, ' ')
     // Strip characters outside Latin-1 / WinAnsi safe range
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
 }
@@ -178,6 +179,7 @@ export function buildInitialCerfaData(
       commercialDesignation: (vehicle.model || '').toUpperCase(),
       firstRegistrationDate: vehicle.year ? `${vehicle.year}-01-01` : '',
       nationalGenre: vehicle.nationalGenre || 'VP',
+      bodywork: (vehicle.bodyType || 'CI').toUpperCase(),
       mileage: vehicle.mileage ?? 0,
       hasRegistrationCertificate: true,
       formulaNumber: (vehicle.formulaNumber || '').toUpperCase(),
@@ -324,12 +326,17 @@ export function createDemoCerfaVehicle(userId: string = 'garage_pro_dealer'): Ve
   return {
     id: 'demo_aligner',
     userId,
-    make: 'Volkswagen',
-    model: 'Golf VII',
-    trim: '1.6 TDI 115ch',
-    year: 2019,
-    mileage: 94000,
-    vin: 'WVWZZZAUZKP512984',
+    make: 'PEUGEOT',
+    model: '208 GT LINE',
+    trim: 'UPHNK0MT129841',
+    typeVariantVersion: 'UPHNK0MT129841',
+    nationalGenre: 'VP',
+    bodyType: 'CI',
+    formulaNumber: '2021AB12345',
+    certificateDate: '2021-09-20',
+    year: 2020,
+    mileage: 84500,
+    vin: 'VF3UPHNK0MT129841',
     registrationNumber: 'AB-123-CD',
     purchaseDate: '2026-08-10',
     purchasePrice: 10400,
@@ -345,6 +352,71 @@ export function createDemoCerfaVehicle(userId: string = 'garage_pro_dealer'): Ve
     marginPercentage: 25.66,
     createdAt: '',
     updatedAt: '',
+  };
+}
+
+/**
+ * Complete, deterministic French dummy/test dataset for Superadmin Cerfa calibration.
+ * Strictly independent of any garage inventory or user profile data.
+ */
+export function createCalibrationDummyCerfaData(): Cerfa15776FormData {
+  return {
+    vehicle: {
+      registrationNumber: 'AB-123-CD',
+      vin: 'VF3UPHNK0MT129841',
+      make: 'PEUGEOT',
+      typeVariantVersion: 'UPHNK0MT129841',
+      commercialDesignation: '208 GT LINE',
+      firstRegistrationDate: '2020-06-15',
+      nationalGenre: 'VP',
+      bodywork: 'CI',
+      mileage: 84500,
+      hasRegistrationCertificate: true,
+      formulaNumber: '2021AB12345',
+      certificateDate: '2021-09-20',
+      absenceReason: '',
+    },
+    seller: {
+      entityType: 'morale',
+      sex: '',
+      nameOrCompany: 'AUTOGARAGE MANAGER SARL',
+      siret: '89412345600012',
+      streetNumber: '12',
+      streetExtension: '',
+      streetType: 'RUE',
+      streetName: "DE L'INDUSTRIE",
+      postalCode: '75011',
+      city: 'PARIS',
+      saleType: 'cession',
+      saleDate: '2026-11-17',
+      saleTime: '14:30',
+      signingCity: 'PARIS',
+      signingDate: '2026-11-17',
+      certifyAdminSituation: true,
+      certifyNoTransformation: true,
+      certifyVhuDestruction: false,
+      vhuAgreementNumber: '',
+      opposeProspecting: false,
+    },
+    buyer: {
+      entityType: 'physique',
+      sex: 'M',
+      nameOrCompany: 'DUPONT JEAN-MARC',
+      siret: '',
+      birthDate: '1985-04-12',
+      birthPlace: 'LYON',
+      streetNumber: '45',
+      streetExtension: '',
+      streetType: 'AVENUE',
+      streetName: 'DE LA RÉPUBLIQUE',
+      postalCode: '69003',
+      city: 'LYON',
+      signingCity: 'PARIS',
+      signingDate: '2026-11-17',
+      certifyAcquire: true,
+      certifyInformedAdmin: true,
+      opposeProspecting: false,
+    },
   };
 }
 

@@ -4,6 +4,7 @@ import {
   buildInitialCerfaData,
   buildVehicleCerfaPatch,
   CERFA_TEMPLATE_OPTIONS,
+  createCalibrationDummyCerfaData,
   createDemoCerfaVehicle,
   formatFrenchDate,
   pickCerfaTargetVehicle,
@@ -13,6 +14,18 @@ import {
   validateCerfaStep,
   CERFA_15776_CONFIG,
 } from './cerfa15776';
+import {
+  applyOffsetsToCerfa15776Config,
+  CALIBRATION_DUMMY_TEMPLATE_VALUES,
+  createDefaultCerfaTemplatesCalibration,
+  DEFAULT_CERFA_13750_07_FIELDS,
+  DEFAULT_DECLARATION_ACHAT_FIELDS,
+  getCerfa15776FieldAtPath,
+  getEffectiveCerfa15776Config,
+  resolveCerfaTemplatesCalibration,
+  setCachedCerfaTemplatesCalibration,
+  updateCerfa15776FieldAtPath,
+} from './cerfaConfig';
 import { GarageSettings, Vehicle } from '../types/garage';
 
 const mockVehicle: Vehicle = {
@@ -220,5 +233,190 @@ test('buildInitialCerfaData pre-fills Carte Grise codes (D.2, J.1, formulaNumber
   assert.equal(data.vehicle.formulaNumber, '2022AB98765');
   assert.equal(data.vehicle.certificateDate, '2022-03-15');
 });
+
+test('resolveCerfaTemplatesCalibration merges partial cloud data with defaults safely', () => {
+  const defaults = createDefaultCerfaTemplatesCalibration();
+  assert.ok(defaults.cerfa_13750_07.fields.registrationNumber);
+  assert.ok(defaults.declaration_achat.fields.dealerSiret);
+
+  const resolved = resolveCerfaTemplatesCalibration({
+    cerfa_15776_02: {
+      offsets: { offsetX: 3.5, offsetY: -2, fontSizeDelta: 0.5 },
+      config: updateCerfa15776FieldAtPath(
+        defaults.cerfa_15776_02.config,
+        'section1Vehicle.registrationNumber',
+        { x: 42, y: 725 }
+      ),
+    },
+    cerfa_13750_07: {
+      offsets: { offsetX: 1, offsetY: 2, fontSizeDelta: 0 },
+      fields: {
+        registrationNumber: { label: '(A) Immatriculation', x: 60, y: 715, size: 9.5, stepX: 14 },
+      },
+    },
+  });
+
+  assert.equal(resolved.cerfa_15776_02.offsets.offsetX, 3.5);
+  assert.equal(resolved.cerfa_15776_02.config.section1Vehicle.registrationNumber.x, 42);
+  assert.equal(resolved.cerfa_15776_02.config.section1Vehicle.vin.maxChars, 17);
+  assert.equal(resolved.cerfa_13750_07.fields.registrationNumber.x, 60);
+  assert.ok(resolved.cerfa_13750_07.fields.vin.x > 0);
+  assert.equal(resolved.declaration_achat.offsets.offsetX, 0);
+});
+
+test('applyOffsetsToCerfa15776Config shifts nested field coordinates and clamps min font size', () => {
+  const shifted = applyOffsetsToCerfa15776Config(CERFA_15776_CONFIG, {
+    offsetX: 4,
+    offsetY: -3,
+    fontSizeDelta: -10,
+  });
+
+  assert.equal(
+    shifted.section1Vehicle.registrationNumber.x,
+    CERFA_15776_CONFIG.section1Vehicle.registrationNumber.x + 4
+  );
+  assert.equal(
+    shifted.section1Vehicle.registrationNumber.y,
+    CERFA_15776_CONFIG.section1Vehicle.registrationNumber.y - 3
+  );
+  assert.equal(shifted.section1Vehicle.registrationNumber.size, 4);
+  assert.equal(
+    shifted.checkboxes.opposeProspecting.x,
+    CERFA_15776_CONFIG.checkboxes.opposeProspecting.x + 4
+  );
+});
+
+test('updateCerfa15776FieldAtPath and getEffectiveCerfa15776Config preserve calibrated coordinates', () => {
+  const defaults = createDefaultCerfaTemplatesCalibration();
+  const updated = updateCerfa15776FieldAtPath(
+    defaults.cerfa_15776_02.config,
+    'section1Vehicle.registrationNumber',
+    { x: 44.5, y: 726.5, size: 9, stepX: 14.2 }
+  );
+  const readBack = getCerfa15776FieldAtPath(updated, 'section1Vehicle.registrationNumber');
+  assert.deepEqual(readBack, {
+    x: 44.5,
+    y: 726.5,
+    size: 9,
+    stepX: 14.2,
+    maxChars: CERFA_15776_CONFIG.section1Vehicle.registrationNumber.maxChars,
+    bold: true,
+  });
+
+  const effective = getEffectiveCerfa15776Config(updated, {
+    offsetX: 2,
+    offsetY: -1,
+    fontSizeDelta: 0.5,
+  });
+  assert.equal(effective.section1Vehicle.registrationNumber.x, 46.5);
+  assert.equal(effective.section1Vehicle.registrationNumber.y, 725.5);
+  assert.equal(effective.section1Vehicle.registrationNumber.size, 9.5);
+});
+
+test('sanitizeWinAnsi converts French narrow and regular no-break spaces to normal ASCII space', () => {
+  assert.equal(sanitizeWinAnsi('84\u202f500\u00a0km'), '84 500 km');
+});
+
+test('createCalibrationDummyCerfaData populates 100% of Cerfa fields with independent French dummy values', () => {
+  const dummy = createCalibrationDummyCerfaData();
+  assert.equal(dummy.vehicle.registrationNumber, 'AB-123-CD');
+  assert.equal(dummy.vehicle.firstRegistrationDate, '2020-06-15');
+  assert.equal(dummy.vehicle.make, 'PEUGEOT');
+  assert.equal(dummy.vehicle.typeVariantVersion, 'UPHNK0MT129841');
+  assert.equal(dummy.vehicle.commercialDesignation, '208 GT LINE');
+  assert.equal(dummy.vehicle.vin, 'VF3UPHNK0MT129841');
+  assert.equal(dummy.vehicle.nationalGenre, 'VP');
+  assert.equal(dummy.vehicle.bodywork, 'CI');
+  assert.equal(dummy.vehicle.mileage, 84500);
+  assert.equal(dummy.vehicle.formulaNumber, '2021AB12345');
+  assert.equal(dummy.vehicle.certificateDate, '2021-09-20');
+
+  assert.equal(dummy.seller.entityType, 'morale');
+  assert.equal(dummy.seller.nameOrCompany, 'AUTOGARAGE MANAGER SARL');
+  assert.equal(dummy.seller.siret, '89412345600012');
+  assert.equal(dummy.seller.postalCode, '75011');
+  assert.equal(dummy.seller.city, 'PARIS');
+  assert.equal(dummy.seller.saleDate, '2026-11-17');
+  assert.equal(dummy.seller.saleTime, '14:30');
+  assert.equal(dummy.seller.signingCity, 'PARIS');
+  assert.equal(dummy.seller.saleType, 'cession');
+
+  assert.equal(dummy.buyer.entityType, 'physique');
+  assert.equal(dummy.buyer.nameOrCompany, 'DUPONT JEAN-MARC');
+  assert.equal(dummy.buyer.birthDate, '1985-04-12');
+  assert.equal(dummy.buyer.birthPlace, 'LYON');
+  assert.equal(dummy.buyer.postalCode, '69003');
+  assert.equal(dummy.buyer.city, 'LYON');
+
+  assert.deepEqual(validateCerfaStep(1, dummy), {});
+  assert.deepEqual(validateCerfaStep(2, dummy), {});
+  assert.deepEqual(validateCerfaStep(3, dummy), {});
+
+  for (const key of Object.keys(DEFAULT_CERFA_13750_07_FIELDS)) {
+    assert.ok(
+      CALIBRATION_DUMMY_TEMPLATE_VALUES[key]?.trim().length,
+      `Missing dummy value for 13750*07 field ${key}`
+    );
+  }
+  for (const key of Object.keys(DEFAULT_DECLARATION_ACHAT_FIELDS)) {
+    assert.ok(
+      CALIBRATION_DUMMY_TEMPLATE_VALUES[key]?.trim().length,
+      `Missing dummy value for Déclaration d'Achat field ${key}`
+    );
+  }
+});
+
+test('getEffectiveCerfa15776Config() resolves saved Superadmin calibration & offsets as single source of truth', () => {
+  const store = new Map<string, string>();
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  const prevStorage = (globalThis as { localStorage?: unknown }).localStorage;
+
+  (globalThis as { window: unknown }).window = {
+    dispatchEvent: () => true,
+  };
+  (globalThis as { localStorage: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      store.set(k, v);
+    },
+    removeItem: (k: string) => {
+      store.delete(k);
+    },
+  };
+
+  try {
+    const defaults = createDefaultCerfaTemplatesCalibration();
+    const calibratedConfig = updateCerfa15776FieldAtPath(
+      defaults.cerfa_15776_02.config,
+      'section1Vehicle.vin',
+      { x: 111.5, y: 699, size: 10 }
+    );
+    setCachedCerfaTemplatesCalibration({
+      cerfa_15776_02: {
+        offsets: { offsetX: 5, offsetY: -3, fontSizeDelta: 1 },
+        config: calibratedConfig,
+      },
+    });
+
+    const effective = getEffectiveCerfa15776Config();
+    assert.equal(effective.section1Vehicle.vin.x, 116.5);
+    assert.equal(effective.section1Vehicle.vin.y, 696);
+    assert.equal(effective.section1Vehicle.vin.size, 11);
+  } finally {
+    if (prevWindow === undefined) {
+      delete (globalThis as { window?: unknown }).window;
+    } else {
+      (globalThis as { window?: unknown }).window = prevWindow;
+    }
+    if (prevStorage === undefined) {
+      delete (globalThis as { localStorage?: unknown }).localStorage;
+    } else {
+      (globalThis as { localStorage?: unknown }).localStorage = prevStorage;
+    }
+  }
+});
+
+
+
 
 

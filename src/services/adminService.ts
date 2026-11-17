@@ -3,11 +3,19 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  serverTimestamp,
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import {
+  CERFA_CALIBRATION_UPDATED_EVENT,
+  CerfaTemplatesCalibrationPayload,
+  getCachedCerfaTemplatesCalibration,
+  resolveCerfaTemplatesCalibration,
+  setCachedCerfaTemplatesCalibration,
+} from '../utils/cerfaConfig';
 import {
   DynamicExpenseCategory,
   FeatureFlagsConfig,
@@ -655,5 +663,122 @@ export async function saveSuperAdminTaxDefaults(
     }
   }
 }
+
+// 5. Global Cerfa Field Calibration Coordinates (/platform_settings/cerfa_templates)
+let cerfaCalibrationCloudHydrated = false;
+let cerfaCalibrationInFlight: Promise<CerfaTemplatesCalibrationPayload> | null = null;
+
+export function getCerfaTemplatesCalibration(): CerfaTemplatesCalibrationPayload {
+  return getCachedCerfaTemplatesCalibration();
+}
+
+export async function fetchCerfaTemplatesCalibrationFromCloud(): Promise<CerfaTemplatesCalibrationPayload> {
+  if (cerfaCalibrationInFlight) {
+    return cerfaCalibrationInFlight;
+  }
+
+  cerfaCalibrationInFlight = (async () => {
+    try {
+      const snap = await getDoc(doc(db, 'platform_settings', 'cerfa_templates'));
+      cerfaCalibrationCloudHydrated = true;
+      if (snap.exists()) {
+        const resolved = resolveCerfaTemplatesCalibration(
+          snap.data() as Partial<CerfaTemplatesCalibrationPayload>
+        );
+        return setCachedCerfaTemplatesCalibration(resolved);
+      }
+    } catch (err) {
+      console.warn('fetchCerfaTemplatesCalibrationFromCloud fallback:', err);
+    } finally {
+      cerfaCalibrationInFlight = null;
+    }
+    return getCachedCerfaTemplatesCalibration();
+  })();
+
+  return cerfaCalibrationInFlight;
+}
+
+export async function ensureCerfaCalibrationHydrated(): Promise<CerfaTemplatesCalibrationPayload> {
+  if (cerfaCalibrationCloudHydrated) {
+    return getCachedCerfaTemplatesCalibration();
+  }
+  return fetchCerfaTemplatesCalibrationFromCloud();
+}
+
+export function subscribeCerfaTemplatesCalibration(
+  onData: (calibration: CerfaTemplatesCalibrationPayload) => void
+): () => void {
+  onData(getCachedCerfaTemplatesCalibration());
+
+  void fetchCerfaTemplatesCalibrationFromCloud().then((cal) => {
+    onData(cal);
+  });
+
+  let unsub: (() => void) | null = null;
+  try {
+    unsub = onSnapshot(
+      doc(db, 'platform_settings', 'cerfa_templates'),
+      (snap) => {
+        cerfaCalibrationCloudHydrated = true;
+        if (snap.exists()) {
+          const resolved = resolveCerfaTemplatesCalibration(
+            snap.data() as Partial<CerfaTemplatesCalibrationPayload>
+          );
+          setCachedCerfaTemplatesCalibration(resolved);
+          onData(resolved);
+        }
+      },
+      (err) => {
+        console.warn('subscribeCerfaTemplatesCalibration snapshot warning:', err);
+      }
+    );
+  } catch {
+    // Fallback to local cache
+  }
+
+  const listener = () => onData(getCachedCerfaTemplatesCalibration());
+  window.addEventListener(CERFA_CALIBRATION_UPDATED_EVENT, listener);
+  return () => {
+    if (unsub) unsub();
+    window.removeEventListener(CERFA_CALIBRATION_UPDATED_EVENT, listener);
+  };
+}
+
+export async function saveCerfaTemplatesCalibration(
+  calibration: Partial<CerfaTemplatesCalibrationPayload>,
+  adminUid?: string
+): Promise<{ savedToCloud: boolean; calibration: CerfaTemplatesCalibrationPayload }> {
+  const nowIso = new Date().toISOString();
+  const actor = adminUid || auth.currentUser?.uid || 'superadmin';
+  const resolved = setCachedCerfaTemplatesCalibration({
+    ...resolveCerfaTemplatesCalibration(calibration),
+    updatedAtIso: nowIso,
+    updatedBy: actor,
+  });
+  cerfaCalibrationCloudHydrated = true;
+
+  if (auth.currentUser) {
+    try {
+      await setDoc(
+        doc(db, 'platform_settings', 'cerfa_templates'),
+        {
+          cerfa_15776_02: resolved.cerfa_15776_02,
+          cerfa_13750_07: resolved.cerfa_13750_07,
+          declaration_achat: resolved.declaration_achat,
+          updatedAtIso: nowIso,
+          updatedBy: actor,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return { savedToCloud: true, calibration: resolved };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'platform_settings/cerfa_templates');
+    }
+  }
+
+  return { savedToCloud: false, calibration: resolved };
+}
+
 
 

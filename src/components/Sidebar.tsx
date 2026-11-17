@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   Coins,
   Palette,
+  ExternalLink,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
@@ -697,41 +698,87 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {navItems
               .filter((item) => item.visible)
-              .map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-testid={
-                    isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
-                  }
-                  onClick={() => handleItemClick(item.id, isMobileDrawer)}
-                  onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
-                  onMouseLeave={hideCollapsedTooltip}
-                  onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
-                  onBlur={hideCollapsedTooltip}
-                  aria-label={collapsed ? item.label : undefined}
-                  className={
-                    collapsed
-                      ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                          item.active
-                            ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                            : item.accentAdmin
-                            ? `text-[var(--primary)] ${iconHoverClass}`
-                            : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
-                        }`
-                      : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors ${
-                          item.active
-                            ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
-                            : item.accentAdmin
-                            ? 'text-[var(--primary)] hover:bg-[var(--surface-muted)]'
-                            : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
-                        }`
-                  }
-                >
-                  {item.icon}
-                  {!collapsed && <span className="truncate">{item.label}</span>}
-                </button>
-              ))}
+              .map((item) => {
+                if (item.id === 'admin') {
+                  const adminTabHref =
+                    typeof window !== 'undefined'
+                      ? `${window.location.origin}/?view=admin`
+                      : '/?view=admin';
+                  return (
+                    <a
+                      key={item.id}
+                      href={adminTabHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={
+                        isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
+                      }
+                      onClick={() => {
+                        hideCollapsedTooltip();
+                        if (isMobileDrawer) onCloseMobile();
+                      }}
+                      onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                      onMouseLeave={hideCollapsedTooltip}
+                      onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                      onBlur={hideCollapsedTooltip}
+                      aria-label={collapsed ? item.label : undefined}
+                      className={
+                        collapsed
+                          ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                              item.active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                                : `text-[var(--primary)] ${iconHoverClass}`
+                            }`
+                          : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors ${
+                              item.active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                                : 'text-[var(--primary)] hover:bg-[var(--surface-muted)]'
+                            }`
+                      }
+                    >
+                      {item.icon}
+                      {!collapsed && (
+                        <>
+                          <span className="truncate flex-1 text-left">{item.label}</span>
+                          <ExternalLink className="w-3.5 h-3.5 opacity-60 shrink-0" aria-hidden="true" />
+                        </>
+                      )}
+                    </a>
+                  );
+                }
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-testid={
+                      isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
+                    }
+                    onClick={() => handleItemClick(item.id, isMobileDrawer)}
+                    onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                    onMouseLeave={hideCollapsedTooltip}
+                    onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
+                    onBlur={hideCollapsedTooltip}
+                    aria-label={collapsed ? item.label : undefined}
+                    className={
+                      collapsed
+                        ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                            item.active
+                              ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                              : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                          }`
+                        : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors ${
+                            item.active
+                              ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                              : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
+                          }`
+                    }
+                  >
+                    {item.icon}
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </button>
+                );
+              })}
           </nav>
         )}
 

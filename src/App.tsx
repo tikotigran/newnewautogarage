@@ -36,6 +36,7 @@ import {
 import { buildTransactionTaxSnapshot } from './utils/frenchTaxEngine';
 import {
   ensureAndGetUserProfile,
+  subscribeCerfaTemplatesCalibration,
   subscribeFeatureFlags,
   subscribeSystemThemeConfig,
 } from './services/adminService';
@@ -86,8 +87,19 @@ import { pickLocalized } from './utils/i18nUtils';
 
 export type ActiveAppView = 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
 
+const isAdminUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get('view') === 'admin' ||
+    params.get('mode') === 'admin' ||
+    window.location.pathname === '/admin'
+  );
+};
+
 export default function App() {
   const { lang, t } = useI18n();
+  const [isAdminMode, setIsAdminMode] = useState<boolean>(() => isAdminUrl());
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemThemeConfig>(DEFAULT_SYSTEM_THEME_CONFIG);
@@ -106,12 +118,9 @@ export default function App() {
   const [changeLogs, setChangeLogs] = useState<ChangeLogEntry[]>([]);
   const [backupSnapshots, setBackupSnapshots] = useState<BackupSnapshotRecord[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [activeView, setActiveView] = useState<ActiveAppView>(() => {
-    if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
-      return 'admin';
-    }
-    return 'desktop';
-  });
+  const [activeView, setActiveView] = useState<ActiveAppView>(() =>
+    isAdminUrl() ? 'admin' : 'desktop'
+  );
   const [previousViewBeforeSettings, setPreviousViewBeforeSettings] =
     useState<Exclude<ActiveAppView, 'settings'>>('desktop');
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('company');
@@ -197,7 +206,7 @@ export default function App() {
     }
   }, [theme, systemConfig]);
 
-  // Sync /admin URL path
+  // Sync /admin or ?view=admin URL path
   const handleSetActiveView = (view: ActiveAppView) => {
     if (view === 'settings' && activeView !== 'settings') {
       setPreviousViewBeforeSettings(activeView as Exclude<ActiveAppView, 'settings'>);
@@ -205,24 +214,40 @@ export default function App() {
     if (view !== 'documents') {
       setDocumentsAlignerMode(false);
     }
+    setIsAdminMode(view === 'admin');
     setActiveView(view);
     if (typeof window !== 'undefined') {
-      const targetPath = view === 'admin' ? '/admin' : '/';
-      if (window.location.pathname !== targetPath) {
-        window.history.pushState({}, '', targetPath);
+      const targetUrl = view === 'admin' ? `${window.location.origin}/?view=admin` : '/';
+      const currentFull = `${window.location.pathname}${window.location.search}`;
+      if (
+        (view === 'admin' && !isAdminUrl()) ||
+        (view !== 'admin' && (currentFull !== '/' || isAdminUrl()))
+      ) {
+        window.history.pushState({}, '', targetUrl);
       }
     }
   };
 
+  const handleBackToGarageFromAdmin = () => {
+    if (typeof window !== 'undefined') {
+      window.location.assign(`${window.location.origin}/`);
+      return;
+    }
+    setIsAdminMode(false);
+    setActiveView('desktop');
+  };
+
   useEffect(() => {
     const onPopState = () => {
-      setActiveView(window.location.pathname === '/admin' ? 'admin' : 'desktop');
+      const admin = isAdminUrl();
+      setIsAdminMode(admin);
+      setActiveView(admin ? 'admin' : 'desktop');
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Subscribe to global system theme config & feature flags
+  // Subscribe to global system theme config, feature flags, and Cerfa field calibration
   useEffect(() => {
     const unsubTheme = subscribeSystemThemeConfig((cfg) => {
       setSystemConfig(cfg);
@@ -230,9 +255,11 @@ export default function App() {
     const unsubFlags = subscribeFeatureFlags((flags) => {
       setFeatureFlags(flags);
     });
+    const unsubCerfa = subscribeCerfaTemplatesCalibration(() => {});
     return () => {
       unsubTheme();
       unsubFlags();
+      unsubCerfa();
     };
   }, []);
 
@@ -284,21 +311,18 @@ export default function App() {
     if (auth.currentUser) {
       await signOut(auth);
     }
-    if (activeView === 'admin') {
-      handleSetActiveView('desktop');
-    }
   };
 
   const effectiveUserId = user?.uid || 'garage_pro_dealer';
 
-  // Subscribe to garages
+  // Subscribe to garages (main garage workspace only)
   useEffect(() => {
-    if (!authReady) return;
+    if (!authReady || isAdminMode) return;
     const unsubscribe = subscribeGarages(effectiveUserId, (list) => {
       setGarages(list);
     });
     return () => unsubscribe();
-  }, [authReady, effectiveUserId]);
+  }, [authReady, isAdminMode, effectiveUserId]);
 
   // Sync activeGarageId with garageService for per-garage Cerfa & Settings isolation
   const handleSelectGarage = (garageId: string | null) => {
@@ -332,9 +356,9 @@ export default function App() {
     handleSelectGarage(created.id);
   };
 
-  // Subscribe to real-time vehicles
+  // Subscribe to real-time vehicles (main garage workspace only)
   useEffect(() => {
-    if (!authReady) return;
+    if (!authReady || isAdminMode) return;
 
     const unsubscribe = subscribeVehicles(effectiveUserId, (data) => {
       setVehicles(data);
@@ -347,11 +371,11 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [authReady, effectiveUserId]);
+  }, [authReady, isAdminMode, effectiveUserId]);
 
   // Subscribe to all fleet repair tasks and general expenses for accurate Active Inventory financial totals
   useEffect(() => {
-    if (!authReady || vehicles.length === 0) {
+    if (!authReady || isAdminMode || vehicles.length === 0) {
       setFleetRepairs([]);
       setFleetExpenses([]);
       return;
@@ -364,11 +388,11 @@ export default function App() {
       }
     );
     return () => unsub();
-  }, [authReady, vehicles]);
+  }, [authReady, isAdminMode, vehicles]);
 
   // Subscribe to real-time suppliers, purchases, documents & document history
   useEffect(() => {
-    if (!authReady) return;
+    if (!authReady || isAdminMode) return;
     const unsubSuppliers = subscribeSuppliers(effectiveUserId, setSuppliers);
     const unsubPurchases = subscribePurchases(effectiveUserId, setPurchases);
     const unsubDocuments = subscribeDocuments(effectiveUserId, setDocuments);
@@ -385,7 +409,7 @@ export default function App() {
       unsubChanges();
       unsubSnapshots();
     };
-  }, [authReady, effectiveUserId]);
+  }, [authReady, isAdminMode, effectiveUserId]);
 
   // Strictly isolated vehicles for the active garage
   const garageVehicles = useMemo(() => {
@@ -697,6 +721,47 @@ export default function App() {
     );
   }
 
+  if (isAdminMode) {
+    return (
+      <div
+        data-layout-mode="standalone-admin"
+        className="min-h-screen flex bg-[var(--background)] text-[var(--foreground)] font-sans selection:bg-[var(--primary)] selection:text-[var(--primary-foreground)]"
+      >
+        <div className="flex-1 min-w-0">
+          <AdminPanel
+            isSuperAdmin={isSuperAdmin}
+            currentUserUid={user?.uid || userProfile?.uid}
+            systemConfig={systemConfig}
+            theme={theme}
+            onThemeChange={setTheme}
+            onBackToApp={handleBackToGarageFromAdmin}
+            onSignIn={() => setIsAuthModalOpen(true)}
+            onOpenAlignerMode={() => setIsQuickAlignerOpen(true)}
+            onGlobalLayoutChanged={() => handleLayoutPreferenceChange('global')}
+          />
+        </div>
+
+        {/* Quick Aligner Mode triggered from Superadmin Cerfa configurator */}
+        <Cerfa15776Modal
+          isOpen={isQuickAlignerOpen}
+          onClose={() => setIsQuickAlignerOpen(false)}
+          vehicle={createDemoCerfaVehicle(effectiveUserId)}
+          userId={effectiveUserId}
+          isSuperAdmin={isSuperAdmin}
+          initialAlignerMode={true}
+          calibrationDummyMode={true}
+        />
+
+        {/* Auth Modal */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onDevSuperAdminLogin={handleDevSuperAdminLogin}
+        />
+      </div>
+    );
+  }
+
   const handleSidebarNavigate = (target: SidebarNavTarget) => {
     if (target === 'inventory') {
       setSelectedVehicle(null);
@@ -751,7 +816,7 @@ export default function App() {
         onSignOut={handleSignOut}
       />
 
-      {/* Workspace Column (Maximized vertical height — no top horizontal header bar) */}
+      {/* Workspace Column */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Main App Container */}
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6">
@@ -798,26 +863,7 @@ export default function App() {
             </div>
           )}
 
-          {activeView === 'admin' ? (
-            <AdminPanel
-              isSuperAdmin={isSuperAdmin}
-              currentUserUid={user?.uid || userProfile?.uid}
-              systemConfig={systemConfig}
-              theme={theme}
-              onThemeChange={setTheme}
-              onBackToApp={() => handleSetActiveView('desktop')}
-              onSignIn={() => setIsAuthModalOpen(true)}
-              onOpenAlignerMode={() => {
-                if (featureFlags.cerfaGenerator) {
-                  setDocumentsAlignerMode(true);
-                  handleSetActiveView('documents');
-                } else {
-                  setIsQuickAlignerOpen(true);
-                }
-              }}
-              onGlobalLayoutChanged={() => handleLayoutPreferenceChange('global')}
-            />
-          ) : activeView === 'analytics' && featureFlags.expenseAnalytics ? (
+          {activeView === 'analytics' && featureFlags.expenseAnalytics ? (
             <AnalyticsView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               featureFlags={featureFlags}
@@ -846,7 +892,6 @@ export default function App() {
                 isOpen={true}
                 onClose={() => {
                   setDocumentsAlignerMode(false);
-                  handleSetActiveView('desktop');
                 }}
                 vehicle={
                   selectedVehicle ||
@@ -856,7 +901,8 @@ export default function App() {
                 }
                 vehicles={garageVehicles.length > 0 ? garageVehicles : vehicles}
                 userId={effectiveUserId}
-                initialAlignerMode={true}
+                isSuperAdmin={isSuperAdmin}
+                initialAlignerMode={false}
                 onSaveVehicleFields={async (vehicleId, patch) => {
                   await updateVehicle(vehicleId, patch);
                 }}
@@ -877,13 +923,10 @@ export default function App() {
                 onSeedDocuments={handleSeedDocuments}
                 onOpenCerfaGenerator={
                   featureFlags.cerfaGenerator
-                    ? (v) =>
-                        setCerfaVehicle(
-                          v ||
-                            garageVehicles[0] ||
-                            vehicles[0] ||
-                            createDemoCerfaVehicle(effectiveUserId)
-                        )
+                    ? (v) => {
+                        if (v) setSelectedVehicle(v);
+                        setDocumentsAlignerMode(true);
+                      }
                     : undefined
                 }
               />
@@ -1000,12 +1043,13 @@ export default function App() {
         onConfirmSale={handleConfirmSale}
       />
 
-      {/* Quick Aligner Mode triggered from Settings -> Document Templates (Classic mode) */}
+      {/* Quick Cerfa Preview Modal fallback when Documents page mode is off */}
       <Cerfa15776Modal
         isOpen={isQuickAlignerOpen}
         onClose={() => setIsQuickAlignerOpen(false)}
         vehicle={selectedVehicle || vehicles[0] || createDemoCerfaVehicle(effectiveUserId)}
-        initialAlignerMode={true}
+        userId={effectiveUserId}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* Quick Cerfa 15776*02 Modal from List View */}
@@ -1014,6 +1058,8 @@ export default function App() {
           isOpen={true}
           onClose={() => setCerfaVehicle(null)}
           vehicle={cerfaVehicle}
+          userId={effectiveUserId}
+          isSuperAdmin={isSuperAdmin}
         />
       )}
 

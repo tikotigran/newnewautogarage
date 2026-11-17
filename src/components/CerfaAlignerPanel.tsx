@@ -1,109 +1,59 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Copy, Check, RotateCcw, Loader2, Sliders } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Check, RotateCcw, Loader2, Sliders, Save } from 'lucide-react';
 import { Cerfa15776FormData } from '../utils/cerfa15776';
 import {
   CERFA_ALIGNER_FIELDS,
   Cerfa15776Config,
+  CerfaEditableFieldValues,
   cloneCerfaConfig,
+  getCerfa15776FieldAtPath,
+  updateCerfa15776FieldAtPath,
 } from '../utils/cerfaConfig';
 import { buildCerfa15776PdfBytes } from '../utils/pdfGenerator';
+import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 
 interface CerfaAlignerPanelProps {
   formData: Cerfa15776FormData;
   config: Cerfa15776Config;
   onConfigChange: (next: Cerfa15776Config) => void;
-}
-
-interface EditableFieldValues {
-  x: number;
-  y: number;
-  size: number;
-  stepX?: number;
-}
-
-function getFieldAtPath(config: Cerfa15776Config, path: string): EditableFieldValues {
-  const parts = path.split('.');
-  let current: unknown = config;
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in current) {
-      current = (current as Record<string, unknown>)[part];
-    }
-  }
-  return current as EditableFieldValues;
-}
-
-function setFieldAtPath(
-  config: Cerfa15776Config,
-  path: string,
-  patch: Partial<EditableFieldValues>
-): Cerfa15776Config {
-  const next = JSON.parse(JSON.stringify(config)) as Cerfa15776Config;
-  const parts = path.split('.');
-  let current: Record<string, unknown> = next as unknown as Record<string, unknown>;
-  for (let i = 0; i < parts.length - 1; i++) {
-    current = current[parts[i]] as Record<string, unknown>;
-  }
-  const leafKey = parts[parts.length - 1];
-  current[leafKey] = {
-    ...(current[leafKey] as Record<string, unknown>),
-    ...patch,
-  };
-  return next;
+  onSaveCalibration?: (cfg: Cerfa15776Config) => Promise<void>;
+  isSavingCalibration?: boolean;
+  saveNotice?: string | null;
 }
 
 export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
   formData,
   config,
   onConfigChange,
+  onSaveCalibration,
+  isSavingCalibration = false,
+  saveNotice = null,
 }) => {
   const [selectedPath, setSelectedPath] = useState<string>(CERFA_ALIGNER_FIELDS[0].path);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isRendering, setIsRendering] = useState(false);
   const [copied, setCopied] = useState(false);
-  const activeUrlRef = useRef<string | null>(null);
 
-  const activeField = getFieldAtPath(config, selectedPath);
+  const activeField = getCerfa15776FieldAtPath(config, selectedPath);
+  const activeFieldMeta = useMemo(
+    () => CERFA_ALIGNER_FIELDS.find((f) => f.path === selectedPath),
+    [selectedPath]
+  );
 
-  // Re-render live PDF preview whenever config or formData changes
-  useEffect(() => {
-    let cancelled = false;
-    setIsRendering(true);
+  const generatePdfBytes = useCallback(
+    () =>
+      buildCerfa15776PdfBytes(formData, config, {
+        highlightedFieldPath: selectedPath,
+        showCalibrationPlaceholderForSelected: true,
+      }),
+    [formData, config, selectedPath]
+  );
 
-    const timer = setTimeout(async () => {
-      try {
-        const bytes = await buildCerfa15776PdfBytes(formData, config);
-        if (cancelled) return;
-        const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
-        const nextUrl = URL.createObjectURL(blob);
-        if (activeUrlRef.current) {
-          URL.revokeObjectURL(activeUrlRef.current);
-        }
-        activeUrlRef.current = nextUrl;
-        setPreviewUrl(nextUrl);
-      } catch (err) {
-        console.error('Aligner preview render error:', err);
-      } finally {
-        if (!cancelled) setIsRendering(false);
-      }
-    }, 60);
+  const previewDependencyKey = useMemo(
+    () => JSON.stringify({ formData, config, selectedPath }),
+    [formData, config, selectedPath]
+  );
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [formData, config]);
-
-  // Cleanup Blob URL on unmount
-  useEffect(() => {
-    return () => {
-      if (activeUrlRef.current) {
-        URL.revokeObjectURL(activeUrlRef.current);
-      }
-    };
-  }, []);
-
-  const updateActiveField = (patch: Partial<EditableFieldValues>) => {
-    onConfigChange(setFieldAtPath(config, selectedPath, patch));
+  const updateActiveField = (patch: Partial<CerfaEditableFieldValues>) => {
+    onConfigChange(updateCerfa15776FieldAtPath(config, selectedPath, patch));
   };
 
   const nudge = (axis: 'x' | 'y', delta: number) => {
@@ -286,46 +236,57 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
           </div>
         </div>
 
-        {/* Export / Copy Config Button */}
-        <button
-          type="button"
-          onClick={handleCopyConfig}
-          className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition flex items-center justify-center gap-2 shadow-lg"
-        >
-          {copied ? (
-            <>
-              <Check className="w-4 h-4" />
-              <span>Конфиг скопирован!</span>
-            </>
-          ) : (
-            <span>📋 Копировать конфиг (Copy JSON)</span>
+        {/* Save to Cloud (SuperAdmin) + Copy Config */}
+        <div className="space-y-2 pt-2">
+          {saveNotice && (
+            <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 shrink-0" />
+              <span>{saveNotice}</span>
+            </div>
           )}
-        </button>
+          {onSaveCalibration && (
+            <button
+              type="button"
+              data-testid="aligner-save-cloud-btn"
+              disabled={isSavingCalibration}
+              onClick={() => void onSaveCalibration(config)}
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 transition flex items-center justify-center gap-2 shadow-lg"
+            >
+              {isSavingCalibration ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              <span>Сохранить</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleCopyConfig}
+            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition flex items-center justify-center gap-2 shadow-lg"
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Конфиг скопирован!</span>
+              </>
+            ) : (
+              <span>📋 Копировать конфиг (Copy JSON)</span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Right: Real-time Live PDF Preview */}
-      <div className="lg:col-span-8 bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden relative flex flex-col">
-        <div className="px-3.5 py-2 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between text-xs text-slate-400">
-          <span>Живой предпросмотр Cerfa N° 15776*02</span>
-          {isRendering && (
-            <span className="flex items-center gap-1.5 text-amber-400 font-semibold">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Обновление...</span>
-            </span>
-          )}
-        </div>
-        {previewUrl ? (
-          <iframe
-            title="Cerfa 15776*02 Live Preview"
-            src={`${previewUrl}#toolbar=0&navpanes=0`}
-            className="w-full flex-1 bg-white"
-          />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
-            <span>Загрузка предпросмотра PDF...</span>
-          </div>
-        )}
+      {/* Right: Real-time Live PDF Preview (pdfjs canvas rendered — iframe-safe) */}
+      <div className="lg:col-span-8 min-h-0 flex flex-col">
+        <CerfaLivePreviewSheet
+          title="Живой предпросмотр Cerfa N° 15776*02"
+          activeFieldLabel={activeFieldMeta?.label}
+          generatePdfBytes={generatePdfBytes}
+          dependencyKey={previewDependencyKey}
+          testIdPrefix="cerfa-aligner"
+          heightClassName="h-full min-h-[480px]"
+        />
       </div>
     </div>
   );

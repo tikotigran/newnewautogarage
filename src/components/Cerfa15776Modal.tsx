@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   X,
   Car,
@@ -13,8 +13,9 @@ import {
   FileCheck,
   Loader2,
   Save,
-  Eye,
   FileText,
+  ArrowLeft,
+  Edit3,
 } from 'lucide-react';
 import { Vehicle } from '../types/garage';
 import { getGarageSettings, saveGarageSettings } from '../services/garageService';
@@ -23,13 +24,19 @@ import {
   Cerfa15776FormData,
   buildInitialCerfaData,
   buildVehicleCerfaPatch,
-  formatFrenchDate,
+  createCalibrationDummyCerfaData,
   pickCerfaTargetVehicle,
   validateCerfaStep,
 } from '../utils/cerfa15776';
-import { Cerfa15776Config, cloneCerfaConfig } from '../utils/cerfaConfig';
-import { generateCerfa15776FromFormData } from '../utils/pdfGenerator';
+import { Cerfa15776Config, CerfaTemplatesCalibrationPayload } from '../utils/cerfaConfig';
+import {
+  getCerfaTemplatesCalibration,
+  saveCerfaTemplatesCalibration,
+  subscribeCerfaTemplatesCalibration,
+} from '../services/adminService';
+import { buildCerfa15776PdfBytes, generateCerfa15776FromFormData } from '../utils/pdfGenerator';
 import { CerfaAlignerPanel } from './CerfaAlignerPanel';
+import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 import { ThemedSelect } from './ThemedSelect';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -39,7 +46,9 @@ interface Cerfa15776ModalProps {
   vehicle: Vehicle;
   vehicles?: Vehicle[];
   userId?: string;
+  isSuperAdmin?: boolean;
   initialAlignerMode?: boolean;
+  calibrationDummyMode?: boolean;
   variant?: 'modal' | 'page';
   onSaveVehicleFields?: (
     vehicleId: string,
@@ -53,7 +62,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   vehicle,
   vehicles = [],
   userId,
+  isSuperAdmin = false,
   initialAlignerMode = false,
+  calibrationDummyMode = false,
   variant = 'modal',
   onSaveVehicleFields,
 }) => {
@@ -84,7 +95,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   );
 
   const [formData, setFormData] = useState<Cerfa15776FormData>(() =>
-    buildInitialCerfaData(activePick.vehicle, getGarageSettings())
+    calibrationDummyMode
+      ? createCalibrationDummyCerfaData()
+      : buildInitialCerfaData(activePick.vehicle, getGarageSettings())
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isGenerating, setIsGenerating] = useState(false);
@@ -92,37 +105,93 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generatedSuccess, setGeneratedSuccess] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-  const [isAlignerMode, setIsAlignerMode] = useState(initialAlignerMode);
-  const [alignerConfig, setAlignerConfig] = useState<Cerfa15776Config>(() => cloneCerfaConfig());
+  const [showFormEditor, setShowFormEditor] = useState(false);
+
+  // Manual field calibration sliders are restricted strictly to Superadmin calibrationDummyMode
+  const allowCalibrationEditor = calibrationDummyMode;
+  const [isAlignerMode, setIsAlignerMode] = useState(
+    allowCalibrationEditor && initialAlignerMode
+  );
+  const [cloudCalibration, setCloudCalibration] = useState<CerfaTemplatesCalibrationPayload>(() =>
+    getCerfaTemplatesCalibration()
+  );
+  const [alignerConfig, setAlignerConfig] = useState<Cerfa15776Config>(
+    () => getCerfaTemplatesCalibration().cerfa_15776_02.config
+  );
+  const [isAlignerDirty, setIsAlignerDirty] = useState(false);
+  const [isSavingCalibration, setIsSavingCalibration] = useState(false);
+  const [alignerSaveNotice, setAlignerSaveNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = subscribeCerfaTemplatesCalibration((cal) => {
+      setCloudCalibration(cal);
+      if (!isAlignerDirty) {
+        setAlignerConfig(cal.cerfa_15776_02.config);
+      }
+    });
+    return () => unsub();
+  }, [isAlignerDirty]);
 
   useEffect(() => {
     if (isOpen && !isPage) {
       setStep(1);
       setSelectedVehicleId(vehicle.id);
-      setFormData(buildInitialCerfaData(vehicle, getGarageSettings()));
+      setFormData(
+        calibrationDummyMode
+          ? createCalibrationDummyCerfaData()
+          : buildInitialCerfaData(vehicle, getGarageSettings())
+      );
       setErrors({});
       setGenerationError(null);
       setGeneratedSuccess(false);
       setSaveSuccess(null);
-      setIsAlignerMode(initialAlignerMode);
-      setAlignerConfig(cloneCerfaConfig());
+      setIsAlignerMode(allowCalibrationEditor && initialAlignerMode);
+      const latest = getCerfaTemplatesCalibration();
+      setCloudCalibration(latest);
+      setAlignerConfig(latest.cerfa_15776_02.config);
+      setIsAlignerDirty(false);
+      setAlignerSaveNotice(null);
     }
-  }, [isOpen, isPage, vehicle, initialAlignerMode]);
+  }, [isOpen, isPage, vehicle, initialAlignerMode, calibrationDummyMode, allowCalibrationEditor]);
 
   useEffect(() => {
     if (isPage) {
-      setIsAlignerMode(initialAlignerMode);
+      setIsAlignerMode(allowCalibrationEditor && initialAlignerMode);
     }
-  }, [isPage, initialAlignerMode]);
+  }, [isPage, initialAlignerMode, allowCalibrationEditor]);
 
   useEffect(() => {
     if (!isPage) return;
-    setFormData(buildInitialCerfaData(activePick.vehicle, getGarageSettings()));
+    setFormData(
+      calibrationDummyMode
+        ? createCalibrationDummyCerfaData()
+        : buildInitialCerfaData(activePick.vehicle, getGarageSettings())
+    );
     setErrors({});
     setGenerationError(null);
     setGeneratedSuccess(false);
     setSaveSuccess(null);
-  }, [isPage, activePick.vehicle.id]);
+  }, [isPage, activePick.vehicle.id, calibrationDummyMode]);
+
+  const showAlignerView = allowCalibrationEditor && isAlignerMode;
+
+  const generateLivePagePdfBytes = useCallback(
+    () =>
+      buildCerfa15776PdfBytes(formData, cloudCalibration.cerfa_15776_02.config, {
+        customOffsets: cloudCalibration.cerfa_15776_02.offsets,
+      }),
+    [formData, cloudCalibration]
+  );
+
+  const livePagePreviewDependencyKey = useMemo(
+    () =>
+      JSON.stringify({
+        formData,
+        cerfaCalibration: cloudCalibration.cerfa_15776_02,
+        selectedTemplateId,
+      }),
+    [formData, cloudCalibration, selectedTemplateId]
+  );
 
   if (!isOpen && !isPage) return null;
 
@@ -233,19 +302,25 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   };
 
   const handleGeneratePDF = async (action: 'download' | 'print') => {
-    const stepErrors = validateCerfaStep(isPage ? 1 : 3, formData);
-    if (isPage) {
-      Object.assign(stepErrors, validateCerfaStep(2, formData), validateCerfaStep(3, formData));
+    if (!isPage) {
+      const stepErrors = validateCerfaStep(3, formData);
+      setErrors(stepErrors);
+      if (Object.keys(stepErrors).length > 0) return;
+    } else {
+      setErrors({});
     }
-    setErrors(stepErrors);
-    if (Object.keys(stepErrors).length > 0) return;
 
     setIsGenerating(true);
     setGenerationError(null);
     setGeneratedSuccess(false);
 
     try {
-      await generateCerfa15776FromFormData(formData, action, alignerConfig);
+      const activeConfig = showAlignerView
+        ? alignerConfig
+        : cloudCalibration.cerfa_15776_02.config;
+      await generateCerfa15776FromFormData(formData, action, activeConfig, {
+        customOffsets: cloudCalibration.cerfa_15776_02.offsets,
+      });
       setGeneratedSuccess(true);
     } catch (err) {
       setGenerationError(
@@ -255,6 +330,35 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       );
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleSaveAlignerCalibration = async (nextCfg: Cerfa15776Config) => {
+    setIsSavingCalibration(true);
+    setAlignerSaveNotice(null);
+    try {
+      const current = getCerfaTemplatesCalibration();
+      await saveCerfaTemplatesCalibration(
+        {
+          ...current,
+          cerfa_15776_02: {
+            ...current.cerfa_15776_02,
+            config: nextCfg,
+          },
+        },
+        userId
+      );
+      setIsAlignerDirty(false);
+      setAlignerSaveNotice('Калибровка полей Cerfa сохранена в облаке');
+      setTimeout(() => setAlignerSaveNotice(null), 3500);
+    } catch (err) {
+      setGenerationError(
+        err instanceof Error
+          ? err.message
+          : 'Не удалось сохранить калибровку Cerfa в облаке.'
+      );
+    } finally {
+      setIsSavingCalibration(false);
     }
   };
 
@@ -1014,29 +1118,23 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
 
   // Full In-Page Workspace Layout (Sidebar Mode)
   if (isPage) {
-    const sellerAddressLine = [
-      formData.seller.streetNumber,
-      formData.seller.streetExtension,
-      formData.seller.streetType,
-      formData.seller.streetName,
-    ]
-      .filter(Boolean)
-      .join(' ');
-    const buyerAddressLine = [
-      formData.buyer.streetNumber,
-      formData.buyer.streetExtension,
-      formData.buyer.streetType,
-      formData.buyer.streetName,
-    ]
-      .filter(Boolean)
-      .join(' ');
-
     return (
       <div data-testid="documents-page-view" className="space-y-5">
         {/* Page Header + Template & Vehicle Pre-fill Controls + Save/Export Bar */}
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-lg space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
+              {onClose && (
+                <button
+                  type="button"
+                  data-testid="documents-back-to-archive-btn"
+                  onClick={onClose}
+                  title={isRu ? 'Назад к архиву документов' : 'Retour aux documents'}
+                  className="w-9 h-9 rounded-xl bg-[var(--surface-muted)] hover:opacity-90 border border-[var(--border)] text-[var(--foreground)] flex items-center justify-center shrink-0 transition"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+              )}
               <div className="w-11 h-11 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
                 <FileCheck className="w-5 h-5" />
               </div>
@@ -1046,25 +1144,43 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 </h2>
                 <p className="text-xs text-[var(--muted-foreground)]">
                   {isRu
-                    ? 'Выбор шаблона, автозаполнение по автомобилю, редактор и предпросмотр бланка'
-                    : 'Sélecteur de modèle, pré-remplissage véhicule, édition et aperçu en direct'}
+                    ? 'Выбор шаблона, автозаполнение по автомобилю и калиброванный PDF-предпросмотр для печати'
+                    : 'Sélecteur de modèle, pré-remplissage véhicule et aperçu PDF calibré prêt à exporter'}
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                data-testid="documents-aligner-toggle"
-                onClick={() => setIsAlignerMode((prev) => !prev)}
-                className={`px-3 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold border transition flex items-center gap-1.5 ${
-                  isAlignerMode
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
-                    : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
-                }`}
-              >
-                <span>🔧 {isRu ? 'Выравнивание (Aligner)' : 'Aligner Mode'}</span>
-              </button>
+              {allowCalibrationEditor && (
+                <button
+                  type="button"
+                  data-testid="documents-aligner-toggle"
+                  onClick={() => setIsAlignerMode((prev) => !prev)}
+                  className={`px-3 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold border transition flex items-center gap-1.5 ${
+                    showAlignerView
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                      : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
+                  }`}
+                >
+                  <span>🔧 {isRu ? 'Выравнивание (Aligner)' : 'Aligner Mode'}</span>
+                </button>
+              )}
+
+              {!showAlignerView && (
+                <button
+                  type="button"
+                  data-testid="documents-edit-fields-toggle"
+                  onClick={() => setShowFormEditor((prev) => !prev)}
+                  className={`px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold border transition flex items-center gap-1.5 ${
+                    showFormEditor
+                      ? 'bg-blue-600/20 text-blue-400 border-blue-500/50'
+                      : 'bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border-[var(--border)]'
+                  }`}
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{isRu ? 'Данные формы' : 'Éditer les champs'}</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1127,285 +1243,132 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               />
             </div>
 
-            <div>
-              <label htmlFor="documents-vehicle-select" className={labelClass}>
-                <span className="inline-flex items-center gap-1.5">
-                  <Car className="w-3.5 h-3.5 text-[var(--primary)]" />
-                  <span>{isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}</span>
-                </span>
-              </label>
-              <ThemedSelect
-                id="documents-vehicle-select"
-                testId="documents-vehicle-select"
-                ariaLabel={isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}
-                value={activePick.vehicle.id}
-                onChange={handleSelectVehicle}
-                options={availableVehicles.map((v) => {
-                  const idSuffix = v.registrationNumber || (v.vin ? v.vin.slice(-6) : '—');
-                  return {
-                    value: v.id,
-                    label: `${v.make} ${v.model} (${v.year}) — ${idSuffix}`,
-                  };
-                })}
-                triggerClassName={inputClass}
-              />
-            </div>
+            {!calibrationDummyMode && (
+              <div>
+                <label htmlFor="documents-vehicle-select" className={labelClass}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Car className="w-3.5 h-3.5 text-[var(--primary)]" />
+                    <span>{isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}</span>
+                  </span>
+                </label>
+                <ThemedSelect
+                  id="documents-vehicle-select"
+                  testId="documents-vehicle-select"
+                  ariaLabel={isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}
+                  value={activePick.vehicle.id}
+                  onChange={handleSelectVehicle}
+                  options={availableVehicles.map((v) => {
+                    const idSuffix = v.registrationNumber || (v.vin ? v.vin.slice(-6) : '—');
+                    return {
+                      value: v.id,
+                      label: `${v.make} ${v.model} (${v.year}) — ${idSuffix}`,
+                    };
+                  })}
+                  triggerClassName={inputClass}
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Body: Aligner Mode OR Split Form + Live Preview */}
-        {isAlignerMode ? (
+        {/* Body: Superadmin Aligner Mode OR Clean Full-Width Calibrated Live Preview */}
+        {showAlignerView ? (
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-lg">
             <CerfaAlignerPanel
               formData={formData}
               config={alignerConfig}
-              onConfigChange={setAlignerConfig}
+              onConfigChange={(next) => {
+                setIsAlignerDirty(true);
+                setAlignerConfig(next);
+              }}
+              onSaveCalibration={isSuperAdmin ? handleSaveAlignerCalibration : undefined}
+              isSavingCalibration={isSavingCalibration}
+              saveNotice={alignerSaveNotice}
             />
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-            {/* Left Column: Freely Clickable 3-Step Form */}
-            <div className="xl:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-lg">
-              <div className="px-5 py-3.5 bg-[var(--background)]/50 border-b border-[var(--border)] grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {steps.map((s) => {
-                  const Icon = s.icon;
-                  const isActive = step === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      data-testid={`documents-step-${s.id}`}
-                      onClick={() => {
-                        setErrors({});
-                        setStep(s.id);
-                      }}
-                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold border transition ${
-                        isActive
-                          ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)] shadow-sm'
-                          : 'bg-[var(--surface-muted)]/60 text-[var(--secondary-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{s.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="space-y-5">
+            {alertsBlock && <div className="w-full max-w-4xl mx-auto space-y-2">{alertsBlock}</div>}
 
-              <div className="p-5 sm:p-6 space-y-5">
-                {alertsBlock}
-                {formStepsContent}
-              </div>
-
-              <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--background)]/50 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  {step > 1 && (
-                    <button
-                      type="button"
-                      onClick={handlePrev}
-                      className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] transition flex items-center gap-1.5"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                      <span>{isRu ? 'Назад' : 'Précédent'}</span>
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {step < 3 && (
-                    <button
-                      type="button"
-                      onClick={handleNext}
-                      className="px-5 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow"
-                    >
-                      <span>{isRu ? 'Далее' : 'Suivant'}</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={isGenerating}
-                    onClick={() => handleGeneratePDF('download')}
-                    className="px-5 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] hover:opacity-95 text-[var(--primary-foreground)] disabled:opacity-50 transition flex items-center gap-1.5 shadow"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>{isRu ? 'Экспорт PDF' : 'Exporter PDF'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Column: Live Structured A4 Document Preview */}
-            <div className="xl:col-span-5 xl:sticky xl:top-20 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 shadow-lg space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-[var(--border)]">
-                <div className="flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-[var(--primary)]" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)]">
-                    {isRu ? 'Живой предпросмотр документа' : 'Aperçu en direct du document'}
-                  </h3>
-                </div>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                  CERFA 15776*02
-                </span>
-              </div>
-
+            {showFormEditor && (
               <div
-                data-testid="documents-live-preview"
-                className="bg-white text-slate-900 rounded-xl border border-slate-300 shadow-inner p-4 sm:p-5 space-y-3.5 text-[11px] leading-snug"
+                data-testid="documents-form-editor"
+                className="w-full max-w-4xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] overflow-hidden shadow-lg"
               >
-                {/* Official Form Masthead */}
-                <div className="flex items-start justify-between gap-3 border-b-2 border-slate-900 pb-2.5">
+                <div className="px-5 py-3.5 bg-[var(--background)]/50 border-b border-[var(--border)] grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {steps.map((s) => {
+                    const Icon = s.icon;
+                    const isActive = step === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        data-testid={`documents-step-${s.id}`}
+                        onClick={() => {
+                          setErrors({});
+                          setStep(s.id);
+                        }}
+                        className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold border transition ${
+                          isActive
+                            ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)] shadow-sm'
+                            : 'bg-[var(--surface-muted)]/60 text-[var(--secondary-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{s.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="p-5 sm:p-6 space-y-5">{formStepsContent}</div>
+
+                <div className="px-5 py-3.5 border-t border-[var(--border)] bg-[var(--background)]/50 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-[9px] font-extrabold tracking-widest uppercase text-slate-600">
-                      République Française • Ministère de l'Intérieur
-                    </p>
-                    <p className="text-xs font-black uppercase text-slate-950 mt-0.5">
-                      Certificat de cession d'un véhicule d'occasion
-                    </p>
+                    {step > 1 && (
+                      <button
+                        type="button"
+                        onClick={handlePrev}
+                        className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] transition flex items-center gap-1.5"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>{isRu ? 'Назад' : 'Précédent'}</span>
+                      </button>
+                    )}
                   </div>
-                  <div className="text-right shrink-0">
-                    <span className="inline-block border border-slate-900 px-1.5 py-0.5 font-mono font-extrabold text-[10px]">
-                      cerfa 15776*02
-                    </span>
-                  </div>
-                </div>
-
-                {/* Section 1: Vehicle */}
-                <div className="border border-slate-300 rounded-lg p-2.5 space-y-1.5 bg-slate-50/70">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-blue-900 border-b border-slate-200 pb-1">
-                    1. Le Véhicule
-                  </p>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                    <div>
-                      <span className="text-slate-500">(A) Immat. : </span>
-                      <strong className="font-mono">{formData.vehicle.registrationNumber || '—'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">(B) 1re immat. : </span>
-                      <strong>{formatFrenchDate(formData.vehicle.firstRegistrationDate) || '—'}</strong>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-slate-500">(E) N° VIN : </span>
-                      <strong className="font-mono break-all">{formData.vehicle.vin || '—'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">(D.1) Marque : </span>
-                      <strong>{formData.vehicle.make || '—'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">(D.3) Modèle : </span>
-                      <strong>{formData.vehicle.commercialDesignation || '—'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">(J.1) Genre : </span>
-                      <strong>{formData.vehicle.nationalGenre || 'VP'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Kilométrage : </span>
-                      <strong>
-                        {formData.vehicle.mileage !== '' ? `${Number(formData.vehicle.mileage).toLocaleString('fr-FR')} km` : '—'}
-                      </strong>
-                    </div>
-                    <div className="col-span-2 pt-0.5 text-[10px]">
-                      <span className="text-slate-500">Certificat d'immatriculation : </span>
-                      <strong>
-                        {formData.vehicle.hasRegistrationCertificate
-                          ? `OUI${formData.vehicle.formulaNumber ? ` (Formule ${formData.vehicle.formulaNumber})` : ''}`
-                          : `NON (${formData.vehicle.absenceReason || 'Motif à préciser'})`}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Section 2: Seller */}
-                <div className="border border-slate-300 rounded-lg p-2.5 space-y-1 bg-slate-50/70">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-blue-900 border-b border-slate-200 pb-1">
-                    2. Ancien Propriétaire (Cédant)
-                  </p>
-                  <p>
-                    <span className="text-slate-500">
-                      {formData.seller.entityType === 'morale' ? 'Raison sociale : ' : 'Nom : '}
-                    </span>
-                    <strong>{formData.seller.nameOrCompany || '—'}</strong>
-                  </p>
-                  {formData.seller.entityType === 'morale' && (
-                    <p>
-                      <span className="text-slate-500">SIRET : </span>
-                      <strong className="font-mono">{formData.seller.siret || '—'}</strong>
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-slate-500">Adresse : </span>
-                    <strong>
-                      {[sellerAddressLine, formData.seller.postalCode, formData.seller.city]
-                        .filter(Boolean)
-                        .join(' ') || '—'}
-                    </strong>
-                  </p>
-                  <p>
-                    <span className="text-slate-500">Cédé le : </span>
-                    <strong>
-                      {formatFrenchDate(formData.seller.saleDate) || '—'}
-                      {formData.seller.saleTime ? ` à ${formData.seller.saleTime}` : ''}
-                    </strong>
-                  </p>
-                </div>
-
-                {/* Section 3: Buyer */}
-                <div className="border border-slate-300 rounded-lg p-2.5 space-y-1 bg-slate-50/70">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-blue-900 border-b border-slate-200 pb-1">
-                    3. Nouveau Propriétaire (Acquéreur)
-                  </p>
-                  <p>
-                    <span className="text-slate-500">
-                      {formData.buyer.entityType === 'morale' ? 'Raison sociale : ' : 'Nom & Prénom : '}
-                    </span>
-                    <strong>{formData.buyer.nameOrCompany || '—'}</strong>
-                  </p>
-                  {formData.buyer.entityType === 'physique' ? (
-                    <p>
-                      <span className="text-slate-500">Né(e) le : </span>
-                      <strong>
-                        {formatFrenchDate(formData.buyer.birthDate) || '—'}
-                        {formData.buyer.birthPlace ? ` à ${formData.buyer.birthPlace}` : ''}
-                      </strong>
-                    </p>
-                  ) : (
-                    <p>
-                      <span className="text-slate-500">SIRET : </span>
-                      <strong className="font-mono">{formData.buyer.siret || '—'}</strong>
-                    </p>
-                  )}
-                  <p>
-                    <span className="text-slate-500">Domicile : </span>
-                    <strong>
-                      {[buyerAddressLine, formData.buyer.postalCode, formData.buyer.city]
-                        .filter(Boolean)
-                        .join(' ') || '—'}
-                    </strong>
-                  </p>
-                </div>
-
-                {/* Blank Signatures Footer */}
-                <div className="grid grid-cols-2 gap-2.5 pt-1">
-                  <div className="border border-dashed border-slate-400 rounded-lg p-2 min-h-[54px] flex flex-col justify-between">
-                    <span className="text-[9px] font-semibold text-slate-600">
-                      Fait à {formData.seller.signingCity || '_______'}, le {formatFrenchDate(formData.seller.signingDate) || '__/__/____'}
-                    </span>
-                    <span className="text-[9px] italic text-slate-400">
-                      Signature ancien propriétaire (vierge)
-                    </span>
-                  </div>
-                  <div className="border border-dashed border-slate-400 rounded-lg p-2 min-h-[54px] flex flex-col justify-between">
-                    <span className="text-[9px] font-semibold text-slate-600">
-                      Fait à {formData.buyer.signingCity || '_______'}, le {formatFrenchDate(formData.buyer.signingDate) || '__/__/____'}
-                    </span>
-                    <span className="text-[9px] italic text-slate-400">
-                      Signature nouveau propriétaire (vierge)
-                    </span>
+                  <div className="flex items-center gap-2">
+                    {step < 3 && (
+                      <button
+                        type="button"
+                        onClick={handleNext}
+                        className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow"
+                      >
+                        <span>{isRu ? 'Далее' : 'Suivant'}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowFormEditor(false)}
+                      className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] transition"
+                    >
+                      {isRu ? 'Свернуть' : 'Fermer'}
+                    </button>
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Full Clean Width Calibrated Live Cerfa PDF Preview */}
+            <div data-testid="documents-live-preview-wrapper" className="w-full max-w-4xl mx-auto">
+              <CerfaLivePreviewSheet
+                title={isRu ? 'Живой предпросмотр Cerfa N° 15776*02' : 'Aperçu en direct Cerfa N° 15776*02'}
+                generatePdfBytes={generateLivePagePdfBytes}
+                dependencyKey={livePagePreviewDependencyKey}
+                testIdPrefix="documents-cerfa"
+                heightClassName="min-h-[780px]"
+                maxPageWidthClassName="max-w-[840px]"
+              />
             </div>
           </div>
         )}
@@ -1423,7 +1386,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     >
       <div
         className={`bg-[var(--card)] border border-[var(--border)] rounded-3xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[92vh] transition-all ${
-          isAlignerMode ? 'max-w-6xl' : 'max-w-3xl'
+          showAlignerView ? 'max-w-6xl' : 'max-w-3xl'
         }`}
       >
         {/* Header */}
@@ -1443,17 +1406,19 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsAlignerMode((prev) => !prev)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 ${
-                isAlignerMode
-                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
-                  : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
-              }`}
-            >
-              <span>🔧 Режим выравнивания / Aligner Mode</span>
-            </button>
+            {allowCalibrationEditor && (
+              <button
+                type="button"
+                onClick={() => setIsAlignerMode((prev) => !prev)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 ${
+                  showAlignerView
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                    : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
+                }`}
+              >
+                <span>🔧 Режим выравнивания / Aligner Mode</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -1466,7 +1431,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         </div>
 
         {/* Stepper (hidden in Aligner Mode) */}
-        {!isAlignerMode && (
+        {!showAlignerView && (
           <div className="px-6 py-3 bg-[var(--background)]/40 border-b border-[var(--border)] grid grid-cols-3 gap-2">
             {steps.map((s) => {
               const Icon = s.icon;
@@ -1502,13 +1467,19 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           </div>
         )}
 
-        {/* Form Body or Aligner Mode */}
+        {/* Form Body or Aligner Mode (Superadmin only) */}
         <div className="p-6 overflow-y-auto flex-1 space-y-5">
-          {isAlignerMode ? (
+          {showAlignerView ? (
             <CerfaAlignerPanel
               formData={formData}
               config={alignerConfig}
-              onConfigChange={setAlignerConfig}
+              onConfigChange={(next) => {
+                setIsAlignerDirty(true);
+                setAlignerConfig(next);
+              }}
+              onSaveCalibration={isSuperAdmin ? handleSaveAlignerCalibration : undefined}
+              isSavingCalibration={isSavingCalibration}
+              saveNotice={alignerSaveNotice}
             />
           ) : (
             <>

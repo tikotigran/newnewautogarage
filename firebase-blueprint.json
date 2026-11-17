@@ -446,6 +446,20 @@
         "payloadJson": { "type": "string", "maxLength": 850000, "description": "Serialized backup JSON payload" }
       },
       "required": ["userId", "label", "actorEmail", "createdAt", "sizeBytes", "counts"]
+    },
+    "CerfaTemplatesCalibration": {
+      "title": "CerfaTemplatesCalibration",
+      "description": "Global PDF field calibration coordinates (x, y, font size, stepX, offsets) for Cerfa 15776*02, Cerfa 13750*07, and Déclaration d'Achat.",
+      "type": "object",
+      "properties": {
+        "cerfa_15776_02": { "type": "object", "description": "Offsets and full section coordinate tree for Cerfa 15776*02" },
+        "cerfa_13750_07": { "type": "object", "description": "Offsets and field coordinate map for Cerfa 13750*07" },
+        "declaration_achat": { "type": "object", "description": "Offsets and field coordinate map for Déclaration d'Achat" },
+        "updatedAtIso": { "type": "string", "maxLength": 50, "description": "ISO timestamp of last calibration update" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" },
+        "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
+      },
+      "required": ["cerfa_15776_02", "cerfa_13750_07", "declaration_achat"]
     }
   },
   "firestore": {
@@ -520,6 +534,10 @@
     "/backup_snapshots/{snapshotId}": {
       "schema": { "$ref": "#/entities/BackupSnapshotRecord" },
       "description": "Named garage backup restore points."
+    },
+    "/platform_settings/cerfa_templates": {
+      "schema": { "$ref": "#/entities/CerfaTemplatesCalibration" },
+      "description": "Global platform Cerfa PDF field calibration coordinates managed by SuperAdmin."
     }
   }
 }

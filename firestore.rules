@@ -90,6 +90,21 @@ service cloud.firestore {
              (!('layout' in data) || data.layout is map);
     }
 
+    function isValidCerfaTemplatesCalibration(data) {
+      return data.keys().hasOnly(['cerfa_15776_02', 'cerfa_13750_07', 'declaration_achat', 'updatedAtIso', 'updatedBy', 'updatedAt']) &&
+             ('cerfa_15776_02' in data) && data.cerfa_15776_02 is map &&
+             ('offsets' in data.cerfa_15776_02) && data.cerfa_15776_02.offsets is map &&
+             ('config' in data.cerfa_15776_02) && data.cerfa_15776_02.config is map &&
+             ('cerfa_13750_07' in data) && data.cerfa_13750_07 is map &&
+             ('offsets' in data.cerfa_13750_07) && data.cerfa_13750_07.offsets is map &&
+             ('fields' in data.cerfa_13750_07) && data.cerfa_13750_07.fields is map &&
+             ('declaration_achat' in data) && data.declaration_achat is map &&
+             ('offsets' in data.declaration_achat) && data.declaration_achat.offsets is map &&
+             ('fields' in data.declaration_achat) && data.declaration_achat.fields is map &&
+             (!('updatedAtIso' in data) || (data.updatedAtIso is string && data.updatedAtIso.size() <= 50)) &&
+             (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
+    }
+
     function isValidGarageWorkspace(data) {
       return data.userId is string &&
              data.userId == request.auth.uid &&
@@ -321,6 +336,13 @@ service cloud.firestore {
     match /settings/tax_defaults {
       allow get: if true;
       allow create, update, delete: if isSuperAdmin() && ('config' in incoming()) && incoming().config is map;
+    }
+
+    // Global Cerfa template field calibration coordinates (/platform_settings/cerfa_templates)
+    match /platform_settings/cerfa_templates {
+      allow get: if true;
+      allow create, update: if isSuperAdmin() && isValidCerfaTemplatesCalibration(incoming());
+      allow delete: if isSuperAdmin();
     }
 
     // Scoped Garage Settings collection ({userId}_{garageId})

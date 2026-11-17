@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -29,6 +29,8 @@ import {
   Eye,
   PanelLeft,
   PanelTop,
+  Save,
+  Loader2,
 } from 'lucide-react';
 import { ThemedSelect } from './ThemedSelect';
 import {
@@ -72,8 +74,10 @@ import {
   TranslationCategoryId,
 } from '../utils/adminUtils';
 import {
+  getCerfaTemplatesCalibration,
   getSubscriptionPlans,
   getSuperAdminTaxDefaults,
+  saveCerfaTemplatesCalibration,
   saveDynamicExpenseCategories,
   saveFeatureFlags,
   saveGlobalTextOverrides,
@@ -81,12 +85,28 @@ import {
   saveSuperAdminTaxDefaults,
   saveSystemThemeConfig,
   subscribeAllUserAccounts,
+  subscribeCerfaTemplatesCalibration,
   subscribeDynamicExpenseCategories,
   subscribeFeatureFlags,
   subscribeGlobalTextOverrides,
   subscribeSuperAdminTaxDefaults,
   updateUserAccount,
 } from '../services/adminService';
+import {
+  CERFA_ALIGNER_FIELDS,
+  CerfaCalibrationFieldEntry,
+  CerfaTemplateKey,
+  CerfaTemplatesCalibrationPayload,
+  createDefaultCerfaTemplatesCalibration,
+  getCerfa15776FieldAtPath,
+  updateCerfa15776FieldAtPath,
+} from '../utils/cerfaConfig';
+import { createCalibrationDummyCerfaData } from '../utils/cerfa15776';
+import {
+  buildCerfa15776PdfBytes,
+  buildCerfaTemplatePreviewPdfBytes,
+} from '../utils/pdfGenerator';
+import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 import {
   createDefaultFrenchTaxConfig,
   FRENCH_TAX_DEFAULTS,
@@ -164,6 +184,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [onlyModifiedTexts, setOnlyModifiedTexts] = useState(false);
   const [selectedTextCategory, setSelectedTextCategory] = useState<TranslationCategoryId>('all');
 
+  // Cerfa Templates Field Calibration state (persisted in platform_settings/cerfa_templates)
+  const [cerfaCalibrationDraft, setCerfaCalibrationDraft] =
+    useState<CerfaTemplatesCalibrationPayload>(() => getCerfaTemplatesCalibration());
+  const [selectedCerfaTemplate, setSelectedCerfaTemplate] =
+    useState<CerfaTemplateKey>('cerfa_15776_02');
+  const [selectedCerfa15776Path, setSelectedCerfa15776Path] = useState<string>(
+    CERFA_ALIGNER_FIELDS[0].path
+  );
+  const [selectedOtherFieldKey, setSelectedOtherFieldKey] = useState<string>('registrationNumber');
+  const [isSavingCerfa, setIsSavingCerfa] = useState(false);
+
   // Design Studio section & multi-page preview state (must stay above early return)
   const [designSection, setDesignSection] = useState<
     'all' | 'header' | 'cards' | 'vehicle_detail' | 'analytics_tables'
@@ -203,12 +234,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const unsubTaxDefaults = subscribeSuperAdminTaxDefaults((cfg) => {
       setTaxDefaultsDraft(cfg);
     });
+    const unsubCerfaCalibration = subscribeCerfaTemplatesCalibration((cal) => {
+      setCerfaCalibrationDraft(cal);
+    });
     return () => {
       unsubAccounts();
       unsubExpenses();
       unsubFeatures();
       unsubTexts();
       unsubTaxDefaults();
+      unsubCerfaCalibration();
     };
   }, [isSuperAdmin]);
 
@@ -269,6 +304,72 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   }, [textSearch, onlyModifiedTexts, textOverrides, selectedTextCategory]);
 
+  // Independent 100% French dummy dataset for Superadmin Cerfa calibration (no real garage inventory or profile)
+  const calibrationDummy15776Data = useMemo(() => createCalibrationDummyCerfaData(), []);
+
+  const resolvedAdminOtherFieldKey = useMemo(() => {
+    if (selectedCerfaTemplate === 'cerfa_15776_02') return '';
+    const fieldsMap = cerfaCalibrationDraft[selectedCerfaTemplate].fields;
+    if (selectedOtherFieldKey in fieldsMap) return selectedOtherFieldKey;
+    return Object.keys(fieldsMap)[0] || '';
+  }, [cerfaCalibrationDraft, selectedCerfaTemplate, selectedOtherFieldKey]);
+
+  const activeCerfaPreviewLabel = useMemo(() => {
+    if (selectedCerfaTemplate === 'cerfa_15776_02') {
+      return CERFA_ALIGNER_FIELDS.find((f) => f.path === selectedCerfa15776Path)?.label;
+    }
+    const fieldsMap = cerfaCalibrationDraft[selectedCerfaTemplate].fields;
+    return resolvedAdminOtherFieldKey ? fieldsMap[resolvedAdminOtherFieldKey]?.label : undefined;
+  }, [
+    cerfaCalibrationDraft,
+    selectedCerfaTemplate,
+    selectedCerfa15776Path,
+    resolvedAdminOtherFieldKey,
+  ]);
+
+  const generateAdminCerfaPreviewBytes = useCallback(() => {
+    if (selectedCerfaTemplate === 'cerfa_15776_02') {
+      return buildCerfa15776PdfBytes(
+        calibrationDummy15776Data,
+        cerfaCalibrationDraft.cerfa_15776_02.config,
+        {
+          customOffsets: cerfaCalibrationDraft.cerfa_15776_02.offsets,
+          highlightedFieldPath: selectedCerfa15776Path,
+          showCalibrationPlaceholderForSelected: true,
+        }
+      );
+    }
+    const tpl = cerfaCalibrationDraft[selectedCerfaTemplate];
+    return buildCerfaTemplatePreviewPdfBytes({
+      templateKey: selectedCerfaTemplate,
+      fields: tpl.fields,
+      offsets: tpl.offsets,
+      highlightedFieldKey: resolvedAdminOtherFieldKey,
+    });
+  }, [
+    selectedCerfaTemplate,
+    calibrationDummy15776Data,
+    cerfaCalibrationDraft,
+    selectedCerfa15776Path,
+    resolvedAdminOtherFieldKey,
+  ]);
+
+  const adminCerfaPreviewDepKey = useMemo(
+    () =>
+      JSON.stringify({
+        tpl: selectedCerfaTemplate,
+        draft: cerfaCalibrationDraft[selectedCerfaTemplate],
+        path15776: selectedCerfa15776Path,
+        otherKey: resolvedAdminOtherFieldKey,
+      }),
+    [
+      selectedCerfaTemplate,
+      cerfaCalibrationDraft,
+      selectedCerfa15776Path,
+      resolvedAdminOtherFieldKey,
+    ]
+  );
+
   // Strict RBAC Gate for /admin
   if (!isSuperAdmin) {
     return (
@@ -302,7 +403,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>{isRu ? 'Вернуться в автопарк' : 'Retour au parc'}</span>
+              <span>{isRu ? 'Вернуться в гараж' : 'Retour au garage'}</span>
             </button>
           </div>
         </div>
@@ -563,6 +664,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   };
 
+  // Cerfa Calibration Cloud Persistence handlers (platform_settings/cerfa_templates)
+  const handleSaveCerfaCalibration = async () => {
+    setIsSavingCerfa(true);
+    try {
+      const { calibration } = await saveCerfaTemplatesCalibration(
+        cerfaCalibrationDraft,
+        currentUserUid
+      );
+      setCerfaCalibrationDraft(calibration);
+      const resolvedDraft = resolveSystemThemeConfig(draftConfig);
+      const syncedConfig: SystemThemeConfig = {
+        ...resolvedDraft,
+        cerfaAdjustments: {
+          ...resolvedDraft.cerfaAdjustments,
+          ...calibration.cerfa_15776_02.offsets,
+        },
+      };
+      setDraftConfig(syncedConfig);
+      await saveSystemThemeConfig(syncedConfig, currentUserUid);
+      showSavedFeedback('Калибровка полей Cerfa сохранена в облаке');
+    } finally {
+      setIsSavingCerfa(false);
+    }
+  };
+
+  const handleResetSelectedCerfaTemplate = () => {
+    const defaults = createDefaultCerfaTemplatesCalibration();
+    setCerfaCalibrationDraft((prev) => ({
+      ...prev,
+      [selectedCerfaTemplate]: defaults[selectedCerfaTemplate],
+    }));
+  };
+
   // Global Text Overrides handlers
   const handleTextOverrideChange = (key: string, field: 'fr' | 'ru' | 'color', value: string) => {
     setTextOverrides((prev) => ({
@@ -653,56 +787,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   ];
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 items-start">
-      {/* Sidebar Navigation */}
-      <aside className="w-full lg:w-64 shrink-0 bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
-        <div className="flex items-center justify-between px-2 pb-3 border-b border-slate-800">
-          <div>
+    <div
+      data-testid="admin-standalone-layout"
+      className="min-h-screen flex flex-col lg:flex-row bg-slate-950 text-slate-100"
+    >
+      {/* Dedicated Standalone SuperAdmin Console Sidebar */}
+      <aside
+        data-testid="admin-console-sidebar"
+        className="w-full lg:w-64 shrink-0 bg-slate-900 border-b lg:border-b-0 lg:border-r border-slate-800 p-4 flex flex-col justify-between lg:h-screen lg:sticky lg:top-0 overflow-y-auto"
+      >
+        <div className="space-y-4">
+          <button
+            type="button"
+            data-testid="admin-back-to-garage-btn"
+            onClick={onBackToApp}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/60 hover:bg-slate-800 border border-slate-800 transition cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+            <span>{isRu ? 'Вернуться в гараж' : 'Retour au garage'}</span>
+          </button>
+
+          <div className="px-2 pb-3 border-b border-slate-800">
             <p className="text-[11px] font-bold tracking-wider text-amber-400">SUPERADMIN</p>
             <h2 className="text-sm font-bold text-white mt-0.5">AutoGarage Console</h2>
           </div>
-          <button
-            type="button"
-            onClick={onBackToApp}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-            title={isRu ? 'Выйти из админки' : 'Quitter la console'}
-            aria-label={isRu ? 'Выйти из админки' : 'Quitter la console'}
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
+
+          <nav className="space-y-1" aria-label="SuperAdmin navigation">
+            {navItems.map((item) => {
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`admin-tab-${item.id}`}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                    active
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+                  }`}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
-
-        <nav className="space-y-1" aria-label="SuperAdmin navigation">
-          {navItems.map((item) => {
-            const active = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
-                  active
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {saveNotice && (
-          <div className="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-2">
-            <Check className="w-3.5 h-3.5 shrink-0" />
-            <span>{saveNotice}</span>
-          </div>
-        )}
       </aside>
 
+      {/* Single Fixed Save Confirmation Toast */}
+      {saveNotice && (
+        <div
+          role="status"
+          data-testid="admin-save-toast"
+          className="fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl bg-slate-900/95 border border-emerald-500/50 text-emerald-300 text-xs font-bold flex items-center gap-2 shadow-2xl backdrop-blur-md"
+        >
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{saveNotice}</span>
+        </div>
+      )}
+
       {/* Main Content Area */}
-      <section className="flex-1 w-full min-w-0 space-y-6">
+      <section className="flex-1 w-full min-w-0 p-4 md:p-6 lg:p-8 max-w-6xl space-y-6">
         {/* 1. DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -2100,107 +2247,503 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         )}
 
-        {/* 5. TEMPLATE & CERFA CONFIGURATOR */}
-        {activeTab === 'cerfa' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Конфигуратор шаблонов и Cerfa' : 'Configurateur de Modèles & Cerfa'}
-                </h1>
-                <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Глобальная калибровка смещения PDF и запуск визуального выравнивания'
-                    : 'Ajustements globaux d’alignement PDF Cerfa 15776*02 pour tous les garages'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onOpenAlignerMode}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition"
-              >
-                <Sliders className="w-4 h-4" />
-                <span>{isRu ? 'Открыть Aligner Mode' : 'Ouvrir Aligner Mode'}</span>
-              </button>
-            </div>
+        {/* 5. TEMPLATE & CERFA CONFIGURATOR (Firestore platform_settings/cerfa_templates) */}
+        {activeTab === 'cerfa' && (() => {
+          const templateTabs: { id: CerfaTemplateKey; title: string; subtitle: string }[] = [
+            {
+              id: 'cerfa_15776_02',
+              title: 'Cerfa 15776*02',
+              subtitle: isRu ? 'Сертификат о продаже' : 'Certificat de cession',
+            },
+            {
+              id: 'cerfa_13750_07',
+              title: 'Cerfa 13750*07',
+              subtitle: isRu ? 'Заявка на Carte Grise' : 'Demande d’immatriculation',
+            },
+            {
+              id: 'declaration_achat',
+              title: "Déclaration d'Achat",
+              subtitle: isRu ? 'Cerfa 13751*02 (Выкуп)' : 'Cerfa 13751*02 (Achat pro)',
+            },
+          ];
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          const currentOffsets = cerfaCalibrationDraft[selectedCerfaTemplate].offsets;
+          const is15776 = selectedCerfaTemplate === 'cerfa_15776_02';
+          const active15776Field = getCerfa15776FieldAtPath(
+            cerfaCalibrationDraft.cerfa_15776_02.config,
+            selectedCerfa15776Path
+          );
+          const otherFieldsMap = is15776
+            ? null
+            : cerfaCalibrationDraft[selectedCerfaTemplate].fields;
+          const otherFieldEntries = otherFieldsMap ? Object.entries(otherFieldsMap) : [];
+          const resolvedOtherKey =
+            otherFieldsMap && selectedOtherFieldKey in otherFieldsMap
+              ? selectedOtherFieldKey
+              : otherFieldEntries[0]?.[0] || '';
+          const activeOtherField: CerfaCalibrationFieldEntry | null =
+            otherFieldsMap && resolvedOtherKey ? otherFieldsMap[resolvedOtherKey] : null;
+
+          const activeFieldValues = is15776 ? active15776Field : activeOtherField;
+
+          const updateCurrentOffsets = (
+            patch: Partial<CerfaTemplatesCalibrationPayload['cerfa_15776_02']['offsets']>
+          ) => {
+            setCerfaCalibrationDraft((prev) => ({
+              ...prev,
+              [selectedCerfaTemplate]: {
+                ...prev[selectedCerfaTemplate],
+                offsets: {
+                  ...prev[selectedCerfaTemplate].offsets,
+                  ...patch,
+                },
+              },
+            }));
+          };
+
+          const updateSelectedFieldCoords = (
+            patch: Partial<{ x: number; y: number; size: number; stepX: number }>
+          ) => {
+            if (is15776) {
+              setCerfaCalibrationDraft((prev) => ({
+                ...prev,
+                cerfa_15776_02: {
+                  ...prev.cerfa_15776_02,
+                  config: updateCerfa15776FieldAtPath(
+                    prev.cerfa_15776_02.config,
+                    selectedCerfa15776Path,
+                    patch
+                  ),
+                },
+              }));
+            } else if (selectedCerfaTemplate === 'cerfa_13750_07' && resolvedOtherKey) {
+              setCerfaCalibrationDraft((prev) => ({
+                ...prev,
+                cerfa_13750_07: {
+                  ...prev.cerfa_13750_07,
+                  fields: {
+                    ...prev.cerfa_13750_07.fields,
+                    [resolvedOtherKey]: {
+                      ...prev.cerfa_13750_07.fields[resolvedOtherKey],
+                      ...patch,
+                    },
+                  },
+                },
+              }));
+            } else if (selectedCerfaTemplate === 'declaration_achat' && resolvedOtherKey) {
+              setCerfaCalibrationDraft((prev) => ({
+                ...prev,
+                declaration_achat: {
+                  ...prev.declaration_achat,
+                  fields: {
+                    ...prev.declaration_achat.fields,
+                    [resolvedOtherKey]: {
+                      ...prev.declaration_achat.fields[resolvedOtherKey],
+                      ...patch,
+                    },
+                  },
+                },
+              }));
+            }
+          };
+
+          const nudgeSelectedField = (axis: 'x' | 'y', delta: number) => {
+            if (!activeFieldValues) return;
+            const nextVal = Math.round((activeFieldValues[axis] + delta) * 10) / 10;
+            updateSelectedFieldCoords({ [axis]: nextVal });
+          };
+
+          const sections15776 = Array.from(new Set(CERFA_ALIGNER_FIELDS.map((f) => f.section)));
+
+          return (
+            <div className="space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    {isRu ? 'Глобальное смещение X (pt)' : 'Décalage global X (pt)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={draftConfig.cerfaAdjustments.offsetX}
-                    onChange={(e) =>
-                      setDraftConfig({
-                        ...draftConfig,
-                        cerfaAdjustments: {
-                          ...draftConfig.cerfaAdjustments,
-                          offsetX: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white tabular-nums"
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="text-xl font-bold text-white">
+                      {isRu ? 'Конфигуратор шаблонов и Cerfa' : 'Configurateur de Modèles & Cerfa'}
+                    </h1>
+                    <span
+                      data-testid="admin-cerfa-dummy-badge"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>
+                        {isRu
+                          ? '100% тестовых данных • без привязки к гаражу'
+                          : 'Données de test complètes • indépendant du stock'}
+                      </span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isRu
+                      ? 'Облачная калибровка координат полей (x, y, шрифт) с подсветкой выбранного поля на живом бланке (platform_settings/cerfa_templates)'
+                      : 'Calibration cloud des coordonnées (x, y, police) avec surbrillance du champ sélectionné (platform_settings/cerfa_templates)'}
+                  </p>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    {isRu ? 'Глобальное смещение Y (pt)' : 'Décalage global Y (pt)'}
-                  </label>
-                  <input
-                    type="number"
-                    value={draftConfig.cerfaAdjustments.offsetY}
-                    onChange={(e) =>
-                      setDraftConfig({
-                        ...draftConfig,
-                        cerfaAdjustments: {
-                          ...draftConfig.cerfaAdjustments,
-                          offsetY: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white tabular-nums"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    {isRu ? 'Коррекция шрифта (pt)' : 'Ajustement taille police (pt)'}
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={draftConfig.cerfaAdjustments.fontSizeDelta}
-                    onChange={(e) =>
-                      setDraftConfig({
-                        ...draftConfig,
-                        cerfaAdjustments: {
-                          ...draftConfig.cerfaAdjustments,
-                          fontSizeDelta: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white tabular-nums"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => handleSaveGlobalConfig()}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
+                  onClick={onOpenAlignerMode}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition self-start"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сохранить настройки Cerfa' : 'Enregistrer la config Cerfa'}</span>
+                  <Sliders className="w-4 h-4" />
+                  <span>{isRu ? 'Открыть Aligner Mode' : 'Ouvrir Aligner Mode'}</span>
                 </button>
               </div>
+
+              {/* Template Selector */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {templateTabs.map((tpl) => {
+                  const active = selectedCerfaTemplate === tpl.id;
+                  return (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      data-testid={`admin-cerfa-tpl-${tpl.id}`}
+                      onClick={() => {
+                        setSelectedCerfaTemplate(tpl.id);
+                        if (tpl.id !== 'cerfa_15776_02') {
+                          const keys = Object.keys(cerfaCalibrationDraft[tpl.id].fields);
+                          if (keys.length > 0) setSelectedOtherFieldKey(keys[0]);
+                        }
+                      }}
+                      className={`text-left px-4 py-3 rounded-2xl border transition cursor-pointer ${
+                        active
+                          ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm'
+                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                      }`}
+                    >
+                      <p className={`text-sm font-bold ${active ? 'text-amber-400' : 'text-white'}`}>
+                        {tpl.title}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{tpl.subtitle}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Calibration Controls (Left) + Live Highlighted Preview Sheet (Right) */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+                <div className="xl:col-span-5 space-y-4">
+                  {/* Global Offsets Card */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-sm font-bold text-white">
+                        {isRu ? 'Глобальные смещения шаблона' : 'Décalages globaux du modèle'}
+                      </h2>
+                      <button
+                        type="button"
+                        data-testid="admin-cerfa-reset-tpl-btn"
+                        onClick={handleResetSelectedCerfaTemplate}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>{isRu ? 'Сбросить шаблон' : 'Réinitialiser modèle'}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label
+                          htmlFor="admin-cerfa-offset-x"
+                          className="block text-[11px] font-semibold text-slate-300 mb-1"
+                        >
+                          {isRu ? 'Смещение X' : 'Décalage X'}
+                        </label>
+                        <input
+                          id="admin-cerfa-offset-x"
+                          data-testid="admin-cerfa-offset-x"
+                          type="number"
+                          step="0.5"
+                          value={currentOffsets.offsetX}
+                          onChange={(e) =>
+                            updateCurrentOffsets({ offsetX: Number(e.target.value) || 0 })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-white tabular-nums"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="admin-cerfa-offset-y"
+                          className="block text-[11px] font-semibold text-slate-300 mb-1"
+                        >
+                          {isRu ? 'Смещение Y' : 'Décalage Y'}
+                        </label>
+                        <input
+                          id="admin-cerfa-offset-y"
+                          data-testid="admin-cerfa-offset-y"
+                          type="number"
+                          step="0.5"
+                          value={currentOffsets.offsetY}
+                          onChange={(e) =>
+                            updateCurrentOffsets({ offsetY: Number(e.target.value) || 0 })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-white tabular-nums"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="admin-cerfa-font-delta"
+                          className="block text-[11px] font-semibold text-slate-300 mb-1"
+                        >
+                          {isRu ? 'Шрифт Δ' : 'Police Δ'}
+                        </label>
+                        <input
+                          id="admin-cerfa-font-delta"
+                          data-testid="admin-cerfa-font-delta"
+                          type="number"
+                          step="0.5"
+                          value={currentOffsets.fontSizeDelta}
+                          onChange={(e) =>
+                            updateCurrentOffsets({ fontSizeDelta: Number(e.target.value) || 0 })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-white tabular-nums"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per-Field Coordinate Calibration Card */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                    <div>
+                      <h2 className="text-sm font-bold text-white">
+                        {isRu
+                          ? 'Точная калибровка координат поля (pt)'
+                          : 'Calibration précise des coordonnées (pt)'}
+                      </h2>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {isRu
+                          ? 'Выбранное поле подсвечивается янтарно-красной рамкой на бланке справа'
+                          : 'Le champ actif est surligné en ambre/rouge sur l’aperçu à droite'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <label
+                          htmlFor="admin-cerfa-field-select"
+                          className="block text-xs font-semibold text-slate-300 mb-1.5"
+                        >
+                          {isRu ? 'Поле документа' : 'Champ du document'}
+                        </label>
+                        <select
+                          id="admin-cerfa-field-select"
+                          data-testid="admin-cerfa-field-select"
+                          value={is15776 ? selectedCerfa15776Path : resolvedOtherKey}
+                          onChange={(e) => {
+                            if (is15776) {
+                              setSelectedCerfa15776Path(e.target.value);
+                            } else {
+                              setSelectedOtherFieldKey(e.target.value);
+                            }
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                        >
+                          {is15776
+                            ? sections15776.map((sec) => (
+                                <optgroup key={sec} label={sec}>
+                                  {CERFA_ALIGNER_FIELDS.filter((f) => f.section === sec).map((f) => (
+                                    <option key={f.path} value={f.path}>
+                                      {f.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))
+                            : otherFieldEntries.map(([key, entry]) => (
+                                <option key={key} value={key}>
+                                  {entry.label}
+                                </option>
+                              ))}
+                        </select>
+                      </div>
+
+                      {activeFieldValues && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div>
+                            <label
+                              htmlFor="admin-cerfa-field-x"
+                              className="block text-[11px] font-semibold text-slate-400 mb-1"
+                            >
+                              X (pt)
+                            </label>
+                            <input
+                              id="admin-cerfa-field-x"
+                              data-testid="admin-cerfa-field-x"
+                              type="number"
+                              step="0.5"
+                              value={activeFieldValues.x}
+                              onChange={(e) =>
+                                updateSelectedFieldCoords({ x: Number(e.target.value) || 0 })
+                              }
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-mono text-amber-400 tabular-nums"
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="admin-cerfa-field-y"
+                              className="block text-[11px] font-semibold text-slate-400 mb-1"
+                            >
+                              Y (pt)
+                            </label>
+                            <input
+                              id="admin-cerfa-field-y"
+                              data-testid="admin-cerfa-field-y"
+                              type="number"
+                              step="0.5"
+                              value={activeFieldValues.y}
+                              onChange={(e) =>
+                                updateSelectedFieldCoords({ y: Number(e.target.value) || 0 })
+                              }
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-mono text-sky-400 tabular-nums"
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="admin-cerfa-field-size"
+                              className="block text-[11px] font-semibold text-slate-400 mb-1"
+                            >
+                              {isRu ? 'Шрифт (pt)' : 'Taille (pt)'}
+                            </label>
+                            <input
+                              id="admin-cerfa-field-size"
+                              data-testid="admin-cerfa-field-size"
+                              type="number"
+                              step="0.5"
+                              min={4}
+                              max={20}
+                              value={activeFieldValues.size}
+                              onChange={(e) =>
+                                updateSelectedFieldCoords({
+                                  size: Math.max(4, Number(e.target.value) || 8),
+                                })
+                              }
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-mono text-white tabular-nums"
+                            />
+                          </div>
+
+                          {typeof activeFieldValues.stepX === 'number' && (
+                            <div>
+                              <label
+                                htmlFor="admin-cerfa-field-stepx"
+                                className="block text-[11px] font-semibold text-slate-400 mb-1"
+                              >
+                                stepX (pt)
+                              </label>
+                              <input
+                                id="admin-cerfa-field-stepx"
+                                data-testid="admin-cerfa-field-stepx"
+                                type="number"
+                                step="0.1"
+                                min={4}
+                                max={30}
+                                value={activeFieldValues.stepX}
+                                onChange={(e) =>
+                                  updateSelectedFieldCoords({
+                                    stepX: Math.max(4, Number(e.target.value) || 12),
+                                  })
+                                }
+                                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-xs font-mono text-white tabular-nums"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {activeFieldValues && (
+                      <div className="space-y-2 pt-1">
+                        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-slate-400">
+                            {isRu ? 'Сдвиг X:' : 'Ajuster X :'}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {[-5, -1, 1, 5].map((delta) => (
+                              <button
+                                key={`admin-x-${delta}`}
+                                type="button"
+                                onClick={() => nudgeSelectedField('x', delta)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                              >
+                                {delta > 0 ? `+${delta}` : delta}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-slate-400">
+                            {isRu ? 'Сдвиг Y:' : 'Ajuster Y :'}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {[-5, -1, 1, 5].map((delta) => (
+                              <button
+                                key={`admin-y-${delta}`}
+                                type="button"
+                                onClick={() => nudgeSelectedField('y', delta)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                              >
+                                {delta > 0 ? `+${delta}` : delta}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+                      <div className="text-[11px] text-slate-400">
+                        <span>Firestore: </span>
+                        <code className="text-slate-300 font-mono">platform_settings/cerfa_templates</code>
+                        {cerfaCalibrationDraft.updatedAtIso && (
+                          <span className="ml-2 text-slate-500">
+                            · {cerfaCalibrationDraft.updatedAtIso.slice(0, 19).replace('T', ' ')}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        data-testid="admin-cerfa-save-btn"
+                        disabled={isSavingCerfa}
+                        onClick={handleSaveCerfaCalibration}
+                        className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 transition shadow-sm"
+                      >
+                        {isSavingCerfa ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isRu ? 'Сохранить' : 'Enregistrer'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Live PDF Preview with Full Dummy Test Data & Highlighted Selected Field */}
+                <div className="xl:col-span-7">
+                  <CerfaLivePreviewSheet
+                    title={
+                      selectedCerfaTemplate === 'cerfa_15776_02'
+                        ? 'Живой предпросмотр Cerfa N° 15776*02'
+                        : selectedCerfaTemplate === 'cerfa_13750_07'
+                        ? 'Живой предпросмотр Cerfa N° 13750*07'
+                        : "Живой предпросмотр Déclaration d'Achat (13751*02)"
+                    }
+                    activeFieldLabel={activeCerfaPreviewLabel}
+                    generatePdfBytes={generateAdminCerfaPreviewBytes}
+                    dependencyKey={adminCerfaPreviewDepKey}
+                    testIdPrefix="admin-cerfa"
+                    heightClassName="h-[680px]"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 6. EXPENSE CATEGORIES MANAGER */}
         {activeTab === 'expenses' && (

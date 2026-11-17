@@ -13,7 +13,6 @@ import {
   MapPin,
   Hash,
   Scale,
-  Wrench,
   Download,
   Upload,
   Trash2,
@@ -62,7 +61,11 @@ import {
 } from '../services/garageService';
 import { logEntityChange, logUserActivity } from '../services/auditAndBackupService';
 import { computeEntityFieldDiffs } from '../utils/exportBackup';
-import { getSuperAdminTaxDefaults, getSystemThemeConfig } from '../services/adminService';
+import {
+  getCerfaTemplatesCalibration,
+  getSuperAdminTaxDefaults,
+  subscribeCerfaTemplatesCalibration,
+} from '../services/adminService';
 import {
   calculateCorporateIS,
   calculateFrenchVat,
@@ -176,6 +179,16 @@ export const Settings: React.FC<SettingsProps> = ({
   const [simRepairs, setSimRepairs] = useState<number>(5000);
   const [simSale, setSimSale] = useState<number>(5000);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [cerfaCalibration, setCerfaCalibration] = useState(() =>
+    getCerfaTemplatesCalibration()
+  );
+
+  useEffect(() => {
+    const unsub = subscribeCerfaTemplatesCalibration((cal) => {
+      setCerfaCalibration(cal);
+    });
+    return () => unsub();
+  }, []);
 
   const isPage = variant === 'page';
 
@@ -241,7 +254,6 @@ export const Settings: React.FC<SettingsProps> = ({
   if (!isPage && !isOpen) return null;
 
   const isRu = lang === 'ru';
-  const systemConfig = getSystemThemeConfig();
   const resolvedEmail = userEmail || auth.currentUser?.email || settings.email || 'garage@autogarage.fr';
   const resolvedUserId = userId || auth.currentUser?.uid || 'garage_pro_dealer';
   const taxConfig: FrenchTaxConfiguration = normalizeFrenchTaxConfig(settings);
@@ -1074,29 +1086,32 @@ export const Settings: React.FC<SettingsProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="space-y-1 max-w-md">
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <Wrench className="w-4 h-4 text-amber-400" />
+                        <FileText className="w-4 h-4 text-emerald-400" />
                         <span>
-                          {isRu ? 'Калибровка координат PDF (Aligner Mode)' : 'Calibration des coordonnées PDF (Aligner Mode)'}
+                          {isRu
+                            ? 'Глобальная калибровка Cerfa (Superadmin)'
+                            : 'Calibration globale Cerfa (Superadmin)'}
                         </span>
                       </h4>
                       <p className="text-xs text-slate-400">
                         {isRu
-                          ? 'Откройте интерактивный режим выравнивания для точной подгонки X/Y координат текста на бланке Cerfa 15776*02.'
-                          : 'Ouvrez l’outil visuel d’alignement pour ajuster en temps réel les positions X/Y sur le formulaire Cerfa 15776*02.'}
+                          ? 'Координаты полей и смещения автоматически синхронизируются из облака (platform_settings/cerfa_templates) для предпросмотра и PDF-экспорта.'
+                          : 'Les coordonnées et décalages sont synchronisés depuis le cloud (platform_settings/cerfa_templates) pour l’aperçu et l’export PDF.'}
                       </p>
                     </div>
 
                     <button
                       type="button"
+                      data-testid="settings-open-cerfa-preview-btn"
                       onClick={() => {
                         if (onOpenAlignerMode) {
                           onClose();
                           onOpenAlignerMode();
                         }
                       }}
-                      className="px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition flex items-center gap-2 shadow-lg shadow-amber-500/20"
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
                     >
-                      <span>🔧 Aligner Mode</span>
+                      <span>{isRu ? 'Предпросмотр и экспорт Cerfa' : 'Aperçu & Export Cerfa'}</span>
                     </button>
                   </div>
 
@@ -1104,19 +1119,19 @@ export const Settings: React.FC<SettingsProps> = ({
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
                       <span className="text-slate-500 block">Offset X</span>
                       <span className="font-mono font-bold text-white tabular-nums">
-                        {systemConfig.cerfaAdjustments.offsetX} pt
+                        {cerfaCalibration.cerfa_15776_02.offsets.offsetX} pt
                       </span>
                     </div>
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
                       <span className="text-slate-500 block">Offset Y</span>
                       <span className="font-mono font-bold text-white tabular-nums">
-                        {systemConfig.cerfaAdjustments.offsetY} pt
+                        {cerfaCalibration.cerfa_15776_02.offsets.offsetY} pt
                       </span>
                     </div>
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
                       <span className="text-slate-500 block">{isRu ? 'Шрифт Δ' : 'Police Δ'}</span>
                       <span className="font-mono font-bold text-white tabular-nums">
-                        {systemConfig.cerfaAdjustments.fontSizeDelta} pt
+                        {cerfaCalibration.cerfa_15776_02.offsets.fontSizeDelta} pt
                       </span>
                     </div>
                   </div>
@@ -2224,7 +2239,7 @@ export const Settings: React.FC<SettingsProps> = ({
                           onClick={() => setLang(option.code)}
                           className={`h-9 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer ${
                             active
-                              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
                               : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                           }`}
                         >
