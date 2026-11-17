@@ -53,7 +53,25 @@ export function validateGarageSettings(settings: GarageSettings): Record<string,
   const errors: Record<string, string> = {};
   const entityType = settings.entityType || 'morale';
 
-  if (entityType === 'physique') {
+  if (settings.profileType === 'particulier') {
+    if (!settings.lastName?.trim() && !settings.name?.trim()) {
+      errors.lastName = 'Le nom est requis.';
+    }
+    if (!settings.firstName?.trim() && !settings.name?.trim()) {
+      errors.firstName = 'Le prénom est requis.';
+    }
+  } else if (settings.profileType === 'micro_entrepreneur') {
+    const hasPersonalName = Boolean(settings.lastName?.trim() && settings.firstName?.trim());
+    if (!settings.name?.trim() && !hasPersonalName) {
+      errors.name = 'Le nom commercial ou votre nom complet est requis.';
+    }
+    if (settings.siret?.trim()) {
+      const siretCheck = validateSiret(settings.siret);
+      if (!siretCheck.valid && siretCheck.error) {
+        errors.siret = siretCheck.error;
+      }
+    }
+  } else if (entityType === 'physique') {
     if (!settings.lastName?.trim()) {
       errors.lastName = 'Le nom est requis.';
     }

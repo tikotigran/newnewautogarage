@@ -22,7 +22,10 @@ export interface VehicleDocument {
 export type LayoutMode = 'classic' | 'sidebar';
 export type UserLayoutPreference = 'global' | LayoutMode;
 
+export type AppUserProfileType = 'particulier' | 'micro_entrepreneur';
+
 export type LegalStatus =
+  | 'particulier'
   | 'micro_entreprise'
   | 'sarl'
   | 'sas'
@@ -130,6 +133,7 @@ export interface TransactionTaxSnapshot {
 
 export interface GarageSettings {
   garageId?: string;
+  profileType?: AppUserProfileType;
   entityType?: 'morale' | 'physique';
   legalStatus?: LegalStatus;
   name: string;
@@ -434,6 +438,7 @@ export interface UserProfile {
   email: string;
   displayName: string;
   garageName: string;
+  profileType?: AppUserProfileType;
   role: UserRole;
   planId: SubscriptionPlanId;
   vehicleLimit: number;
@@ -516,6 +521,7 @@ export interface GarageWorkspace {
   id: string;
   userId: string;
   name: string;
+  profileType?: AppUserProfileType;
   entityType: 'morale' | 'physique';
   legalStatus?: LegalStatus;
   city?: string;

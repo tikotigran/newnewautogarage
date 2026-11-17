@@ -22,6 +22,9 @@ import {
 import { FeatureFlagsConfig, GarageWorkspace, LayoutMode, Vehicle } from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { computeHeaderAnalyticsMetrics } from '../utils/garageUtils';
+import { resolveUserProfileType } from '../utils/frenchTaxEngine';
+import { getGarageSettings } from '../services/garageService';
+import { pickLocalized, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
 import { User } from '../services/firebase';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
@@ -117,7 +120,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const activeGarage = activeGarageId ? garages.find((g) => g.id === activeGarageId) : null;
 
   const hasSecondaryViews = true;
-  const isRu = lang === 'ru';
+  const activeProfileType = resolveUserProfileType(activeGarage || getGarageSettings());
+  const activeProfileBadgeLabel =
+    activeProfileType === 'particulier'
+      ? t('profileBadgeParticulier')
+      : t('profileBadgeMicro');
 
   const navigateView = (view: 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin') => {
     setActiveView(view);
@@ -153,7 +160,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 data-testid="sidebar-mobile-trigger"
                 onClick={() => onOpenMobileSidebar?.()}
-                aria-label={isRu ? 'Открыть меню навигации' : 'Ouvrir le menu de navigation'}
+                aria-label={pickLocalized(lang, {
+                  fr: 'Ouvrir le menu de navigation',
+                  ru: 'Открыть меню навигации',
+                  hy: 'Բացել նավիգացիոն մենյուն',
+                  ka: 'ნავიგაციის მენიუს გახსნა',
+                })}
                 className="lg:hidden inline-flex items-center justify-center p-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] text-[var(--ag-header-text)] border border-[var(--border)] hover:opacity-90 transition shrink-0"
               >
                 <Menu className="w-4 h-4" />
@@ -172,7 +184,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[var(--background)] border border-[var(--border)] text-[11px] font-semibold text-[var(--muted-foreground)] whitespace-nowrap shrink-0 tabular-nums">
                   <span>{inStock}</span>
                   <span className="text-[var(--ag-profit-color)]">
-                    · {forSaleCount} {isRu ? 'в продаже' : 'en vente'}
+                    · {forSaleCount}{' '}
+                    {pickLocalized(lang, {
+                      fr: 'en vente',
+                      ru: 'в продаже',
+                      hy: 'վաճառքում',
+                      ka: 'გასაყიდად',
+                    })}
                   </span>
                 </span>
               </div>
@@ -213,30 +231,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 data-testid="sidebar-header-utilities"
                 className="flex items-center bg-[var(--surface-muted)] p-0.5 rounded-xl border border-[var(--ag-header-border)] shrink-0"
               >
-                <button
-                  type="button"
-                  onClick={() => setLang('fr')}
-                  className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all ${
-                    lang === 'fr'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                  }`}
-                  title="Passer en Français"
-                >
-                  FR
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLang('ru')}
-                  className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all ${
-                    lang === 'ru'
-                      ? 'bg-red-600 text-white shadow-sm'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                  }`}
-                  title="Переключить на русский язык"
-                >
-                  RU
-                </button>
+                {SUPPORTED_LANGUAGES.map((opt) => (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    onClick={() => setLang(opt.code)}
+                    className={`px-1.5 sm:px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all ${
+                      lang === opt.code
+                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                        : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
+                    }`}
+                    title={opt.nativeLabel}
+                  >
+                    {opt.shortCode}
+                  </button>
+                ))}
                 <span className="w-px h-4 bg-[var(--ag-header-border)] mx-0.5" aria-hidden="true" />
                 <button
                   type="button"
@@ -329,10 +338,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {t('appName')}
                 </span>
                 <span
-                  style={getTextStyle('proDealer')}
                   className="hidden md:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold whitespace-nowrap bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30 shrink-0"
                 >
-                  {t('proDealer')}
+                  {activeProfileBadgeLabel}
                 </span>
               </div>
             </button>
@@ -343,7 +351,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Building2 className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
                 <ThemedSelect
                   testId="navbar-garage-select"
-                  ariaLabel={lang === 'ru' ? 'Переключить гараж' : 'Changer de garage'}
+                  ariaLabel={pickLocalized(lang, {
+                    fr: 'Changer de garage',
+                    ru: 'Переключить пространство',
+                    hy: 'Փոխել տարածքը',
+                    ka: 'სივრცის შეცვლა',
+                  })}
                   value={activeGarageId || ''}
                   onChange={(val) => onSelectGarage(val || null)}
                   options={[
@@ -372,7 +385,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title={t('studioView')}
                 >
                   <Monitor className="w-3.5 h-3.5" />
-                  <span>{lang === 'ru' ? 'ПК' : 'PC'}</span>
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'PC',
+                      ru: 'ПК',
+                      hy: 'ԱՀ',
+                      ka: 'კომპ.',
+                    })}
+                  </span>
                 </button>
               )}
               {featureFlags.expenseAnalytics && (
@@ -451,30 +471,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="w-px h-4 bg-[var(--ag-header-border)] mx-1" aria-hidden="true" />
               )}
 
-              <button
-                type="button"
-                onClick={() => setLang('fr')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                  lang === 'fr'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                }`}
-                title="Passer en Français"
-              >
-                FR
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang('ru')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                  lang === 'ru'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                }`}
-                title="Переключить на русский язык"
-              >
-                RU
-              </button>
+              {SUPPORTED_LANGUAGES.map((opt) => (
+                <button
+                  key={opt.code}
+                  type="button"
+                  onClick={() => setLang(opt.code)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    lang === opt.code
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
+                  }`}
+                  title={opt.nativeLabel}
+                >
+                  {opt.shortCode}
+                </button>
+              ))}
 
               <span className="w-px h-4 bg-[var(--ag-header-border)] mx-1" aria-hidden="true" />
 
@@ -495,30 +506,21 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Compact Language & Theme Quick Switcher for Tablet / Small Desktop (< xl, >= sm) */}
             <div className="hidden sm:flex xl:hidden items-center bg-[var(--surface-muted)] p-0.5 rounded-xl border border-[var(--ag-header-border)]">
-              <button
-                type="button"
-                onClick={() => setLang('fr')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                  lang === 'fr'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                }`}
-                title="Passer en Français"
-              >
-                FR
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang('ru')}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                  lang === 'ru'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
-                }`}
-                title="Переключить на русский язык"
-              >
-                RU
-              </button>
+              {SUPPORTED_LANGUAGES.map((opt) => (
+                <button
+                  key={opt.code}
+                  type="button"
+                  onClick={() => setLang(opt.code)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                    lang === opt.code
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--ag-header-text)]'
+                  }`}
+                  title={opt.nativeLabel}
+                >
+                  {opt.shortCode}
+                </button>
+              ))}
               <span className="w-px h-4 bg-[var(--ag-header-border)] mx-0.5" aria-hidden="true" />
               <button
                 type="button"
@@ -645,7 +647,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               type="button"
               data-testid="mobile-menu-toggle"
               aria-expanded={mobileMenuOpen}
-              aria-label={lang === 'ru' ? 'Меню навигации' : 'Menu de navigation'}
+              aria-label={pickLocalized(lang, {
+                fr: 'Menu de navigation',
+                ru: 'Меню навигации',
+                hy: 'Նավիգացիոն մենյու',
+                ka: 'ნავიგაციის მენიუ',
+              })}
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               className={`xl:hidden inline-flex items-center justify-center p-2 rounded-[var(--ag-button-radius)] border transition ${
                 mobileMenuOpen
@@ -669,11 +676,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             {featureFlags.multiGarage && garages.length > 0 && onSelectGarage && (
               <div className="sm:hidden space-y-1">
                 <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  {lang === 'ru' ? 'Рабочий гараж' : 'Garage actif'}
+                  {pickLocalized(lang, {
+                    fr: 'Espace actif',
+                    ru: 'Рабочее пространство',
+                    hy: 'Ակտիվ տարածք',
+                    ka: 'აქტიური სივრცე',
+                  })}
                 </label>
                 <ThemedSelect
                   testId="mobile-drawer-garage-select"
-                  ariaLabel={lang === 'ru' ? 'Переключить гараж' : 'Changer de garage'}
+                  ariaLabel={pickLocalized(lang, {
+                    fr: 'Changer de garage',
+                    ru: 'Переключить пространство',
+                    hy: 'Փոխել տարածքը',
+                    ka: 'სივრცის შეცვლა',
+                  })}
                   value={activeGarageId || ''}
                   onChange={(val) => {
                     onSelectGarage(val || null);
@@ -691,7 +708,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Navigation Modes */}
             <div className="space-y-1.5">
               <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
-                {lang === 'ru' ? 'Разделы' : 'Navigation'}
+                {pickLocalized(lang, {
+                  fr: 'Navigation',
+                  ru: 'Разделы',
+                  hy: 'Բաժիններ',
+                  ka: 'სექციები',
+                })}
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -705,7 +727,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Monitor className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">
-                    {lang === 'ru' ? 'Склад / ПК' : 'Stock / PC'}
+                    {pickLocalized(lang, {
+                      fr: 'Stock / PC',
+                      ru: 'Склад / ПК',
+                      hy: 'Պահեստ / ԱՀ',
+                      ka: 'საწყობი / კომპ.',
+                    })}
                   </span>
                 </button>
 
@@ -794,28 +821,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Language & Theme Controls */}
             <div className="pt-2 border-t border-[var(--border)] grid grid-cols-2 gap-2">
               <div className="flex items-center bg-[var(--background)] p-1 rounded-xl border border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={() => setLang('fr')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
-                    lang === 'fr'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  FR
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLang('ru')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
-                    lang === 'ru'
-                      ? 'bg-red-600 text-white shadow-sm'
-                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-                  }`}
-                >
-                  RU
-                </button>
+                {SUPPORTED_LANGUAGES.map((opt) => (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    onClick={() => setLang(opt.code)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
+                      lang === opt.code
+                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                        : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    {opt.shortCode}
+                  </button>
+                ))}
               </div>
 
               <button
@@ -952,7 +971,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
-              <span>{lang === 'ru' ? 'Склад / ПК' : 'Stock / PC'}</span>
+              <span>
+                {pickLocalized(lang, {
+                  fr: 'Stock / PC',
+                  ru: 'Склад / ПК',
+                  hy: 'Պահեստ / ԱՀ',
+                  ka: 'საწყობი / კომპ.',
+                })}
+              </span>
             </button>
 
             {featureFlags.expenseAnalytics && (

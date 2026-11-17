@@ -34,7 +34,7 @@ import {
   VatRegime,
   Vehicle,
 } from '../types/garage';
-import { FRENCH_TAX_DEFAULTS } from '../utils/frenchTaxEngine';
+import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import {
   getGarageSettings,
   subscribeAllFleetExpensesAndRepairs,
@@ -69,6 +69,7 @@ import {
   generateVehicleFinancialReportPDF,
 } from '../utils/pdfGenerator';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
 
 export type ExportsBackupTab = 'exports' | 'facturx' | 'audit' | 'backup';
@@ -125,11 +126,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   onNavigateSettings,
 }) => {
   const { lang, t } = useI18n();
-  const isRu = lang === 'ru';
 
   const [activeTab, setActiveTab] = useState<ExportsBackupTab>('exports');
   const [periodRange, setPeriodRange] = useState<AnalyticsTimeRange>('all');
   const [garageSettings, setGarageSettings] = useState<GarageSettings>(() => getGarageSettings());
+  const activeProfileType = resolveUserProfileType(garageSettings);
+  const isParticulier = activeProfileType === 'particulier';
+  const isCorporateTaxRegime =
+    garageSettings.taxRegime === 'sarl' || garageSettings.taxRegime === 'sas';
+  const isVatExemptSeller = !isCorporateTaxRegime;
   const [fleetData, setFleetData] = useState<{
     repairs: RepairTask[];
     expenses: GeneralExpense[];
@@ -144,11 +149,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   // Factur-X state
   const [facturxVehicleId, setFacturxVehicleId] = useState<string>('');
   const [paymentMeansCode, setPaymentMeansCode] = useState<'30' | '48' | '10' | '20'>('30');
-  const [vatMode, setVatMode] = useState<VatRegime>(
-    () => garageSettings.frenchTaxConfig?.vatRegime || 'tva_marge'
+  const [vatMode, setVatMode] = useState<VatRegime>(() =>
+    isVatExemptSeller
+      ? 'franchise_base'
+      : garageSettings.frenchTaxConfig?.vatRegime || 'tva_marge'
   );
-  const [vatRatePercent, setVatRatePercent] = useState<number>(
-    () => garageSettings.frenchTaxConfig?.vatRatePercent ?? 20
+  const [vatRatePercent, setVatRatePercent] = useState<number>(() =>
+    isVatExemptSeller
+      ? 0
+      : garageSettings.frenchTaxConfig?.vatRatePercent ?? 20
   );
   const [showXmlPreview, setShowXmlPreview] = useState<boolean>(true);
   const [isGeneratingFacturx, setIsGeneratingFacturx] = useState(false);
@@ -214,15 +223,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   ]);
 
   const periodLabelMap: Record<AnalyticsTimeRange, string> = {
-    today: isRu ? 'Сегодня' : "Aujourd'hui",
-    week: isRu ? 'Неделя' : 'Cette semaine',
-    month: isRu ? 'Месяц' : 'Ce mois-ci',
-    quarter: isRu ? 'Квартал' : 'Ce trimestre',
-    year: isRu ? 'Год' : 'Cette année',
-    all: isRu ? 'Весь период' : "Tout l'historique",
+    today: t('periodToday'),
+    week: t('periodWeek'),
+    month: t('periodMonth'),
+    quarter: t('periodQuarter'),
+    year: t('periodYear'),
+    all: t('periodAll'),
     '3months': '3 mois',
     '6months': '6 mois',
-    custom: isRu ? 'Произвольный период' : 'Personnalisé',
+    custom: t('periodCustom'),
   };
 
   const selectedPdfVehicle = useMemo(
@@ -237,6 +246,16 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
   useEffect(() => {
     if (!facturxVehicle) return;
+    const isFrozenCorporateVat =
+      facturxVehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
+      (facturxVehicle.buyerInfo.taxSnapshot.vatAmount > 0 ||
+        facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sarl' ||
+        facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sas');
+    if (isVatExemptSeller && !isFrozenCorporateVat) {
+      setVatMode('franchise_base');
+      setVatRatePercent(0);
+      return;
+    }
     setVatMode(
       facturxVehicle.buyerInfo?.vatRegime ||
         facturxVehicle.buyerInfo?.taxSnapshot?.vatRegime ||
@@ -249,7 +268,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
         garageSettings.frenchTaxConfig?.vatRatePercent ??
         20
     );
-  }, [facturxVehicle, garageSettings.frenchTaxConfig?.vatRegime, garageSettings.frenchTaxConfig?.vatRatePercent]);
+  }, [
+    facturxVehicle,
+    isVatExemptSeller,
+    garageSettings.frenchTaxConfig?.vatRegime,
+    garageSettings.frenchTaxConfig?.vatRatePercent,
+  ]);
 
   const facturxReadiness = useMemo(() => {
     if (!facturxVehicle) return null;
@@ -315,7 +339,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? `Финансовый CSV скачан: ${fileName}` : `Export financier CSV téléchargé : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `Export financier CSV téléchargé : ${fileName}`,
+        ru: `Финансовый CSV скачан: ${fileName}`,
+        hy: `Ֆինանսական CSV-ն ներբեռնվեց՝ ${fileName}`,
+        ka: `ფინანსური CSV ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -348,7 +377,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? `Финансовая книга Excel скачана: ${fileName}` : `Classeur Excel financier téléchargé : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `Classeur Excel financier téléchargé : ${fileName}`,
+        ru: `Финансовая книга Excel скачана: ${fileName}`,
+        hy: `Ֆինանսական Excel ֆայլը ներբեռնվեց՝ ${fileName}`,
+        ka: `ფინანსური Excel ფაილი ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -373,7 +407,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? `Список авто в Excel скачан: ${fileName}` : `Export Excel du parc téléchargé : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `Export Excel du parc téléchargé : ${fileName}`,
+        ru: `Список авто в Excel скачан: ${fileName}`,
+        hy: `Ավտոպարկի Excel ֆայլը ներբեռնվեց՝ ${fileName}`,
+        ka: `ავტოპარკის Excel ფაილი ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -393,7 +432,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? `CSV автомобилей скачан: ${fileName}` : `CSV véhicules téléchargé : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `CSV véhicules téléchargé : ${fileName}`,
+        ru: `CSV автомобилей скачан: ${fileName}`,
+        hy: `Ավտոմեքենաների CSV-ն ներբեռնվեց՝ ${fileName}`,
+        ka: `ავტომობილების CSV ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -414,7 +458,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? 'Сводный PDF-отчёт P&L сформирован.' : 'Rapport financier global PDF téléchargé.',
+      text: pickLocalized(lang, {
+        fr: 'Rapport financier global PDF téléchargé.',
+        ru: 'Сводный PDF-отчёт P&L сформирован.',
+        hy: 'Ընդհանուր ֆինանսական PDF հաշվետվությունը ներբեռնվեց։',
+        ka: 'საერთო ფინანსური PDF ანგარიში ჩამოტვირთულია.',
+      }),
     });
   };
 
@@ -435,9 +484,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu
-        ? `PDF-отчёт по ${selectedPdfVehicle.make} ${selectedPdfVehicle.model} скачан.`
-        : `Bilan PDF téléchargé pour ${selectedPdfVehicle.make} ${selectedPdfVehicle.model}.`,
+      text: pickLocalized(lang, {
+        fr: `Bilan PDF téléchargé pour ${selectedPdfVehicle.make} ${selectedPdfVehicle.model}.`,
+        ru: `PDF-отчёт по ${selectedPdfVehicle.make} ${selectedPdfVehicle.model} скачан.`,
+        hy: `${selectedPdfVehicle.make} ${selectedPdfVehicle.model} PDF հաշվետվությունը ներբեռնվեց։`,
+        ka: `${selectedPdfVehicle.make} ${selectedPdfVehicle.model}-ის PDF ანგარიში ჩამოტვირთულია.`,
+      }),
     });
   };
 
@@ -460,7 +512,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     });
     setStatusBanner({
       type: 'success',
-      text: isRu ? `XML Factur-X скачан: ${fileName}` : `XML Factur-X téléchargé : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `XML Factur-X téléchargé : ${fileName}`,
+        ru: `XML Factur-X скачан: ${fileName}`,
+        hy: `Factur-X XML-ը ներբեռնվեց՝ ${fileName}`,
+        ka: `Factur-X XML ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -487,9 +544,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       });
       setStatusBanner({
         type: 'success',
-        text: isRu
-          ? `Гибридный PDF Factur-X с вложенным XML скачан: ${result.fileName}`
-          : `PDF hybride Factur-X généré avec factur-x.xml embarqué : ${result.fileName}`,
+        text: pickLocalized(lang, {
+          fr: `PDF hybride Factur-X généré avec factur-x.xml embarqué : ${result.fileName}`,
+          ru: `Гибридный PDF Factur-X с вложенным XML скачан: ${result.fileName}`,
+          hy: `Factur-X հիբրիդային PDF-ը ներբեռնվեց՝ ${result.fileName}`,
+          ka: `Factur-X ჰიბრიდული PDF ჩამოტვირთულია: ${result.fileName}`,
+        }),
       });
     } catch (err) {
       setStatusBanner({
@@ -530,9 +590,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
     setStatusBanner({
       type: 'success',
-      text: isRu
-        ? `Полный бэкап v2 скачан: ${fileName}`
-        : `Sauvegarde complète v2 téléchargée : ${fileName}`,
+      text: pickLocalized(lang, {
+        fr: `Sauvegarde complète v2 téléchargée : ${fileName}`,
+        ru: `Полный бэкап v2 скачан: ${fileName}`,
+        hy: `Ամբողջական պահուստային կրկնօրինակ v2-ը ներբեռնվեց՝ ${fileName}`,
+        ka: `სრული სარეზერვო ასლი v2 ჩამოტვირთულია: ${fileName}`,
+      }),
     });
   };
 
@@ -550,11 +613,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
         documentHistory,
         settings: garageSettings,
       });
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
       const label =
         snapshotLabel.trim() ||
-        (isRu
-          ? `Точка восстановления ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
-          : `Point de restauration ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`);
+        pickLocalized(lang, {
+          fr: `Point de restauration ${stamp}`,
+          ru: `Точка восстановления ${stamp}`,
+          hy: `Վերականգնման կետ ${stamp}`,
+          ka: `აღდგენის წერტილი ${stamp}`,
+        });
 
       await createRestorePoint({
         userId,
@@ -566,7 +633,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       setSnapshotLabel('');
       setStatusBanner({
         type: 'success',
-        text: isRu ? `Точка восстановления создана: ${label}` : `Point de restauration enregistré : ${label}`,
+        text: pickLocalized(lang, {
+          fr: `Point de restauration enregistré : ${label}`,
+          ru: `Точка восстановления создана: ${label}`,
+          hy: `Վերականգնման կետը ստեղծվեց՝ ${label}`,
+          ka: `აღდგენის წერტილი შეიქმნა: ${label}`,
+        }),
       });
     } catch (err) {
       setStatusBanner({
@@ -603,9 +675,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     if (!snap.payloadJson) {
       setStatusBanner({
         type: 'error',
-        text: isRu
-          ? 'У этой точки восстановления отсутствует JSON-снимок.'
-          : 'Ce point de restauration ne contient pas de snapshot JSON.',
+        text: pickLocalized(lang, {
+          fr: 'Ce point de restauration ne contient pas de snapshot JSON.',
+          ru: 'У этой точки восстановления отсутствует JSON-снимок.',
+          hy: 'Այս վերականգնման կետում JSON պատկեր չկա։',
+          ka: 'ამ აღდგენის წერტილს JSON სნეპშოტი არ აქვს.',
+        }),
       });
       return;
     }
@@ -635,9 +710,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       });
       setStatusBanner({
         type: 'success',
-        text: isRu
-          ? `Данные успешно восстановлены (${pendingRestore.payload.vehicles.length} авто, ${pendingRestore.payload.suppliers.length} поставщиков, ${pendingRestore.payload.documents.length} документов).`
-          : `Restauration terminée avec succès (${pendingRestore.payload.vehicles.length} véhicules, ${pendingRestore.payload.suppliers.length} fournisseurs, ${pendingRestore.payload.documents.length} documents).`,
+        text: pickLocalized(lang, {
+          fr: `Restauration terminée avec succès (${pendingRestore.payload.vehicles.length} véhicules, ${pendingRestore.payload.suppliers.length} fournisseurs, ${pendingRestore.payload.documents.length} documents).`,
+          ru: `Данные успешно восстановлены (${pendingRestore.payload.vehicles.length} авто, ${pendingRestore.payload.suppliers.length} поставщиков, ${pendingRestore.payload.documents.length} документов).`,
+          hy: `Տվյալները հաջողությամբ վերականգնվեցին (${pendingRestore.payload.vehicles.length} մեքենա, ${pendingRestore.payload.suppliers.length} մատակարար, ${pendingRestore.payload.documents.length} փաստաթուղթ)։`,
+          ka: `მონაცემები წარმატებით აღდგა (${pendingRestore.payload.vehicles.length} ავტო, ${pendingRestore.payload.suppliers.length} მომწოდებელი, ${pendingRestore.payload.documents.length} დოკუმენტი).`,
+        }),
       });
       setPendingRestore(null);
     } catch (err) {
@@ -751,26 +829,37 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
       {/* TAB 1: EXPORTS & PDF REPORTS */}
       {activeTab === 'exports' && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {/* Live Separated P&L Period Preview */}
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-[var(--foreground)]">
-                  {isRu
-                    ? 'Финансовый срез для экспорта (разделение Revenue / Gross Profit / Net Profit)'
-                    : 'Aperçu comptable avant export (Revenue / Gross Profit / Net Profit séparés)'}
+                  {pickLocalized(lang, {
+                    fr: 'Aperçu comptable avant export (Revenue / Gross Profit / Net Profit séparés)',
+                    ru: 'Финансовый срез для экспорта (разделение Revenue / Gross Profit / Net Profit)',
+                    hy: 'Հաշվապահական ամփոփում արտահանումից առաջ (Revenue / Gross / Net Profit)',
+                    ka: 'ფინანსური მიმოხილვა ექსპორტამდე (Revenue / Gross / Net Profit)',
+                  })}
                 </h3>
                 <p className="text-xs text-[var(--muted-foreground)]">
-                  {isRu
-                    ? 'Выручка, валовая прибыль, налоги и чистая прибыль рассчитываются раздельно без смешивания.'
-                    : 'Le chiffre d’affaires, la marge brute, les impôts et le bénéfice net sont exportés dans des colonnes distinctes.'}
+                  {pickLocalized(lang, {
+                    fr: 'Le chiffre d’affaires, la marge brute, les impôts et le bénéfice net sont exportés dans des colonnes distinctes.',
+                    ru: 'Выручка, валовая прибыль, налоги и чистая прибыль рассчитываются раздельно без смешивания.',
+                    hy: 'Շրջանառությունը, համախառն մարժան, հարկերը և զուտ շահույթը արտահանվում են առանձին սյունակներով։',
+                    ka: 'ბრუნვა, მთლიანი მარჟა, გადასახადები და წმინდა მოგება ცალკე სვეტებად ინახება.',
+                  })}
                 </p>
               </div>
               <div className="w-full sm:w-56">
                 <ThemedSelect
                   testId="exports-period-select"
-                  ariaLabel={isRu ? 'Период отчёта' : 'Période du rapport'}
+                  ariaLabel={pickLocalized(lang, {
+                    fr: 'Période du rapport',
+                    ru: 'Период отчёта',
+                    hy: 'Հաշվետվության ժամանակահատված',
+                    ka: 'ანგარიშის პერიოდი',
+                  })}
                   value={periodRange}
                   onChange={(val) => setPeriodRange(val as AnalyticsTimeRange)}
                   options={[
@@ -788,20 +877,37 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="p-3.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
                 <div className="text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  1. {isRu ? 'Выручка (Revenue)' : "Chiffre d'affaires (Revenue)"}
+                  1.{' '}
+                  {pickLocalized(lang, {
+                    fr: "Chiffre d'affaires (Revenue)",
+                    ru: 'Выручка (Revenue)',
+                    hy: 'Շրջանառություն (Revenue)',
+                    ka: 'შემოსავალი (Revenue)',
+                  })}
                 </div>
                 <div className="text-lg font-extrabold text-[var(--foreground)] tabular-nums mt-1">
                   {formatEuro(analyticsReport.salesPerformance.revenue)}
                 </div>
                 <div className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
                   {analyticsReport.salesPerformance.soldCount}{' '}
-                  {isRu ? 'продаж' : 'vente(s)'}
+                  {pickLocalized(lang, {
+                    fr: 'vente(s)',
+                    ru: 'продаж',
+                    hy: 'վաճառք',
+                    ka: 'გაყიდვა',
+                  })}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
                 <div className="text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  2. {isRu ? 'Валовая прибыль (Gross Profit)' : 'Marge brute (Gross Profit)'}
+                  2.{' '}
+                  {pickLocalized(lang, {
+                    fr: 'Marge brute (Gross Profit)',
+                    ru: 'Валовая прибыль (Gross Profit)',
+                    hy: 'Համախառն շահույթ (Gross Profit)',
+                    ka: 'მთლიანი მოგება (Gross Profit)',
+                  })}
                 </div>
                 <div className="text-lg font-extrabold text-[var(--foreground)] tabular-nums mt-1">
                   {formatEuro(analyticsReport.salesPerformance.grossProfit)}
@@ -812,46 +918,74 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
               </div>
 
               <div className="p-3.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
-                <div className="text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  {isRu ? 'Налоги' : 'Impôts'} ({analyticsReport.salesPerformance.taxLabel})
+                <div className="text-[11px] font-semibold text-[var(--muted-foreground)] flex items-center justify-between gap-1">
+                  <span>
+                    {isParticulier
+                      ? t('profileBadgeParticulier')
+                      : `${pickLocalized(lang, {
+                          fr: 'Impôts',
+                          ru: 'Налоги',
+                          hy: 'Հարկեր',
+                          ka: 'გადასახადები',
+                        })} (${analyticsReport.salesPerformance.taxLabel})`}
+                  </span>
                 </div>
                 <div className="text-lg font-extrabold text-amber-500 tabular-nums mt-1">
                   {formatEuro(analyticsReport.salesPerformance.taxAmount)}
                 </div>
                 <div className="text-[11px] text-[var(--muted-foreground)]">
-                  {garageSettings.taxRegime?.toUpperCase() || 'SARL'}
+                  {isParticulier ? t('profileBadgeParticulier') : t('profileBadgeMicro')}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
                 <div className="text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  3. {isRu ? 'Чистая прибыль (Net Profit)' : 'Bénéfice net (Net Profit)'}
+                  3.{' '}
+                  {pickLocalized(lang, {
+                    fr: 'Bénéfice net (Net Profit)',
+                    ru: 'Чистая прибыль (Net Profit)',
+                    hy: 'Զուտ շահույթ (Net Profit)',
+                    ka: 'წმინდა მოგება (Net Profit)',
+                  })}
                 </div>
                 <div className="text-lg font-extrabold text-emerald-500 tabular-nums mt-1">
                   {formatEuro(analyticsReport.salesPerformance.netProfit)}
                 </div>
                 <div className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
                   {analyticsReport.salesPerformance.netMarginPercent.toFixed(1)}%{' '}
-                  {isRu ? 'маржа' : 'marge nette'}
+                  {pickLocalized(lang, {
+                    fr: 'marge nette',
+                    ru: 'маржа',
+                    hy: 'զուտ մարժա',
+                    ka: 'წმინდა მარჟა',
+                  })}
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
-              <span className="tabular-nums">
-                TVA: {formatEuro(analyticsReport.salesPerformance.vatAmount)} · URSSAF:{' '}
-                {formatEuro(analyticsReport.salesPerformance.urssafAmount)} · VL:{' '}
-                {formatEuro(analyticsReport.salesPerformance.versementLiberatoireAmount)} · IS:{' '}
-                {formatEuro(analyticsReport.salesPerformance.corporateIsAmount)}
-              </span>
-              <span>{isRu ? FRENCH_TAX_DEFAULTS.DISCLAIMER_RU : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR}</span>
-            </div>
+            {(!isParticulier ||
+              analyticsReport.salesPerformance.taxAmount > 0 ||
+              analyticsReport.salesPerformance.vatAmount > 0 ||
+              analyticsReport.salesPerformance.urssafAmount > 0 ||
+              analyticsReport.salesPerformance.corporateIsAmount > 0) && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
+                <span className="tabular-nums">
+                  {analyticsReport.salesPerformance.vatAmount > 0 &&
+                    `TVA: ${formatEuro(analyticsReport.salesPerformance.vatAmount)} · `}
+                  URSSAF: {formatEuro(analyticsReport.salesPerformance.urssafAmount)} · VL:{' '}
+                  {formatEuro(analyticsReport.salesPerformance.versementLiberatoireAmount)}
+                  {analyticsReport.salesPerformance.corporateIsAmount > 0 &&
+                    ` · IS: ${formatEuro(analyticsReport.salesPerformance.corporateIsAmount)}`}
+                </span>
+                <span>{t('taxAccountantDisclaimer')}</span>
+              </div>
+            )}
           </div>
 
           {/* 3 Export Pillars */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Card 1: Financial CSV / Excel */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4">
               <div className="space-y-2">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
                   <FileSpreadsheet className="w-5 h-5" />
@@ -863,9 +997,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   {t('exportsFinanceCardDesc')}
                 </p>
                 <div className="text-[11px] text-[var(--muted-foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-lg px-3 py-2">
-                  {isRu
-                    ? 'Листы .xlsx: Synthèse P&L, Ventes & Marges, Dépenses & Achats.'
-                    : 'Feuilles .xlsx : Synthèse P&L, Ventes & Marges, Dépenses & Achats.'}
+                  {pickLocalized(lang, {
+                    fr: 'Feuilles .xlsx : Synthèse P&L, Ventes & Marges, Dépenses & Achats.',
+                    ru: 'Листы .xlsx: Synthèse P&L, Ventes & Marges, Dépenses & Achats.',
+                    hy: '.xlsx թերթեր՝ Synthèse P&L, Ventes & Marges, Dépenses & Achats։',
+                    ka: '.xlsx ფურცლები: Synthèse P&L, Ventes & Marges, Dépenses & Achats.',
+                  })}
                 </div>
               </div>
 
@@ -892,7 +1029,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
             </div>
 
             {/* Card 2: Vehicles Fleet Excel / CSV */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4">
               <div className="space-y-2">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-500">
                   <FileSpreadsheet className="w-5 h-5" />
@@ -904,9 +1041,27 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   {t('exportsVehiclesCardDesc')}
                 </p>
                 <div className="text-[11px] text-[var(--muted-foreground)] bg-[var(--surface-muted)] border border-[var(--border)] rounded-lg px-3 py-2 tabular-nums">
-                  {vehicles.length} {isRu ? 'авто' : 'véhicules'} · {fleetData.repairs.length}{' '}
-                  {isRu ? 'ремонтов' : 'réparations'} · {fleetData.expenses.length}{' '}
-                  {isRu ? 'расходов' : 'frais'}
+                  {vehicles.length}{' '}
+                  {pickLocalized(lang, {
+                    fr: 'véhicules',
+                    ru: 'авто',
+                    hy: 'մեքենա',
+                    ka: 'ავტო',
+                  })}{' '}
+                  · {fleetData.repairs.length}{' '}
+                  {pickLocalized(lang, {
+                    fr: 'réparations',
+                    ru: 'ремонтов',
+                    hy: 'վերանորոգում',
+                    ka: 'შეკეთება',
+                  })}{' '}
+                  · {fleetData.expenses.length}{' '}
+                  {pickLocalized(lang, {
+                    fr: 'frais',
+                    ru: 'расходов',
+                    hy: 'ծախս',
+                    ka: 'ხარჯი',
+                  })}
                 </div>
               </div>
 
@@ -933,7 +1088,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
             </div>
 
             {/* Card 3: PDF Reports */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-[var(--primary)]/15 border border-[var(--primary)]/30 flex items-center justify-center text-[var(--primary)]">
                   <FileText className="w-5 h-5" />
@@ -948,11 +1103,21 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 {vehicles.length > 0 && (
                   <div className="space-y-1">
                     <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                      {isRu ? 'Автомобиль для PDF-досье' : 'Véhicule pour bilan PDF individuel'}
+                      {pickLocalized(lang, {
+                        fr: 'Véhicule pour bilan PDF individuel',
+                        ru: 'Автомобиль для PDF-досье',
+                        hy: 'Մեքենա՝ անհատական PDF հաշվետվության համար',
+                        ka: 'ავტომობილი ინდივიდუალური PDF-ისთვის',
+                      })}
                     </label>
                     <ThemedSelect
                       testId="export-pdf-vehicle-select"
-                      ariaLabel={isRu ? 'Выбор автомобиля' : 'Choisir un véhicule'}
+                      ariaLabel={pickLocalized(lang, {
+                        fr: 'Choisir un véhicule',
+                        ru: 'Выбор автомобиля',
+                        hy: 'Ընտրել մեքենան',
+                        ka: 'აირჩიეთ ავტომობილი',
+                      })}
                       value={selectedPdfVehicle?.id || ''}
                       onChange={setSelectedPdfVehicleId}
                       options={vehicles.map((v) => ({
@@ -992,10 +1157,10 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
       {/* TAB 2: FRENCH E-INVOICING & FACTUR-X EN 16931 */}
       {activeTab === 'facturx' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Left Configuration & Readiness Column */}
           <div className="lg:col-span-6 space-y-4">
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-[var(--foreground)]">
@@ -1031,16 +1196,24 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
               {vehicles.length === 0 ? (
                 <div className="p-4 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
-                  {isRu
-                    ? 'Добавьте хотя бы один автомобиль на склад для формирования счёта Factur-X.'
-                    : 'Ajoutez au moins un véhicule au stock pour préparer une facture Factur-X.'}
+                  {pickLocalized(lang, {
+                    fr: 'Ajoutez au moins un véhicule au stock pour préparer une facture Factur-X.',
+                    ru: 'Добавьте хотя бы один автомобиль на склад для формирования счёта Factur-X.',
+                    hy: 'Factur-X հաշիվ կազմելու համար ավելացրեք առնվազն մեկ մեքենա պահեստում։',
+                    ka: 'Factur-X ინვოისის მოსამზადებლად დაამატეთ მინიმუმ ერთი ავტომობილი.',
+                  })}
                 </div>
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="sm:col-span-2 space-y-1">
                       <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                        {isRu ? 'Автомобиль / Сделка' : 'Véhicule / Transaction à facturer'}
+                        {pickLocalized(lang, {
+                          fr: 'Véhicule / Transaction à facturer',
+                          ru: 'Автомобиль / Сделка',
+                          hy: 'Մեքենա / Գործարք',
+                          ka: 'ავტომობილი / ტრანზაქცია',
+                        })}
                       </label>
                       <ThemedSelect
                         testId="facturx-vehicle-select"
@@ -1056,7 +1229,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
                     <div className="space-y-1">
                       <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                        {isRu ? 'Способ оплаты (BT-81)' : 'Moyen de paiement (BT-81)'}
+                        {pickLocalized(lang, {
+                          fr: 'Moyen de paiement (BT-81)',
+                          ru: 'Способ оплаты (BT-81)',
+                          hy: 'Վճարման եղանակ (BT-81)',
+                          ka: 'გადახდის მეთოდი (BT-81)',
+                        })}
                       </label>
                       <ThemedSelect
                         testId="facturx-payment-select"
@@ -1064,72 +1242,140 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                         value={paymentMeansCode}
                         onChange={(v) => setPaymentMeansCode(v as '30' | '48' | '10' | '20')}
                         options={[
-                          { value: '30', label: isRu ? '30 — Перевод SEPA' : '30 — Virement SEPA' },
-                          { value: '48', label: isRu ? '48 — Банковская карта' : '48 — Carte bancaire' },
-                          { value: '20', label: isRu ? '20 — Чек' : '20 — Chèque de banque' },
-                          { value: '10', label: isRu ? '10 — Наличные' : '10 — Espèces' },
+                          {
+                            value: '30',
+                            label: pickLocalized(lang, {
+                              fr: '30 — Virement SEPA',
+                              ru: '30 — Перевод SEPA',
+                              hy: '30 — SEPA փոխանցում',
+                              ka: '30 — SEPA გადარიცხვა',
+                            }),
+                          },
+                          {
+                            value: '48',
+                            label: pickLocalized(lang, {
+                              fr: '48 — Carte bancaire',
+                              ru: '48 — Банковская карта',
+                              hy: '48 — Բանկային քարտ',
+                              ka: '48 — საბანკო ბარათი',
+                            }),
+                          },
+                          {
+                            value: '20',
+                            label: pickLocalized(lang, {
+                              fr: '20 — Chèque de banque',
+                              ru: '20 — Чек',
+                              hy: '20 — Բանկային չեկ',
+                              ka: '20 — საბანკო ჩეკი',
+                            }),
+                          },
+                          {
+                            value: '10',
+                            label: pickLocalized(lang, {
+                              fr: '10 — Espèces',
+                              ru: '10 — Наличные',
+                              hy: '10 — Կանխիկ',
+                              ka: '10 — ნაღდი',
+                            }),
+                          },
                         ]}
                       />
                     </div>
 
                     <div className="space-y-1">
                       <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                        {isRu ? 'Режим НДС (TVA)' : 'Régime de TVA'}
+                        {pickLocalized(lang, {
+                          fr: 'Régime de TVA',
+                          ru: 'Режим НДС (TVA)',
+                          hy: 'ԱԱՀ ռեժիմ (TVA)',
+                          ka: 'დღგ რეჟიმი (TVA)',
+                        })}
                       </label>
-                      <div className="flex items-center gap-2">
-                        <ThemedSelect<VatRegime>
-                          testId="facturx-vat-select"
-                          ariaLabel="Régime TVA"
-                          value={vatMode}
-                          onChange={(v) => {
-                            setVatMode(v);
-                            if (v === 'franchise_base') {
-                              setVatRatePercent(0);
-                            } else if (vatRatePercent === 0) {
-                              setVatRatePercent(20);
-                            }
-                          }}
-                          options={[
-                            {
-                              value: 'tva_marge',
-                              label: 'AE — TVA sur la marge (Art. 297 A CGI)',
-                            },
-                            {
-                              value: 'tva_total',
-                              label: 'S — TVA sur le prix total (20%)',
-                            },
-                            {
-                              value: 'franchise_base',
-                              label: 'E — Franchise en base (0% · Art. 293 B)',
-                            },
-                            {
-                              value: 'custom',
-                              label: isRu ? 'S — Своя ставка НДС (%)' : 'S — Taux TVA personnalisé (%)',
-                            },
-                          ]}
-                          triggerClassName="flex-1 min-w-0"
-                        />
-                        {vatMode !== 'franchise_base' && (
-                          <div className="relative w-20 shrink-0">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.1"
-                              data-testid="facturx-vat-rate-input"
-                              aria-label={isRu ? 'Ставка НДС %' : 'Taux TVA %'}
-                              value={vatRatePercent}
-                              onChange={(e) =>
-                                setVatRatePercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                      {isVatExemptSeller ? (
+                        <div
+                          data-testid="facturx-vat-exempt-badge"
+                          className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-semibold text-[var(--foreground)]"
+                        >
+                          {isParticulier
+                            ? pickLocalized(lang, {
+                                fr: 'Particulier — Non assujetti (0%)',
+                                ru: 'Particulier — Без НДС (0%)',
+                                hy: 'Particulier — Առանց ԱԱՀ (0%)',
+                                ka: 'Particulier — დღგ-ს გარეშე (0%)',
+                              })
+                            : pickLocalized(lang, {
+                                fr: 'Franchise en base de TVA (0% · Art. 293 B du CGI)',
+                                ru: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
+                                hy: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
+                                ka: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
+                              })}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <ThemedSelect<VatRegime>
+                            testId="facturx-vat-select"
+                            ariaLabel="Régime TVA"
+                            value={vatMode}
+                            onChange={(v) => {
+                              setVatMode(v);
+                              if (v === 'franchise_base') {
+                                setVatRatePercent(0);
+                              } else if (vatRatePercent === 0) {
+                                setVatRatePercent(20);
                               }
-                              className="w-full px-2.5 py-2 pr-6 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)] tabular-nums"
-                            />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--muted-foreground)]">
-                              %
-                            </span>
-                          </div>
-                        )}
-                      </div>
+                            }}
+                            options={[
+                              {
+                                value: 'tva_marge',
+                                label: 'AE — TVA sur la marge (Art. 297 A CGI)',
+                              },
+                              {
+                                value: 'tva_total',
+                                label: 'S — TVA sur le prix total (20%)',
+                              },
+                              {
+                                value: 'franchise_base',
+                                label: 'E — Franchise en base (0% · Art. 293 B)',
+                              },
+                              {
+                                value: 'custom',
+                                label: pickLocalized(lang, {
+                                  fr: 'S — Taux TVA personnalisé (%)',
+                                  ru: 'S — Своя ставка НДС (%)',
+                                  hy: 'S — Հատուկ ԱԱՀ տոկոսադրույք (%)',
+                                  ka: 'S — მორგებული დღგ განაკვეთი (%)',
+                                }),
+                              },
+                            ]}
+                            triggerClassName="flex-1 min-w-0"
+                          />
+                          {vatMode !== 'franchise_base' && (
+                            <div className="relative w-20 shrink-0">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.1"
+                                data-testid="facturx-vat-rate-input"
+                                aria-label={pickLocalized(lang, {
+                                  fr: 'Taux TVA %',
+                                  ru: 'Ставка НДС %',
+                                  hy: 'ԱԱՀ տոկոսադրույք %',
+                                  ka: 'დღგ განაკვეთი %',
+                                })}
+                                value={vatRatePercent}
+                                onChange={(e) =>
+                                  setVatRatePercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                                }
+                                className="w-full px-2.5 py-2 pr-6 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)] tabular-nums"
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--muted-foreground)]">
+                                %
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1138,9 +1384,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     <div className="space-y-2 pt-1">
                       <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
                         <span>
-                          {isRu
-                            ? 'Контроль реквизитов EN 16931 / PPF'
-                            : 'Contrôle des mentions obligatoires EN 16931'}
+                          {pickLocalized(lang, {
+                            fr: 'Contrôle des mentions obligatoires EN 16931',
+                            ru: 'Контроль реквизитов EN 16931 / PPF',
+                            hy: 'EN 16931 պարտադիր տվյալների ստուգում',
+                            ka: 'EN 16931 სავალდებულო რეკვიზიტების შემოწმება',
+                          })}
                         </span>
                         {onNavigateSettings && !facturxReadiness.ready && (
                           <button
@@ -1148,7 +1397,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             onClick={onNavigateSettings}
                             className="text-[var(--primary)] hover:underline normal-case font-semibold"
                           >
-                            {isRu ? 'Заполнить реквизиты гаража →' : 'Compléter le profil garage →'}
+                            {pickLocalized(lang, {
+                              fr: 'Compléter le profil →',
+                              ru: 'Заполнить реквизиты профиля →',
+                              hy: 'Լրացնել պրոֆիլի տվյալները →',
+                              ka: 'შეავსეთ პროფილის მონაცემები →',
+                            })}
                           </button>
                         )}
                       </div>
@@ -1167,7 +1421,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                               )}
                               <div className="min-w-0">
                                 <div className="font-semibold text-[var(--foreground)]">
-                                  {isRu ? item.labelRu : item.labelFr}
+                                  {pickLocalized(lang, {
+                                    fr: item.labelFr,
+                                    ru: item.labelRu,
+                                    hy: item.labelFr,
+                                    ka: item.labelFr,
+                                  })}
                                 </div>
                                 <div className="text-[11px] text-[var(--muted-foreground)] truncate">
                                   {item.valuePreview}
@@ -1221,14 +1480,17 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
           {/* Right XML Inspector Column */}
           <div className="lg:col-span-6">
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-3 h-full flex flex-col">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3 h-full flex flex-col">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Code2 className="w-4 h-4 text-[var(--primary)]" />
                   <h4 className="text-sm font-bold text-[var(--foreground)]">
-                    {isRu
-                      ? 'Структура XML UN/CEFACT CII (factur-x.xml)'
-                      : 'Aperçu XML UN/CEFACT CII (factur-x.xml)'}
+                    {pickLocalized(lang, {
+                      fr: 'Aperçu XML UN/CEFACT CII (factur-x.xml)',
+                      ru: 'Структура XML UN/CEFACT CII (factur-x.xml)',
+                      hy: 'XML UN/CEFACT CII կառուցվածք (factur-x.xml)',
+                      ka: 'XML UN/CEFACT CII სტრუქტურა (factur-x.xml)',
+                    })}
                   </h4>
                 </div>
                 <button
@@ -1237,12 +1499,18 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   className="text-xs font-semibold text-[var(--primary)] hover:underline"
                 >
                   {showXmlPreview
-                    ? isRu
-                      ? 'Свернуть'
-                      : 'Masquer'
-                    : isRu
-                    ? 'Показать'
-                    : 'Afficher'}
+                    ? pickLocalized(lang, {
+                        fr: 'Masquer',
+                        ru: 'Свернуть',
+                        hy: 'Թաքցնել',
+                        ka: 'დამალვა',
+                      })
+                    : pickLocalized(lang, {
+                        fr: 'Afficher',
+                        ru: 'Показать',
+                        hy: 'Ցուցադրել',
+                        ka: 'ჩვენება',
+                      })}
                 </button>
               </div>
 
@@ -1261,7 +1529,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
       {/* TAB 3: USER ACTIVITY HISTORY & ENTITY CHANGE LOG */}
       {activeTab === 'audit' && (
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-4">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div className="flex items-center gap-2">
               <button
@@ -1307,7 +1575,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   data-testid="audit-search-input"
                   value={auditSearch}
                   onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder={isRu ? 'Поиск по журналу...' : 'Rechercher...'}
+                  placeholder={pickLocalized(lang, {
+                    fr: 'Rechercher...',
+                    ru: 'Поиск по журналу...',
+                    hy: 'Որոնել մատյանում...',
+                    ka: 'ძებნა ჟურნალში...',
+                  })}
                   className="w-full pl-8 pr-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
                 />
               </div>
@@ -1320,17 +1593,57 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     value={activityFilter}
                     onChange={setActivityFilter}
                     options={[
-                      { value: 'all', label: isRu ? 'Все действия' : 'Toutes les actions' },
+                      {
+                        value: 'all',
+                        label: pickLocalized(lang, {
+                          fr: 'Toutes les actions',
+                          ru: 'Все действия',
+                          hy: 'Բոլոր գործողությունները',
+                          ka: 'ყველა მოქმედება',
+                        }),
+                      },
                       { value: 'export_csv', label: 'Export CSV' },
                       { value: 'export_excel', label: 'Export Excel' },
                       { value: 'export_pdf', label: 'Export PDF' },
                       { value: 'export_facturx', label: 'Factur-X' },
                       { value: 'backup_created', label: 'Backup créé' },
                       { value: 'backup_restored', label: 'Restauration' },
-                      { value: 'vehicle_created', label: isRu ? 'Авто добавлено' : 'Véhicule ajouté' },
-                      { value: 'vehicle_updated', label: isRu ? 'Авто обновлено' : 'Véhicule modifié' },
-                      { value: 'vehicle_sold', label: isRu ? 'Продажа авто' : 'Vente clôturée' },
-                      { value: 'document_uploaded', label: isRu ? 'Документ' : 'Document' },
+                      {
+                        value: 'vehicle_created',
+                        label: pickLocalized(lang, {
+                          fr: 'Véhicule ajouté',
+                          ru: 'Авто добавлено',
+                          hy: 'Մեքենան ավելացվել է',
+                          ka: 'ავტო დამატებულია',
+                        }),
+                      },
+                      {
+                        value: 'vehicle_updated',
+                        label: pickLocalized(lang, {
+                          fr: 'Véhicule modifié',
+                          ru: 'Авто обновлено',
+                          hy: 'Մեքենան թարմացվել է',
+                          ka: 'ავტო განახლებულია',
+                        }),
+                      },
+                      {
+                        value: 'vehicle_sold',
+                        label: pickLocalized(lang, {
+                          fr: 'Vente clôturée',
+                          ru: 'Продажа авто',
+                          hy: 'Վաճառք',
+                          ka: 'გაყიდვა',
+                        }),
+                      },
+                      {
+                        value: 'document_uploaded',
+                        label: pickLocalized(lang, {
+                          fr: 'Document',
+                          ru: 'Документ',
+                          hy: 'Փաստաթուղթ',
+                          ka: 'დოკუმენტი',
+                        }),
+                      },
                     ]}
                   />
                 </div>
@@ -1342,13 +1655,69 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     value={changeEntityFilter}
                     onChange={setChangeEntityFilter}
                     options={[
-                      { value: 'all', label: isRu ? 'Все объекты' : 'Toutes les entités' },
-                      { value: 'vehicle', label: isRu ? 'Автомобили' : 'Véhicules' },
-                      { value: 'supplier', label: isRu ? 'Поставщики' : 'Fournisseurs' },
-                      { value: 'purchase', label: isRu ? 'Закупки' : 'Achats' },
-                      { value: 'document', label: isRu ? 'Документы' : 'Documents' },
-                      { value: 'settings', label: isRu ? 'Настройки' : 'Paramètres' },
-                      { value: 'backup', label: isRu ? 'Резервные копии' : 'Sauvegardes' },
+                      {
+                        value: 'all',
+                        label: pickLocalized(lang, {
+                          fr: 'Toutes les entités',
+                          ru: 'Все объекты',
+                          hy: 'Բոլոր օբյեկտները',
+                          ka: 'ყველა ობიექტი',
+                        }),
+                      },
+                      {
+                        value: 'vehicle',
+                        label: pickLocalized(lang, {
+                          fr: 'Véhicules',
+                          ru: 'Автомобили',
+                          hy: 'Մեքենաներ',
+                          ka: 'ავტომობილები',
+                        }),
+                      },
+                      {
+                        value: 'supplier',
+                        label: pickLocalized(lang, {
+                          fr: 'Fournisseurs',
+                          ru: 'Поставщики',
+                          hy: 'Մատակարարներ',
+                          ka: 'მომწოდებლები',
+                        }),
+                      },
+                      {
+                        value: 'purchase',
+                        label: pickLocalized(lang, {
+                          fr: 'Achats',
+                          ru: 'Закупки',
+                          hy: 'Գնումներ',
+                          ka: 'შესყიდვები',
+                        }),
+                      },
+                      {
+                        value: 'document',
+                        label: pickLocalized(lang, {
+                          fr: 'Documents',
+                          ru: 'Документы',
+                          hy: 'Փաստաթղթեր',
+                          ka: 'დოკუმენტები',
+                        }),
+                      },
+                      {
+                        value: 'settings',
+                        label: pickLocalized(lang, {
+                          fr: 'Paramètres',
+                          ru: 'Настройки',
+                          hy: 'Կարգավորումներ',
+                          ka: 'პარამეტრები',
+                        }),
+                      },
+                      {
+                        value: 'backup',
+                        label: pickLocalized(lang, {
+                          fr: 'Sauvegardes',
+                          ru: 'Резервные копии',
+                          hy: 'Պահուստային պատճեններ',
+                          ka: 'სარეზერვო ასლები',
+                        }),
+                      },
                     ]}
                   />
                 </div>
@@ -1359,19 +1728,50 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
           {auditSubTab === 'activity' ? (
             filteredActivityLogs.length === 0 ? (
               <div className="p-8 text-center rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
-                {isRu
-                  ? 'История действий пока пуста. Выполните экспорт, создайте бэкап или измените данные.'
-                  : "Aucune action enregistrée pour l'instant. Lancez un export, une sauvegarde ou modifiez un véhicule."}
+                {pickLocalized(lang, {
+                  fr: "Aucune action enregistrée pour l'instant. Lancez un export, une sauvegarde ou modifiez un véhicule.",
+                  ru: 'История действий пока пуста. Выполните экспорт, создайте бэкап или измените данные.',
+                  hy: 'Գործողությունների պատմությունը դատարկ է։ Կատարեք արտահանում կամ պահուստավորում։',
+                  ka: 'მოქმედებების ისტორია ცარიელია. გააკეთეთ ექსპორტი ან სარეზერვო ასლი.',
+                })}
               </div>
             ) : (
               <div className="overflow-x-auto border border-[var(--border)] rounded-xl">
                 <table data-testid="activity-log-table" className="w-full text-left text-xs">
                   <thead className="bg-[var(--ag-table-header-bg)] text-[var(--muted-foreground)] border-b border-[var(--border)]">
                     <tr>
-                      <th className="px-3.5 py-2.5 font-bold">{isRu ? 'Дата / Время' : 'Horodatage'}</th>
-                      <th className="px-3.5 py-2.5 font-bold">{isRu ? 'Пользователь' : 'Utilisateur'}</th>
-                      <th className="px-3.5 py-2.5 font-bold">{isRu ? 'Действие' : 'Action'}</th>
-                      <th className="px-3.5 py-2.5 font-bold">{isRu ? 'Объект / Детали' : 'Cible & Détails'}</th>
+                      <th className="px-3.5 py-2.5 font-bold">
+                        {pickLocalized(lang, {
+                          fr: 'Horodatage',
+                          ru: 'Дата / Время',
+                          hy: 'Ամսաթիվ / Ժամ',
+                          ka: 'თარიღი / დრო',
+                        })}
+                      </th>
+                      <th className="px-3.5 py-2.5 font-bold">
+                        {pickLocalized(lang, {
+                          fr: 'Utilisateur',
+                          ru: 'Пользователь',
+                          hy: 'Օգտատեր',
+                          ka: 'მომხმარებელი',
+                        })}
+                      </th>
+                      <th className="px-3.5 py-2.5 font-bold">
+                        {pickLocalized(lang, {
+                          fr: 'Action',
+                          ru: 'Действие',
+                          hy: 'Գործողություն',
+                          ka: 'მოქმედება',
+                        })}
+                      </th>
+                      <th className="px-3.5 py-2.5 font-bold">
+                        {pickLocalized(lang, {
+                          fr: 'Cible & Détails',
+                          ru: 'Объект / Детали',
+                          hy: 'Օբյեկտ / Մանրամասներ',
+                          ka: 'ობიექტი / დეტალები',
+                        })}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
@@ -1402,9 +1802,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
             )
           ) : filteredChangeLogs.length === 0 ? (
             <div className="p-8 text-center rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
-              {isRu
-                ? 'Журнал изменений пока пуст. Изменения по автомобилям, документам и настройкам фиксируются автоматически.'
-                : 'Aucune modification enregistrée. Les créations, mises à jour et suppressions sont tracées ici.'}
+              {pickLocalized(lang, {
+                fr: 'Aucune modification enregistrée. Les créations, mises à jour et suppressions sont tracées ici.',
+                ru: 'Журнал изменений пока пуст. Изменения по автомобилям, документам и настройкам фиксируются автоматически.',
+                hy: 'Փոփոխությունների մատյանը դատարկ է։ Փոփոխությունները գրանցվում են ավտոմատ կերպով։',
+                ka: 'ცვლილებების ჟურნალი ცარიელია. ცვლილებები ავტომატურად იწერება.',
+              })}
             </div>
           ) : (
             <div data-testid="change-log-list" className="space-y-3">
@@ -1466,10 +1869,10 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
       {/* TAB 4: FULL BACKUP & RESTORE */}
       {activeTab === 'backup' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Create Snapshot & Export JSON v2 */}
-          <div className="lg:col-span-6 space-y-5">
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-4">
+          <div className="lg:col-span-6 space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-emerald-500" />
                 <div>
@@ -1477,21 +1880,72 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     {t('backupCreateTitle')}
                   </h3>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    {isRu
-                      ? 'Включает авто, ремонты, расходы, поставщиков, закупки, документы и настройки.'
-                      : 'Inclut véhicules, réparations, frais, fournisseurs, achats, documents et paramètres.'}
+                    {pickLocalized(lang, {
+                      fr: 'Inclut véhicules, réparations, frais, fournisseurs, achats, documents et paramètres.',
+                      ru: 'Включает авто, ремонты, расходы, поставщиков, закупки, документы и настройки.',
+                      hy: 'Ներառում է մեքենաներ, վերանորոգումներ, ծախսեր, մատակարարներ, գնումներ և փաստաթղթեր։',
+                      ka: 'მოიცავს ავტომობილებს, შეკეთებებს, ხარჯებს, მომწოდებლებს, შესყიდვებს და პარამეტრებს.',
+                    })}
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
                 {[
-                  { label: isRu ? 'Авто' : 'Véhicules', val: vehicles.length },
-                  { label: isRu ? 'Ремонт' : 'Répar.', val: fleetData.repairs.length },
-                  { label: isRu ? 'Расходы' : 'Frais', val: fleetData.expenses.length },
-                  { label: isRu ? 'Поставщ.' : 'Fourniss.', val: suppliers.length },
-                  { label: isRu ? 'Закупки' : 'Achats', val: purchases.length },
-                  { label: isRu ? 'Док-ты' : 'Docs', val: documents.length },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Véhicules',
+                      ru: 'Авто',
+                      hy: 'Մեքենա',
+                      ka: 'ავტო',
+                    }),
+                    val: vehicles.length,
+                  },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Répar.',
+                      ru: 'Ремонт',
+                      hy: 'Վերանոր.',
+                      ka: 'შეკეთ.',
+                    }),
+                    val: fleetData.repairs.length,
+                  },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Frais',
+                      ru: 'Расходы',
+                      hy: 'Ծախսեր',
+                      ka: 'ხარჯები',
+                    }),
+                    val: fleetData.expenses.length,
+                  },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Fourniss.',
+                      ru: 'Поставщ.',
+                      hy: 'Մատակ.',
+                      ka: 'მომწ.',
+                    }),
+                    val: suppliers.length,
+                  },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Achats',
+                      ru: 'Закупки',
+                      hy: 'Գնումներ',
+                      ka: 'შესყიდვ.',
+                    }),
+                    val: purchases.length,
+                  },
+                  {
+                    label: pickLocalized(lang, {
+                      fr: 'Docs',
+                      ru: 'Док-ты',
+                      hy: 'Փաստ.',
+                      ka: 'დოკ.',
+                    }),
+                    val: documents.length,
+                  },
                 ].map((c) => (
                   <div
                     key={c.label}
@@ -1509,7 +1963,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
               <form onSubmit={handleCreateRestorePoint} className="space-y-2.5">
                 <label className="block text-[11px] font-semibold text-[var(--muted-foreground)]">
-                  {isRu ? 'Название точки восстановления' : 'Libellé du point de restauration'}
+                  {pickLocalized(lang, {
+                    fr: 'Libellé du point de restauration',
+                    ru: 'Название точки восстановления',
+                    hy: 'Վերականգնման կետի անվանում',
+                    ka: 'აღდგენის წერტილის დასახელება',
+                  })}
                 </label>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
@@ -1517,9 +1976,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     data-testid="backup-snapshot-label-input"
                     value={snapshotLabel}
                     onChange={(e) => setSnapshotLabel(e.target.value)}
-                    placeholder={
-                      isRu ? 'Например: Перед инвентаризацией' : 'Ex: Avant clôture mensuelle'
-                    }
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Ex: Avant clôture mensuelle',
+                      ru: 'Например: Перед инвентаризацией',
+                      hy: 'Օր.՝ Ամսական փակումից առաջ',
+                      ka: 'მაგ.: თვის დახურვამდე',
+                    })}
                     className="flex-1 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
                   />
                   <button
@@ -1529,7 +1991,14 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-60 transition shrink-0"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Сохранить точку' : 'Créer un snapshot'}</span>
+                    <span>
+                      {pickLocalized(lang, {
+                        fr: 'Créer un snapshot',
+                        ru: 'Сохранить точку',
+                        hy: 'Պահպանել կետ',
+                        ka: 'სნეპშოტის შექმნა',
+                      })}
+                    </span>
                   </button>
                 </div>
               </form>
@@ -1543,26 +2012,37 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 >
                   <Download className="w-4 h-4" />
                   <span>
-                    {isRu
-                      ? 'Скачать полный бэкап (JSON v2)'
-                      : 'Télécharger la sauvegarde complète (JSON v2)'}
+                    {pickLocalized(lang, {
+                      fr: 'Télécharger la sauvegarde complète (JSON v2)',
+                      ru: 'Скачать полный бэкап (JSON v2)',
+                      hy: 'Ներբեռնել ամբողջական կրկնօրինակը (JSON v2)',
+                      ka: 'სრული სარეზერვო ასლის ჩამოტვირთვა (JSON v2)',
+                    })}
                   </span>
                 </button>
               </div>
             </div>
 
             {/* Saved Restore Points */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-3">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3">
               <h4 className="text-sm font-bold text-[var(--foreground)]">
-                {isRu ? 'Сохранённые точки восстановления' : 'Points de restauration enregistrés'} (
-                {backupSnapshots.length})
+                {pickLocalized(lang, {
+                  fr: 'Points de restauration enregistrés',
+                  ru: 'Сохранённые точки восстановления',
+                  hy: 'Պահպանված վերականգնման կետեր',
+                  ka: 'შენახული აღდგენის წერტილები',
+                })}{' '}
+                ({backupSnapshots.length})
               </h4>
 
               {backupSnapshots.length === 0 ? (
                 <div className="p-6 text-center rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">
-                  {isRu
-                    ? 'Нет сохранённых точек восстановления.'
-                    : 'Aucun point de restauration enregistré pour le moment.'}
+                  {pickLocalized(lang, {
+                    fr: 'Aucun point de restauration enregistré pour le moment.',
+                    ru: 'Нет сохранённых точек восстановления.',
+                    hy: 'Պահպանված վերականգնման կետեր չկան։',
+                    ka: 'შენახული აღდგენის წერტილები ჯერ არ არის.',
+                  })}
                 </div>
               ) : (
                 <div data-testid="backup-snapshots-list" className="space-y-2.5">
@@ -1578,9 +2058,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                           </div>
                           <div className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
                             {formatIsoTimestamp(snap.createdAt)} · {formatBytes(snap.sizeBytes)} ·{' '}
-                            {snap.counts.vehicles} {isRu ? 'авто' : 'véh.'}, {snap.counts.suppliers}{' '}
-                            {isRu ? 'пост.' : 'fourn.'}, {snap.counts.documents}{' '}
-                            {isRu ? 'док.' : 'docs'}
+                            {snap.counts.vehicles}{' '}
+                            {pickLocalized(lang, { fr: 'véh.', ru: 'авто', hy: 'մեք.', ka: 'ავტო' })},{' '}
+                            {snap.counts.suppliers}{' '}
+                            {pickLocalized(lang, { fr: 'fourn.', ru: 'пост.', hy: 'մատ.', ka: 'მომწ.' })},{' '}
+                            {snap.counts.documents}{' '}
+                            {pickLocalized(lang, { fr: 'docs', ru: 'док.', hy: 'փաստ.', ka: 'დოკ.' })}
                           </div>
                         </div>
 
@@ -1590,7 +2073,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             onClick={() => handleSelectSnapshotForRestore(snap)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[var(--primary)]/15 text-[var(--primary)] border border-[var(--primary)]/30 hover:opacity-90 transition"
                           >
-                            {isRu ? 'Восстановить' : 'Restaurer'}
+                            {pickLocalized(lang, {
+                              fr: 'Restaurer',
+                              ru: 'Восстановить',
+                              hy: 'Վերականգնել',
+                              ka: 'აღდგენა',
+                            })}
                           </button>
 
                           {confirmDeleteSnapshotId === snap.id ? (
@@ -1616,7 +2104,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                           ) : (
                             <button
                               type="button"
-                              aria-label={isRu ? 'Удалить снимок' : 'Supprimer'}
+                              aria-label={pickLocalized(lang, {
+                                fr: 'Supprimer',
+                                ru: 'Удалить снимок',
+                                hy: 'Ջնջել',
+                                ka: 'წაშლა',
+                              })}
                               onClick={() => setConfirmDeleteSnapshotId(snap.id)}
                               className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-rose-500 transition"
                             >
@@ -1634,7 +2127,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
           {/* Restore from File & Pre-Restore Validation */}
           <div className="lg:col-span-6">
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 space-y-4">
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
               <div className="flex items-center gap-2">
                 <ArchiveRestore className="w-5 h-5 text-amber-500" />
                 <div>
@@ -1642,9 +2135,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                     {t('backupRestoreTitle')}
                   </h3>
                   <p className="text-xs text-[var(--muted-foreground)]">
-                    {isRu
-                      ? 'Поддерживаются резервные копии v1 и v2. Предпросмотр состава данных перед применением.'
-                      : 'Compatible avec les sauvegardes JSON v1 et v2 avec prévisualisation avant application.'}
+                    {pickLocalized(lang, {
+                      fr: 'Compatible avec les sauvegardes JSON v1 et v2 avec prévisualisation avant application.',
+                      ru: 'Поддерживаются резервные копии v1 и v2. Предпросмотр состава данных перед применением.',
+                      hy: 'Աջակցվում են v1 և v2 JSON կրկնօրինակները՝ նախադիտմամբ։',
+                      ka: 'თავსებადია JSON v1 და v2 სარეზერვო ასლებთან წინასწარი ნახვით.',
+                    })}
                   </p>
                 </div>
               </div>
@@ -1662,18 +2158,24 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 type="button"
                 data-testid="backup-pick-json-btn"
                 onClick={() => restoreFileInputRef.current?.click()}
-                className="w-full py-6 px-4 rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--surface-muted)]/60 hover:border-[var(--primary)] transition flex flex-col items-center justify-center gap-2 text-center"
+                className="w-full py-5 px-4 rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--surface-muted)]/60 hover:border-[var(--primary)] transition flex flex-col items-center justify-center gap-2 text-center"
               >
                 <Upload className="w-6 h-6 text-[var(--primary)]" />
                 <span className="text-xs font-bold text-[var(--foreground)]">
-                  {isRu
-                    ? 'Выберите файл резервной копии (.json)'
-                    : 'Sélectionner un fichier de sauvegarde (.json)'}
+                  {pickLocalized(lang, {
+                    fr: 'Sélectionner un fichier de sauvegarde (.json)',
+                    ru: 'Выберите файл резервной копии (.json)',
+                    hy: 'Ընտրել պահուստային ֆայլ (.json)',
+                    ka: 'აირჩიეთ სარეზერვო ფაილი (.json)',
+                  })}
                 </span>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
-                  {isRu
-                    ? 'Данные будут проверены перед восстановлением'
-                    : 'Le contenu sera vérifié et prévisualisé avant restauration'}
+                  {pickLocalized(lang, {
+                    fr: 'Le contenu sera vérifié et prévisualisé avant restauration',
+                    ru: 'Данные будут проверены перед восстановлением',
+                    hy: 'Տվյալները կստուգվեն վերականգնումից առաջ',
+                    ka: 'მონაცემები შემოწმდება აღდგენამდე',
+                  })}
                 </span>
               </button>
 
@@ -1685,12 +2187,21 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-xs font-extrabold text-[var(--foreground)]">
-                        {isRu ? 'Предпросмотр восстановления :' : 'Aperçu avant restauration :'}{' '}
+                        {pickLocalized(lang, {
+                          fr: 'Aperçu avant restauration :',
+                          ru: 'Предпросмотр восстановления :',
+                          hy: 'Նախադիտում վերականգնումից առաջ՝',
+                          ka: 'წინასწარი ნახვა აღდგენამდე:',
+                        })}{' '}
                         {pendingRestore.sourceName}
                       </div>
                       <div className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
-                        {isRu ? 'Экспортировано:' : 'Exporté le :'}
-                        {' '}
+                        {pickLocalized(lang, {
+                          fr: 'Exporté le :',
+                          ru: 'Экспортировано:',
+                          hy: 'Արտահանվել է՝',
+                          ka: 'ექსპორტირებულია:',
+                        })}{' '}
                         {formatIsoTimestamp(pendingRestore.payload.exportedAt)}
                       </div>
                     </div>
@@ -1710,7 +2221,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                         <div className="p-2 rounded-lg bg-[var(--card)] border border-[var(--border)]">
                           <div className="text-sm font-extrabold tabular-nums">{counts.vehicles}</div>
                           <div className="text-[10px] text-[var(--muted-foreground)]">
-                            {isRu ? 'Авто' : 'Véhicules'}
+                            {pickLocalized(lang, {
+                              fr: 'Véhicules',
+                              ru: 'Авто',
+                              hy: 'Մեքենա',
+                              ka: 'ავტო',
+                            })}
                           </div>
                         </div>
                         <div className="p-2 rounded-lg bg-[var(--card)] border border-[var(--border)]">
@@ -1718,7 +2234,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             {counts.repairs + counts.expenses}
                           </div>
                           <div className="text-[10px] text-[var(--muted-foreground)]">
-                            {isRu ? 'Ремонт + Расходы' : 'Répar. + Frais'}
+                            {pickLocalized(lang, {
+                              fr: 'Répar. + Frais',
+                              ru: 'Ремонт + Расходы',
+                              hy: 'Վերանոր. + Ծախս',
+                              ka: 'შეკეთ. + ხარჯ.',
+                            })}
                           </div>
                         </div>
                         <div className="p-2 rounded-lg bg-[var(--card)] border border-[var(--border)]">
@@ -1726,7 +2247,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             {counts.suppliers + counts.purchases + counts.documents}
                           </div>
                           <div className="text-[10px] text-[var(--muted-foreground)]">
-                            {isRu ? 'Пост. + Док-ты' : 'Fourn. + Docs'}
+                            {pickLocalized(lang, {
+                              fr: 'Fourn. + Docs',
+                              ru: 'Пост. + Док-ты',
+                              hy: 'Մատ. + Փաստ.',
+                              ka: 'მომწ. + დოკ.',
+                            })}
                           </div>
                         </div>
                       </div>
@@ -1735,7 +2261,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
                   <div className="space-y-2">
                     <label className="block text-[11px] font-bold text-[var(--foreground)]">
-                      {isRu ? 'Режим восстановления' : 'Mode de restauration'}
+                      {pickLocalized(lang, {
+                        fr: 'Mode de restauration',
+                        ru: 'Режим восстановления',
+                        hy: 'Վերականգնման ռեժիմ',
+                        ka: 'აღდგენის რეჟიმი',
+                      })}
                     </label>
                     <div className="grid grid-cols-1 gap-2">
                       <button

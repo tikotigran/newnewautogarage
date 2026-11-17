@@ -19,8 +19,9 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
+import { AppUserProfileType, FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
+import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
 import { pickLocalized } from '../utils/i18nUtils';
@@ -56,6 +57,7 @@ interface SidebarProps {
   activeSettingsTab?: SettingsTab;
   onSelectSettingsTab?: (tab: SettingsTab) => void;
   onExitSettings?: () => void;
+  profileType?: AppUserProfileType;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -79,6 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeSettingsTab = 'company',
   onSelectSettingsTab,
   onExitSettings,
+  profileType,
 }) => {
   const { lang, t, getTextStyle } = useI18n();
   const [desktopProfileOpen, setDesktopProfileOpen] = useState(false);
@@ -165,6 +168,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const activeGarage = activeGarageId
     ? garages.find((g) => g.id === activeGarageId) || null
     : null;
+
+  const resolvedProfileType: AppUserProfileType =
+    profileType || (activeGarage ? resolveUserProfileType(activeGarage) : 'micro_entrepreneur');
+  const profileBadgeLabel =
+    resolvedProfileType === 'particulier'
+      ? t('profileBadgeParticulier')
+      : t('profileBadgeMicro');
 
   const signedInEmail = user?.email || activeSessionEmail || null;
   const displayName = user?.displayName || signedInEmail || t('signIn');
@@ -277,10 +287,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {
             id: 'company',
             label: pickLocalized(lang, {
-              fr: 'Profil Garage / EI',
-              ru: 'Профиль Гаража / ИП',
-              hy: 'Ավտոսրահի պրոֆիլ',
-              ka: 'გარაჟის პროფილი',
+              fr: 'Profil & Statut',
+              ru: 'Профиль и статус',
+              hy: 'Պրոֆիլ և կարգավիճակ',
+              ka: 'პროფილი და სტატუსი',
             }),
             icon: <Building2 className="w-4 h-4 shrink-0" />,
           },
@@ -297,7 +307,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {
             id: 'finance',
             label: pickLocalized(lang, {
-              fr: 'Finances & TVA',
+              fr: 'Finances & Cotisations',
               ru: 'Финансы и Налоги',
               hy: 'Ֆինանսներ և հարկեր',
               ka: 'ფინანსები და გადასახადები',
@@ -353,8 +363,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Header: Full email + Subscription badge */}
         <div className="px-2 py-1.5 space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/15 px-2 py-0.5 rounded-md whitespace-nowrap">
-              {t('proDealer')}
+            <span
+              data-testid={
+                isMobileDrawer ? 'sidebar-mobile-profile-badge' : 'sidebar-profile-badge'
+              }
+              className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/15 px-2 py-0.5 rounded-md whitespace-nowrap"
+            >
+              {profileBadgeLabel}
             </span>
           </div>
           {user?.displayName && (
@@ -486,10 +501,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {t('appName')}
                     </span>
                     <span
-                      style={getTextStyle('proDealer')}
-                      className="block text-[9px] font-bold uppercase tracking-wider text-[var(--primary)] leading-tight"
+                      data-testid="sidebar-brand-profile-badge"
+                      className="block text-[9px] font-bold uppercase tracking-wider text-[var(--primary)] leading-tight truncate"
                     >
-                      {t('proDealer')}
+                      {profileBadgeLabel}
                     </span>
                   </div>
                 </button>

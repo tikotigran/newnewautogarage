@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import {
+  AppUserProfileType,
   Vehicle,
   RepairTask,
   GeneralExpense,
@@ -20,11 +21,12 @@ import {
   LegalStatus,
   TaxRegime,
 } from '../types/garage';
-import { calculateVehicleFinancials } from '../utils/finance';
+import { calculateSaleTaxReport, calculateVehicleFinancials, roundToTwo } from '../utils/finance';
 import {
   createDefaultFrenchTaxConfig,
   mapTaxRegimeToLegalStatus,
   normalizeFrenchTaxConfig,
+  resolveUserProfileType,
 } from '../utils/frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 
@@ -81,13 +83,14 @@ export function setActiveGarageId(garageId: string | null): void {
 }
 
 export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
-  entityType: 'morale',
-  legalStatus: 'sarl',
-  name: 'AutoGarage Manager SARL',
+  profileType: 'micro_entrepreneur',
+  entityType: 'physique',
+  legalStatus: 'micro_entreprise',
+  name: 'AutoGarage Manager',
   lastName: '',
   firstName: '',
   sex: '',
-  siret: '894 123 456 00012',
+  siret: '',
   streetNumber: '12',
   streetExtension: '',
   streetType: 'Rue',
@@ -96,13 +99,13 @@ export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
   city: 'Paris',
   phone: '01 45 88 90 00',
   email: 'contact@autogarage.fr',
-  legalForm: 'SARL au capital de 10 000 €',
-  tvaMention: 'Régime particulier - TVA sur la marge (Art. 297 A du CGI)',
+  legalForm: 'Micro-entrepreneur',
+  tvaMention: 'TVA non applicable, art. 293 B du CGI',
   defaultCerfaTemplate: 'cerfa_15776_02',
   theme: 'dark',
-  taxRegime: 'sarl',
-  taxRatePercent: 15,
-  frenchTaxConfig: createDefaultFrenchTaxConfig('sarl'),
+  taxRegime: 'micro',
+  taxRatePercent: 13.3,
+  frenchTaxConfig: createDefaultFrenchTaxConfig('micro_entreprise'),
   isCalculationHistory: [],
   taxAuditHistory: [],
 };
@@ -110,7 +113,7 @@ export const DEFAULT_GARAGE_SETTINGS: GarageSettings = {
 export function getDefaultTaxRateForRegime(regime?: TaxRegime): number {
   if (regime === 'micro') return 13.3;
   if (regime === 'none') return 0;
-  return 15;
+  return 13.3;
 }
 
 function hydrateGarageSettings(raw: Partial<GarageSettings>, targetId: string): GarageSettings {
@@ -119,11 +122,50 @@ function hydrateGarageSettings(raw: Partial<GarageSettings>, targetId: string): 
     ...raw,
     garageId: targetId,
   };
-  const normalizedTaxConfig = normalizeFrenchTaxConfig(mergedBase);
+  const resolvedProfile: AppUserProfileType = raw.profileType
+    ? raw.profileType
+    : raw.legalStatus || raw.taxRegime
+    ? resolveUserProfileType(raw)
+    : resolveUserProfileType(mergedBase);
+
+  const normalizedTaxConfig = normalizeFrenchTaxConfig({
+    ...mergedBase,
+    profileType: resolvedProfile,
+  });
+
+  const resolvedTaxRegime = normalizedTaxConfig.businessTaxRegime;
+  const resolvedTaxRate =
+    resolvedProfile === 'particulier' || resolvedTaxRegime === 'none'
+      ? 0
+      : resolvedTaxRegime === 'micro'
+      ? roundToTwo(
+          normalizedTaxConfig.socialContributionRate +
+            (normalizedTaxConfig.versementLiberatoireEnabled
+              ? normalizedTaxConfig.versementLiberatoireRate
+              : 0)
+        )
+      : mergedBase.taxRatePercent;
+
+  const cleanedTvaMention =
+    resolvedProfile === 'particulier'
+      ? ''
+      : resolvedProfile === 'micro_entrepreneur' &&
+        (!mergedBase.tvaMention || mergedBase.tvaMention.includes('297 A'))
+      ? 'TVA non applicable, art. 293 B du CGI'
+      : mergedBase.tvaMention;
   return {
     ...mergedBase,
-    legalStatus: mergedBase.legalStatus || normalizedTaxConfig.legalStatus,
-    taxRegime: normalizedTaxConfig.businessTaxRegime,
+    profileType: resolvedProfile,
+    legalStatus:
+      resolvedProfile === 'particulier'
+        ? 'particulier'
+        : mergedBase.legalStatus === 'particulier'
+        ? 'micro_entreprise'
+        : mergedBase.legalStatus || normalizedTaxConfig.legalStatus,
+    taxRegime: resolvedTaxRegime,
+    taxRatePercent: resolvedTaxRate,
+    siret: resolvedProfile === 'particulier' ? '' : mergedBase.siret || '',
+    tvaMention: cleanedTvaMention,
     frenchTaxConfig: normalizedTaxConfig,
     isCalculationHistory: Array.isArray(mergedBase.isCalculationHistory)
       ? mergedBase.isCalculationHistory
@@ -137,8 +179,12 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
   try {
     const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
     const match = garages.find((g) => g.id === targetId);
+    const matchProfileType: AppUserProfileType | undefined = match
+      ? resolveUserProfileType(match)
+      : undefined;
     const matchTaxRegime =
-      match?.taxRegime || (match?.entityType === 'physique' ? 'micro' : DEFAULT_GARAGE_SETTINGS.taxRegime);
+      match?.taxRegime ||
+      (matchProfileType === 'particulier' ? 'none' : DEFAULT_GARAGE_SETTINGS.taxRegime);
     const matchTaxRate =
       typeof match?.taxRatePercent === 'number' && !Number.isNaN(match.taxRatePercent)
         ? match.taxRatePercent
@@ -147,10 +193,15 @@ export function getGarageSettings(garageIdOverride?: string): GarageSettings {
     const matchOverrides: Partial<GarageSettings> = match
       ? {
           name: match.name,
-          entityType: match.entityType,
-          legalStatus: match.legalStatus || mapTaxRegimeToLegalStatus(matchTaxRegime, match.entityType),
+          profileType: matchProfileType,
+          entityType: match.entityType || 'physique',
+          legalStatus:
+            match.legalStatus ||
+            (matchProfileType === 'particulier'
+              ? 'particulier'
+              : mapTaxRegimeToLegalStatus(matchTaxRegime, match.entityType)),
           city: match.city || DEFAULT_GARAGE_SETTINGS.city,
-          siret: match.siret || (match.entityType === 'physique' ? '' : DEFAULT_GARAGE_SETTINGS.siret),
+          siret: matchProfileType === 'particulier' ? '' : match.siret || '',
           taxRegime: matchTaxRegime,
           taxRatePercent: matchTaxRate,
         }
@@ -208,7 +259,7 @@ export async function saveGarageSettings(
 ): Promise<void> {
   const targetId = garageIdOverride || settings.garageId || getActiveGarageId() || DEFAULT_GARAGE_ID;
   const normalizedTaxConfig = normalizeFrenchTaxConfig(settings);
-  const resolvedRegime = settings.taxRegime || normalizedTaxConfig.businessTaxRegime || 'sarl';
+  const resolvedRegime = settings.taxRegime || normalizedTaxConfig.businessTaxRegime || 'micro';
   const resolvedRate =
     resolvedRegime === 'micro'
       ? Math.max(
@@ -218,18 +269,31 @@ export async function saveGarageSettings(
               ? normalizedTaxConfig.versementLiberatoireRate
               : 0)
         )
+      : resolvedRegime === 'none'
+      ? 0
       : typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
       ? Math.max(0, settings.taxRatePercent)
       : getDefaultTaxRateForRegime(resolvedRegime);
   const resolvedLegalStatus: LegalStatus =
-    settings.legalStatus || normalizedTaxConfig.legalStatus || mapTaxRegimeToLegalStatus(resolvedRegime, settings.entityType);
+    settings.legalStatus ||
+    normalizedTaxConfig.legalStatus ||
+    mapTaxRegimeToLegalStatus(resolvedRegime, settings.entityType);
+  const resolvedProfileType = resolveUserProfileType({
+    profileType: settings.profileType,
+    legalStatus: resolvedLegalStatus,
+    taxRegime: resolvedRegime,
+    entityType: settings.entityType,
+  });
 
   const scopedSettings: GarageSettings = stripUndefined({
     ...settings,
     garageId: targetId,
+    profileType: resolvedProfileType,
+    entityType: 'physique',
     legalStatus: resolvedLegalStatus,
     taxRegime: resolvedRegime,
     taxRatePercent: resolvedRate,
+    siret: resolvedProfileType === 'particulier' ? '' : settings.siret || '',
     frenchTaxConfig: {
       ...normalizedTaxConfig,
       legalStatus: resolvedLegalStatus,
@@ -251,20 +315,22 @@ export async function saveGarageSettings(
     // Keep workspace metadata in sync
     const garages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
     const now = new Date().toISOString();
+    const personName = `${scopedSettings.firstName || ''} ${scopedSettings.lastName || ''}`.trim();
     const displayName =
-      scopedSettings.entityType === 'physique'
-        ? `${scopedSettings.firstName || ''} ${scopedSettings.lastName || ''}`.trim() || scopedSettings.name
-        : scopedSettings.name;
+      resolvedProfileType === 'particulier'
+        ? personName || scopedSettings.name
+        : scopedSettings.name?.trim() || personName || 'Micro-entrepreneur';
     if (garages.some((g) => g.id === targetId)) {
       const updatedGarages = garages.map((g) =>
         g.id === targetId
           ? {
               ...g,
               name: displayName || g.name,
-              entityType: scopedSettings.entityType || g.entityType,
+              profileType: resolvedProfileType,
+              entityType: 'physique' as const,
               legalStatus: resolvedLegalStatus,
               city: scopedSettings.city || g.city,
-              siret: scopedSettings.siret || g.siret,
+              siret: resolvedProfileType === 'particulier' ? '' : scopedSettings.siret || '',
               taxRegime: resolvedRegime,
               taxRatePercent: resolvedRate,
               updatedAt: now,
@@ -282,10 +348,11 @@ export async function saveGarageSettings(
           stripUndefined({
             userId,
             name: displayName || scopedSettings.name,
-            entityType: scopedSettings.entityType || 'morale',
+            profileType: resolvedProfileType,
+            entityType: 'physique',
             legalStatus: resolvedLegalStatus,
             city: scopedSettings.city || '',
-            siret: scopedSettings.entityType === 'morale' ? scopedSettings.siret || '' : '',
+            siret: resolvedProfileType === 'particulier' ? '' : scopedSettings.siret || '',
             taxRegime: resolvedRegime,
             taxRatePercent: resolvedRate,
             updatedAt: now,
@@ -377,13 +444,30 @@ export function subscribeGarages(
     const now = new Date().toISOString();
     const legacySettingsRaw = localStorage.getItem(LOCAL_SETTINGS_KEY);
     const legacySettings = legacySettingsRaw ? (JSON.parse(legacySettingsRaw) as GarageSettings) : null;
+    let pendingProfile: AppUserProfileType | null = null;
+    try {
+      const rawPending = localStorage.getItem('autogarage_pending_profile_type');
+      if (rawPending === 'particulier' || rawPending === 'micro_entrepreneur') {
+        pendingProfile = rawPending;
+      }
+    } catch {
+      // ignore
+    }
+    const defaultProfileType: AppUserProfileType =
+      pendingProfile ||
+      (legacySettings ? resolveUserProfileType(legacySettings) : 'micro_entrepreneur');
+    const isParticulier = defaultProfileType === 'particulier';
     const defaultGarage: GarageWorkspace = {
       id: DEFAULT_GARAGE_ID,
       userId,
       name: legacySettings?.name || DEFAULT_GARAGE_SETTINGS.name,
-      entityType: legacySettings?.entityType || 'morale',
+      profileType: defaultProfileType,
+      entityType: 'physique',
+      legalStatus: isParticulier ? 'particulier' : 'micro_entreprise',
+      taxRegime: isParticulier ? 'none' : 'micro',
+      taxRatePercent: isParticulier ? 0 : 13.3,
       city: legacySettings?.city || DEFAULT_GARAGE_SETTINGS.city,
-      siret: legacySettings?.siret || DEFAULT_GARAGE_SETTINGS.siret,
+      siret: isParticulier ? '' : legacySettings?.siret || '',
       createdAt: now,
       updatedAt: now,
     };
@@ -425,7 +509,8 @@ export async function createGarage(
   userId: string,
   input: {
     name: string;
-    entityType: 'morale' | 'physique';
+    profileType?: AppUserProfileType;
+    entityType?: 'morale' | 'physique';
     legalStatus?: LegalStatus;
     city?: string;
     siret?: string;
@@ -435,11 +520,20 @@ export async function createGarage(
 ): Promise<GarageWorkspace> {
   const id = generateId('garage');
   const now = new Date().toISOString();
-  const resolvedRegime: TaxRegime = input.taxRegime || (input.entityType === 'physique' ? 'micro' : 'sarl');
+  const profileType = resolveUserProfileType({
+    profileType: input.profileType,
+    legalStatus: input.legalStatus,
+    taxRegime: input.taxRegime,
+    entityType: input.entityType,
+  });
+  const isParticulier = profileType === 'particulier';
+  const resolvedRegime: TaxRegime = input.taxRegime || (isParticulier ? 'none' : 'micro');
   const resolvedLegalStatus: LegalStatus =
-    input.legalStatus || mapTaxRegimeToLegalStatus(resolvedRegime, input.entityType);
+    input.legalStatus || (isParticulier ? 'particulier' : 'micro_entreprise');
   const resolvedTaxRate =
-    typeof input.taxRatePercent === 'number' && !Number.isNaN(input.taxRatePercent)
+    isParticulier
+      ? 0
+      : typeof input.taxRatePercent === 'number' && !Number.isNaN(input.taxRatePercent)
       ? Math.max(0, input.taxRatePercent)
       : getDefaultTaxRateForRegime(resolvedRegime);
   const frenchTaxConfig = createDefaultFrenchTaxConfig(resolvedLegalStatus, {
@@ -450,10 +544,11 @@ export async function createGarage(
     id,
     userId,
     name: input.name.trim(),
-    entityType: input.entityType,
+    profileType,
+    entityType: 'physique',
     legalStatus: resolvedLegalStatus,
     city: input.city?.trim() || '',
-    siret: input.entityType === 'morale' ? input.siret?.trim() || '' : '',
+    siret: isParticulier ? '' : input.siret?.trim() || '',
     taxRegime: resolvedRegime,
     taxRatePercent: resolvedTaxRate,
     createdAt: now,
@@ -464,18 +559,20 @@ export async function createGarage(
   setLocalStore(LOCAL_GARAGES_KEY, [...existing, newGarage]);
 
   const nameParts = newGarage.name.split(/\s+/).filter(Boolean);
-  const derivedFirstName = input.entityType === 'physique' ? nameParts[0] || newGarage.name : '';
-  const derivedLastName =
-    input.entityType === 'physique'
-      ? nameParts.slice(1).join(' ') || nameParts[0] || newGarage.name
-      : '';
+  const derivedFirstName = nameParts[0] || newGarage.name;
+  const derivedLastName = nameParts.slice(1).join(' ') || nameParts[0] || newGarage.name;
 
   await saveGarageSettings(
     {
       ...DEFAULT_GARAGE_SETTINGS,
       garageId: id,
-      entityType: input.entityType,
+      profileType,
+      entityType: 'physique',
       legalStatus: resolvedLegalStatus,
+      legalForm: isParticulier ? '' : 'Micro-entrepreneur',
+      tvaMention: isParticulier
+        ? ''
+        : DEFAULT_GARAGE_SETTINGS.tvaMention,
       name: newGarage.name,
       city: newGarage.city || DEFAULT_GARAGE_SETTINGS.city,
       siret: newGarage.siret || '',
@@ -1108,13 +1205,53 @@ export async function syncVehicleFinancials(
     expenses,
   });
 
+  let resolvedNetProfit = fin.netProfit;
+  let resolvedMarginPercentage = fin.marginPercentage;
+
+  if (vehicle.status === 'sold' && vehicle.buyerInfo?.salePrice && vehicle.buyerInfo.salePrice > 0) {
+    const settingsForGarage = getGarageSettings(vehicle.garageId);
+    const frozenSnap = vehicle.buyerInfo.taxSnapshot;
+    const snapMatchesCosts =
+      frozenSnap?.isHistoricalSnapshot &&
+      roundToTwo(frozenSnap.repairCostTotal) === fin.repairCostTotal &&
+      roundToTwo(frozenSnap.generalExpensesTotal) === fin.generalExpensesTotal;
+
+    const saleReport = calculateSaleTaxReport({
+      salePrice: vehicle.buyerInfo.salePrice,
+      purchasePrice: vehicle.purchasePrice,
+      repairCostTotal: fin.repairCostTotal,
+      generalExpensesTotal: fin.generalExpensesTotal,
+      taxRegime: frozenSnap?.isHistoricalSnapshot ? frozenSnap.taxRegime : settingsForGarage.taxRegime,
+      taxRatePercent: settingsForGarage.taxRatePercent,
+      frenchTaxConfig: frozenSnap?.isHistoricalSnapshot
+        ? createDefaultFrenchTaxConfig(frozenSnap.legalStatus, {
+            businessTaxRegime: frozenSnap.taxRegime,
+            socialContributionRate: frozenSnap.urssafRate,
+            versementLiberatoireEnabled: frozenSnap.versementLiberatoireEnabled,
+            versementLiberatoireRate: frozenSnap.versementLiberatoireRate,
+            vatRegime: frozenSnap.vatRegime,
+            vatRatePercent: frozenSnap.vatRatePercent,
+          })
+        : settingsForGarage.frenchTaxConfig,
+      vatRegime: vehicle.buyerInfo.vatRegime,
+      vatRatePercent: vehicle.buyerInfo.vatRatePercent,
+      taxSnapshot: snapMatchesCosts ? frozenSnap : undefined,
+    });
+
+    resolvedNetProfit = saleReport.netProfitAfterTax;
+    resolvedMarginPercentage =
+      saleReport.salePrice > 0
+        ? roundToTwo((resolvedNetProfit / saleReport.salePrice) * 100)
+        : 0;
+  }
+
   if (
     vehicle.repairCostTotal === fin.repairCostTotal &&
     vehicle.generalExpensesTotal === fin.generalExpensesTotal &&
     vehicle.totalExpenses === fin.totalExpenses &&
     vehicle.totalInvested === fin.totalInvested &&
-    vehicle.netProfit === fin.netProfit &&
-    vehicle.marginPercentage === fin.marginPercentage
+    vehicle.netProfit === resolvedNetProfit &&
+    vehicle.marginPercentage === resolvedMarginPercentage
   ) {
     return; // Already up-to-date, avoid redundant store updates
   }
@@ -1124,8 +1261,8 @@ export async function syncVehicleFinancials(
     generalExpensesTotal: fin.generalExpensesTotal,
     totalExpenses: fin.totalExpenses,
     totalInvested: fin.totalInvested,
-    netProfit: fin.netProfit,
-    marginPercentage: fin.marginPercentage,
+    netProfit: resolvedNetProfit,
+    marginPercentage: resolvedMarginPercentage,
   });
 }
 

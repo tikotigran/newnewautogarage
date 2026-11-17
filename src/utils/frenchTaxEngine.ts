@@ -1,4 +1,5 @@
 import {
+  AppUserProfileType,
   FrenchTaxConfiguration,
   GarageSettings,
   GeneralExpense,
@@ -21,13 +22,13 @@ export const FRENCH_TAX_DEFAULTS = {
   IS_REDUCED_THRESHOLD: 42500,
   STANDARD_VAT_RATE: 20,
   DISCLAIMER_FR:
-    "Estimation de gestion interne — ne constitue pas une déclaration fiscale officielle. Faites valider votre paramétrage fiscal (URSSAF, Micro-BIC, IS, TVA) par votre expert-comptable.",
+    "Estimation de gestion interne — ne constitue pas une déclaration fiscale officielle. Faites valider votre paramétrage fiscal (URSSAF, Micro-BIC) par votre expert-comptable.",
   DISCLAIMER_RU:
-    'Внутренний управленческий расчёт — не является официальной налоговой декларацией. Согласуйте настройки (URSSAF, Micro-BIC, IS, НДС/TVA) с вашим бухгалтером во Франции (expert-comptable).',
+    'Внутренний управленческий расчёт — не является официальной налоговой декларацией. Согласуйте настройки (URSSAF, Micro-BIC) с вашим бухгалтером во Франции (expert-comptable).',
   DISCLAIMER_HY:
-    'Ներքին կառավարչական հաշվարկ է — չի հանդիսանում պաշտոնական հարկային հայտարարագիր։ Համաձայնեցրեք կարգավորումները (URSSAF, Micro-BIC, IS, TVA) Ձեր հաշվապահի (expert-comptable) հետ։',
+    'Ներքին կառավարչական հաշվարկ է — չի հանդիսանում պաշտոնական հարկային հայտարարագիր։ Համաձայնեցրեք կարգավորումները (URSSAF, Micro-BIC) Ձեր հաշվապահի (expert-comptable) հետ։',
   DISCLAIMER_KA:
-    'შიდა მენეჯერული გათვლაა — არ წარმოადგენს ოფიციალურ საგადასახადო დეკლარაციას. შეათანხმეთ პარამეტრები (URSSAF, Micro-BIC, IS, TVA) თქვენს ბუღალტერთან (expert-comptable).',
+    'შიდა მენეჯერული გათვლაა — არ წარმოადგენს ოფიციალურ საგადასახადო დეკლარაციას. შეათანხმეთ პარამეტრები (URSSAF, Micro-BIC) თქვენს ბუღალტერთან (expert-comptable).',
 } as const;
 
 export function roundCurrency(value: number): number {
@@ -40,8 +41,26 @@ export function getTodayIsoDate(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+export function resolveUserProfileType(
+  input?: {
+    profileType?: AppUserProfileType;
+    legalStatus?: LegalStatus;
+    taxRegime?: TaxRegime;
+    entityType?: 'morale' | 'physique';
+  } | null
+): AppUserProfileType {
+  if (input?.profileType === 'particulier') return 'particulier';
+  if (input?.profileType === 'micro_entrepreneur') return 'micro_entrepreneur';
+  if (input?.legalStatus === 'particulier' || input?.taxRegime === 'none') {
+    return 'particulier';
+  }
+  return 'micro_entrepreneur';
+}
+
 export function mapLegalStatusToTaxRegime(legalStatus: LegalStatus): TaxRegime {
   switch (legalStatus) {
+    case 'particulier':
+      return 'none';
     case 'micro_entreprise':
     case 'ei':
       return 'micro';
@@ -60,29 +79,35 @@ export function mapTaxRegimeToLegalStatus(
   taxRegime?: TaxRegime,
   entityType?: 'morale' | 'physique'
 ): LegalStatus {
+  if (taxRegime === 'none') return 'particulier';
   if (taxRegime === 'micro') return 'micro_entreprise';
   if (taxRegime === 'sas') return 'sas';
   if (taxRegime === 'sarl') return 'sarl';
   if (entityType === 'physique') return 'micro_entreprise';
-  return 'sarl';
+  return 'micro_entreprise';
 }
 
 export function createDefaultFrenchTaxConfig(
-  legalStatus: LegalStatus = 'sarl',
+  legalStatus: LegalStatus = 'micro_entreprise',
   overrides?: Partial<FrenchTaxConfiguration>
 ): FrenchTaxConfiguration {
   const today = getTodayIsoDate();
   const currentYear = new Date().getFullYear();
   const businessTaxRegime = overrides?.businessTaxRegime || mapLegalStatusToTaxRegime(legalStatus);
+  const isParticulier = legalStatus === 'particulier' || businessTaxRegime === 'none';
+  const isVatExemptProfile =
+    isParticulier ||
+    legalStatus === 'micro_entreprise' ||
+    businessTaxRegime === 'micro';
 
   return {
     legalStatus,
     businessTaxRegime,
-    socialContributionRate: FRENCH_TAX_DEFAULTS.MICRO_SOCIAL_RATE,
-    versementLiberatoireEnabled: true,
-    versementLiberatoireRate: FRENCH_TAX_DEFAULTS.MICRO_VL_RATE,
-    microBicAbattementPercent: FRENCH_TAX_DEFAULTS.MICRO_BIC_ABATTEMENT,
-    microBicIncomeTaxRate: FRENCH_TAX_DEFAULTS.MICRO_BIC_DEFAULT_IR_RATE,
+    socialContributionRate: isParticulier ? 0 : FRENCH_TAX_DEFAULTS.MICRO_SOCIAL_RATE,
+    versementLiberatoireEnabled: !isParticulier,
+    versementLiberatoireRate: isParticulier ? 0 : FRENCH_TAX_DEFAULTS.MICRO_VL_RATE,
+    microBicAbattementPercent: isParticulier ? 0 : FRENCH_TAX_DEFAULTS.MICRO_BIC_ABATTEMENT,
+    microBicIncomeTaxRate: isParticulier ? 0 : FRENCH_TAX_DEFAULTS.MICRO_BIC_DEFAULT_IR_RATE,
     isRateMode: 'progressive_15_25',
     corporateTaxRateReduced: FRENCH_TAX_DEFAULTS.IS_REDUCED_RATE,
     corporateTaxRateStandard: FRENCH_TAX_DEFAULTS.IS_STANDARD_RATE,
@@ -91,14 +116,100 @@ export function createDefaultFrenchTaxConfig(
     reducedIsThreshold: FRENCH_TAX_DEFAULTS.IS_REDUCED_THRESHOLD,
     annualTaxableProfit: 0,
     financialYear: currentYear,
-    vatRegime: 'tva_marge',
-    vatRatePercent: FRENCH_TAX_DEFAULTS.STANDARD_VAT_RATE,
+    vatRegime: isVatExemptProfile ? 'franchise_base' : 'tva_marge',
+    vatRatePercent: isVatExemptProfile ? 0 : FRENCH_TAX_DEFAULTS.STANDARD_VAT_RATE,
     ...overrides,
+    ...(isParticulier
+      ? {
+          legalStatus: 'particulier' as const,
+          businessTaxRegime: 'none' as const,
+          socialContributionRate: 0,
+          versementLiberatoireEnabled: false,
+          versementLiberatoireRate: 0,
+          microBicAbattementPercent: 0,
+          microBicIncomeTaxRate: 0,
+          vatRegime: 'franchise_base' as const,
+          vatRatePercent: 0,
+        }
+      : {}),
     effectiveDates: {
       urssaf: overrides?.effectiveDates?.urssaf || today,
       is: overrides?.effectiveDates?.is || today,
       vat: overrides?.effectiveDates?.vat || today,
     },
+  };
+}
+
+/**
+ * Builds a non-destructive GarageSettings patch when switching between
+ * the two supported application profiles: 'particulier' and 'micro_entrepreneur'.
+ */
+export function buildProfileSettingsPatch(
+  profileType: AppUserProfileType,
+  current?: Partial<GarageSettings> | null
+): Partial<GarageSettings> {
+  if (profileType === 'particulier') {
+    const baseCfg = createDefaultFrenchTaxConfig('particulier', {
+      effectiveDates: current?.frenchTaxConfig?.effectiveDates,
+    });
+    return {
+      profileType: 'particulier',
+      entityType: 'physique',
+      legalStatus: 'particulier',
+      taxRegime: 'none',
+      taxRatePercent: 0,
+      legalForm: '',
+      tvaMention: '',
+      frenchTaxConfig: baseCfg,
+    };
+  }
+
+  const wasParticulier =
+    current?.profileType === 'particulier' ||
+    current?.legalStatus === 'particulier' ||
+    current?.taxRegime === 'none' ||
+    current?.frenchTaxConfig?.businessTaxRegime === 'none' ||
+    current?.frenchTaxConfig?.legalStatus === 'particulier';
+
+  const defaultMicroCfg = createDefaultFrenchTaxConfig('micro_entreprise');
+  const carriedMicroRates =
+    !wasParticulier && current?.frenchTaxConfig
+      ? {
+          ...defaultMicroCfg,
+          ...current.frenchTaxConfig,
+          legalStatus: 'micro_entreprise' as const,
+          businessTaxRegime: 'micro' as const,
+          vatRegime: 'franchise_base' as const,
+          vatRatePercent: 0,
+        }
+      : {
+          ...defaultMicroCfg,
+          effectiveDates: current?.frenchTaxConfig?.effectiveDates || defaultMicroCfg.effectiveDates,
+        };
+
+  const normalizedMicro = normalizeFrenchTaxConfig({
+    ...(current || {}),
+    profileType: 'micro_entrepreneur',
+    entityType: 'physique',
+    legalStatus: 'micro_entreprise',
+    taxRegime: 'micro',
+    frenchTaxConfig: carriedMicroRates,
+  });
+
+  const combinedMicroRate = roundCurrency(
+    normalizedMicro.socialContributionRate +
+      (normalizedMicro.versementLiberatoireEnabled ? normalizedMicro.versementLiberatoireRate : 0)
+  );
+
+  return {
+    profileType: 'micro_entrepreneur',
+    entityType: 'physique',
+    legalStatus: 'micro_entreprise',
+    taxRegime: 'micro',
+    taxRatePercent: combinedMicroRate,
+    legalForm: 'Micro-entrepreneur',
+    tvaMention: 'TVA non applicable, art. 293 B du CGI',
+    frenchTaxConfig: normalizedMicro,
   };
 }
 
@@ -111,41 +222,84 @@ export function normalizeFrenchTaxConfig(
   globalDefaults?: Partial<FrenchTaxConfiguration> | null
 ): FrenchTaxConfiguration {
   const existing = settings?.frenchTaxConfig;
-  const inferredLegalStatus: LegalStatus =
-    existing?.legalStatus ||
-    settings?.legalStatus ||
-    mapTaxRegimeToLegalStatus(settings?.taxRegime, settings?.entityType) ||
-    globalDefaults?.legalStatus ||
-    'sarl';
+  const isExplicitParticulier =
+    settings?.profileType === 'particulier' ||
+    settings?.legalStatus === 'particulier' ||
+    settings?.taxRegime === 'none' ||
+    (!settings?.profileType &&
+      !settings?.legalStatus &&
+      !settings?.taxRegime &&
+      (existing?.legalStatus === 'particulier' || existing?.businessTaxRegime === 'none'));
+
+  if (isExplicitParticulier) {
+    return createDefaultFrenchTaxConfig('particulier', {
+      effectiveDates: existing?.effectiveDates || globalDefaults?.effectiveDates,
+    });
+  }
+
+  const isExplicitMicro =
+    settings?.profileType === 'micro_entrepreneur' ||
+    settings?.legalStatus === 'micro_entreprise' ||
+    settings?.taxRegime === 'micro';
+
+  const inferredLegalStatus: LegalStatus = isExplicitMicro
+    ? 'micro_entreprise'
+    : existing?.legalStatus && existing.legalStatus !== 'particulier'
+    ? existing.legalStatus
+    : settings?.legalStatus ||
+      mapTaxRegimeToLegalStatus(settings?.taxRegime, settings?.entityType) ||
+      globalDefaults?.legalStatus ||
+      'sarl';
 
   const base = createDefaultFrenchTaxConfig(inferredLegalStatus, globalDefaults || undefined);
 
   if (existing) {
-    const businessTaxRegime =
-      existing.businessTaxRegime || settings?.taxRegime || base.businessTaxRegime;
+    const resolvedLegalStatus = isExplicitMicro
+      ? 'micro_entreprise'
+      : existing.legalStatus && existing.legalStatus !== 'particulier'
+      ? existing.legalStatus
+      : inferredLegalStatus;
+    const businessTaxRegime = isExplicitMicro
+      ? 'micro'
+      : existing.businessTaxRegime && existing.businessTaxRegime !== 'none'
+      ? existing.businessTaxRegime
+      : settings?.taxRegime || base.businessTaxRegime;
+
+    if (businessTaxRegime === 'none' || resolvedLegalStatus === 'particulier') {
+      return createDefaultFrenchTaxConfig('particulier', {
+        effectiveDates: existing.effectiveDates || base.effectiveDates,
+      });
+    }
+
+    const isVatExemptProfile =
+      businessTaxRegime === 'micro' || resolvedLegalStatus === 'micro_entreprise';
+
+    const existingWasParticulier =
+      existing.legalStatus === 'particulier' || existing.businessTaxRegime === 'none';
+
     return {
       ...base,
       ...existing,
-      legalStatus: existing.legalStatus || inferredLegalStatus,
+      legalStatus: resolvedLegalStatus,
       businessTaxRegime,
       socialContributionRate:
-        typeof existing.socialContributionRate === 'number'
+        !existingWasParticulier && typeof existing.socialContributionRate === 'number'
           ? Math.max(0, existing.socialContributionRate)
           : base.socialContributionRate,
       versementLiberatoireEnabled:
-        typeof existing.versementLiberatoireEnabled === 'boolean'
+        !existingWasParticulier && typeof existing.versementLiberatoireEnabled === 'boolean'
           ? existing.versementLiberatoireEnabled
           : base.versementLiberatoireEnabled,
       versementLiberatoireRate:
-        typeof existing.versementLiberatoireRate === 'number'
+        !existingWasParticulier && typeof existing.versementLiberatoireRate === 'number'
           ? Math.max(0, existing.versementLiberatoireRate)
           : base.versementLiberatoireRate,
       microBicAbattementPercent:
-        typeof existing.microBicAbattementPercent === 'number'
+        !existingWasParticulier && typeof existing.microBicAbattementPercent === 'number'
           ? Math.min(100, Math.max(0, existing.microBicAbattementPercent))
           : base.microBicAbattementPercent,
       microBicIncomeTaxRate:
-        typeof existing.microBicIncomeTaxRate === 'number'
+        !existingWasParticulier && typeof existing.microBicIncomeTaxRate === 'number'
           ? Math.max(0, existing.microBicIncomeTaxRate)
           : base.microBicIncomeTaxRate,
       isRateMode: existing.isRateMode || base.isRateMode,
@@ -177,11 +331,12 @@ export function normalizeFrenchTaxConfig(
         typeof existing.financialYear === 'number'
           ? existing.financialYear
           : base.financialYear,
-      vatRegime: existing.vatRegime || base.vatRegime,
-      vatRatePercent:
-        typeof existing.vatRatePercent === 'number'
-          ? Math.max(0, existing.vatRatePercent)
-          : base.vatRatePercent,
+      vatRegime: isVatExemptProfile ? 'franchise_base' : existing.vatRegime || base.vatRegime,
+      vatRatePercent: isVatExemptProfile
+        ? 0
+        : typeof existing.vatRatePercent === 'number'
+        ? Math.max(0, existing.vatRatePercent)
+        : base.vatRatePercent,
       effectiveDates: {
         urssaf: existing.effectiveDates?.urssaf || base.effectiveDates.urssaf,
         is: existing.effectiveDates?.is || base.effectiveDates.is,
@@ -218,11 +373,7 @@ export function normalizeFrenchTaxConfig(
   }
 
   if (legacyRegime === 'none') {
-    return {
-      ...base,
-      legalStatus: settings?.legalStatus || 'other',
-      businessTaxRegime: 'none',
-    };
+    return createDefaultFrenchTaxConfig('particulier');
   }
 
   return {
@@ -562,7 +713,7 @@ export function getTaxRegimeDisplayLabel(config: FrenchTaxConfiguration): string
     return `Personnalisé (${config.corporateTaxCustomRate}%)`;
   }
 
-  return 'Sans impôt estimé (0%)';
+  return 'Particulier (Sans fiscalité professionnelle)';
 }
 
 /**
@@ -587,11 +738,18 @@ export function buildTransactionTaxSnapshot(params: {
     generalExpensesTotal: params.generalExpensesTotal,
   });
 
+  const isVatExemptProfile =
+    config.businessTaxRegime === 'micro' || config.businessTaxRegime === 'none';
+
   const vat = calculateFrenchVat({
     salePrice: pnl.salePrice,
     purchasePrice: pnl.purchasePrice,
-    vatRegime: params.vatRegimeOverride || config.vatRegime,
-    vatRatePercent: params.vatRateOverride ?? config.vatRatePercent,
+    vatRegime: isVatExemptProfile
+      ? 'franchise_base'
+      : params.vatRegimeOverride || config.vatRegime,
+    vatRatePercent: isVatExemptProfile
+      ? 0
+      : params.vatRateOverride ?? config.vatRatePercent,
   });
 
   const taxLabel = getTaxRegimeDisplayLabel(config);
@@ -634,6 +792,8 @@ export function buildTransactionTaxSnapshot(params: {
 
   const netProfitAfterTax = roundCurrency(pnl.profitBeforeTaxes - totalTaxAmount);
 
+  const isParticulierRegime = config.businessTaxRegime === 'none';
+
   return {
     legalStatus: config.legalStatus,
     taxRegime: config.businessTaxRegime,
@@ -644,29 +804,29 @@ export function buildTransactionTaxSnapshot(params: {
     vatAmount: vat.vatAmount,
     htAmount: vat.htAmount,
     ttcAmount: vat.ttcAmount,
-    vatLegalMention: vat.legalMention,
+    vatLegalMention: isParticulierRegime ? '' : vat.legalMention,
     salePrice: pnl.salePrice,
     purchasePrice: pnl.purchasePrice,
     repairCostTotal: pnl.repairCostTotal,
     generalExpensesTotal: pnl.generalExpensesTotal,
     profitBeforeTaxes: pnl.profitBeforeTaxes,
-    urssafRate,
-    urssafAmount,
-    versementLiberatoireEnabled: vlEnabled,
-    versementLiberatoireRate: vlRate,
-    versementLiberatoireAmount: vlAmount,
-    microBicEstimatedTax,
-    corporateIsContextNote,
-    corporateTaxEstimatedAmount,
-    totalTaxAmount,
-    netProfitAfterTax,
+    urssafRate: isParticulierRegime ? 0 : urssafRate,
+    urssafAmount: isParticulierRegime ? 0 : urssafAmount,
+    versementLiberatoireEnabled: isParticulierRegime ? false : vlEnabled,
+    versementLiberatoireRate: isParticulierRegime ? 0 : vlRate,
+    versementLiberatoireAmount: isParticulierRegime ? 0 : vlAmount,
+    microBicEstimatedTax: isParticulierRegime ? 0 : microBicEstimatedTax,
+    corporateIsContextNote: isParticulierRegime ? '' : corporateIsContextNote,
+    corporateTaxEstimatedAmount: isParticulierRegime ? 0 : corporateTaxEstimatedAmount,
+    totalTaxAmount: isParticulierRegime ? 0 : totalTaxAmount,
+    netProfitAfterTax: isParticulierRegime ? pnl.profitBeforeTaxes : netProfitAfterTax,
     effectiveDate:
       config.businessTaxRegime === 'micro'
         ? config.effectiveDates.urssaf
         : config.effectiveDates.is,
     capturedAt: params.capturedAt || new Date().toISOString(),
     isHistoricalSnapshot: true,
-    disclaimerNote: FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
+    disclaimerNote: isParticulierRegime ? '' : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
   };
 }
 

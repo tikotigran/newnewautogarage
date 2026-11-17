@@ -124,9 +124,11 @@ export function buildFinancialLedgerRows(
       vatRatePercent: v.buyerInfo?.vatRatePercent,
       taxSnapshot: isSold ? v.buyerInfo?.taxSnapshot : undefined,
     });
+    const totalInvested = roundToTwo(
+      taxReport.purchasePrice + taxReport.repairCostTotal + taxReport.generalExpensesTotal
+    );
     const marginPercent =
       revenue > 0 ? roundToTwo((taxReport.netProfitAfterTax / revenue) * 100) : 0;
-    const totalInvested = roundToTwo(Number(v.totalInvested) || 0);
     const roiPercent =
       totalInvested > 0 && revenue > 0
         ? roundToTwo((taxReport.netProfitAfterTax / totalInvested) * 100)
@@ -329,7 +331,11 @@ export function buildFinancialWorkbookBytes(params: {
 
   // Sheet 1: P&L Summary strictly separating Revenue / Gross Profit / Net Profit
   const summaryRows = [
-    { Indicateur: 'Garage', Valeur: garageSettings.name, Detail: `SIRET ${garageSettings.siret || '-'}` },
+    {
+      Indicateur: 'Garage',
+      Valeur: garageSettings.name,
+      Detail: garageSettings.siret ? `SIRET ${garageSettings.siret}` : 'Profil Particulier / AutoGarage',
+    },
     { Indicateur: 'Periode analysee', Valeur: periodLabel, Detail: new Date().toISOString().slice(0, 10) },
     { Indicateur: 'Valeur stock (Prix cible)', Valeur: analytics.inventory.totalStockValue, Detail: `${analytics.inventory.activeCount} vehicules en stock` },
     { Indicateur: 'Capital immobilise en stock', Valeur: analytics.inventory.totalInvestedInStock, Detail: 'Achats + Reparations + Frais' },
@@ -340,7 +346,15 @@ export function buildFinancialWorkbookBytes(params: {
     { Indicateur: 'Cotisations URSSAF (Micro)', Valeur: analytics.salesPerformance.urssafAmount, Detail: 'Sur chiffre d affaires (achat/revente)' },
     { Indicateur: 'Versement liberatoire IR (Micro)', Valeur: analytics.salesPerformance.versementLiberatoireAmount, Detail: 'Option sur CA si activee' },
     { Indicateur: 'IR Micro-BIC estime separement (si VL = NON)', Valeur: analytics.salesPerformance.microBicEstimatedIrAmount, Detail: 'Apres abattement forfaitaire 71%' },
-    { Indicateur: 'Impot sur les Societes - IS (SARL/SAS)', Valeur: analytics.salesPerformance.corporateIsAmount, Detail: 'Progressif 15% <= 42 500 EUR / 25% au-dela' },
+    ...(analytics.salesPerformance.corporateIsAmount > 0
+      ? [
+          {
+            Indicateur: 'Impot sur les Societes - IS (historique)',
+            Valeur: analytics.salesPerformance.corporateIsAmount,
+            Detail: 'Donnees historiques archivees',
+          },
+        ]
+      : []),
     { Indicateur: 'Total Impots & Taxes estimes', Valeur: analytics.salesPerformance.taxAmount, Detail: analytics.salesPerformance.taxLabel },
     { Indicateur: '3. Benefice net (Net Profit)', Valeur: analytics.salesPerformance.netProfit, Detail: 'Marge brute - Impots estimes' },
     { Indicateur: 'Marge nette moyenne / vehicule', Valeur: analytics.salesPerformance.averageNetMarginEuro, Detail: `${analytics.salesPerformance.netMarginPercent.toFixed(1)}%` },
@@ -348,7 +362,7 @@ export function buildFinancialWorkbookBytes(params: {
     { Indicateur: 'Cash Flow Entrees (Inflow)', Valeur: analytics.cashFlow.inflow, Detail: 'Encaissements ventes' },
     { Indicateur: 'Cash Flow Sorties (Outflow)', Valeur: analytics.cashFlow.outflow, Detail: 'Achats + Travaux + Frais + Taxes' },
     { Indicateur: 'Cash Flow Net', Valeur: analytics.cashFlow.netCashFlow, Detail: 'Tresorerie nette sur la periode' },
-    { Indicateur: 'Avertissement conformite', Valeur: 'Validation expert-comptable requise', Detail: FRENCH_TAX_DEFAULTS.DISCLAIMER_FR },
+    { Indicateur: 'Avertissement conformite', Valeur: 'Estimation interne uniquement', Detail: FRENCH_TAX_DEFAULTS.DISCLAIMER_FR },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Synthese_PnL');
 
@@ -493,6 +507,8 @@ export interface FacturXCheckItem {
   id: string;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   passed: boolean;
   valuePreview: string;
 }
@@ -559,7 +575,9 @@ export function validateFacturXReadiness(
     {
       id: 'seller_name',
       labelFr: 'Raison sociale / Nom du vendeur',
-      labelRu: 'Название компании / Продавца',
+      labelRu: 'Название / Имя продавца',
+      labelHy: 'Վաճառողի անվանում / Անուն',
+      labelKa: 'გამყიდველის სახელი / დასახელება',
       passed: Boolean(sellerName?.trim()),
       valuePreview: sellerName || '—',
     },
@@ -567,13 +585,17 @@ export function validateFacturXReadiness(
       id: 'seller_siret',
       labelFr: 'Numéro SIRET vendeur (14 chiffres — identifiant 0002)',
       labelRu: 'SIRET продавца (14 цифр — схема 0002)',
+      labelHy: 'Վաճառողի SIRET (14 նիշ — սխեմա 0002)',
+      labelKa: 'გამყიდველის SIRET (14 ციფრი — სქემა 0002)',
       passed: /^\d{14}$/.test(cleanSiret),
       valuePreview: cleanSiret || '—',
     },
     {
       id: 'seller_address',
       labelFr: 'Adresse postale complète du garage (Rue, CP 5 chiffres, Ville)',
-      labelRu: 'Полный юридический адрес гаража (Улица, Индекс 5 цифр, Город)',
+      labelRu: 'Полный почтовый адрес (Улица, Индекс 5 цифр, Город)',
+      labelHy: 'Ամբողջական հասցե (Փողոց, 5-նիշ ինդեքս, Քաղաք)',
+      labelKa: 'სრული მისამართი (ქუჩა, 5-ნიშნა ინდექსი, ქალაქი)',
       passed: sellerAddressOk,
       valuePreview: sellerAddressOk
         ? `${settings.streetNumber || ''} ${settings.streetName}, ${cleanZip} ${settings.city}`.trim()
@@ -583,13 +605,17 @@ export function validateFacturXReadiness(
       id: 'invoice_meta',
       labelFr: 'Numéro de facture séquentiel & Date de cession (YYYYMMDD)',
       labelRu: 'Номер счёта и дата продажи (YYYYMMDD)',
+      labelHy: 'Հաշվի համար և վաճառքի ամսաթիվ (YYYYMMDD)',
+      labelKa: 'ინვოისის ნომერი და გაყიდვის თარიღი (YYYYMMDD)',
       passed: Boolean(invoiceNumber) && /^\d{4}-\d{2}-\d{2}/.test(issueDateIso),
       valuePreview: `${invoiceNumber} (${issueDateIso})`,
     },
     {
       id: 'buyer_identity',
       labelFr: 'Identité et adresse de l’acquéreur (BG-7)',
-      labelRu: 'ФИО/Компания и адрес покупателя (BG-7)',
+      labelRu: 'Имя/Данные и адрес покупателя (BG-7)',
+      labelHy: 'Գնորդի տվյալները և հասցեն (BG-7)',
+      labelKa: 'მყიდველის მონაცემები და მისამართი (BG-7)',
       passed: Boolean(buyerName) && Boolean(buyerAddress),
       valuePreview: buyerName ? `${buyerName} — ${buyerAddress || 'sans adresse'}` : 'Non vendu / Acheteur manquant',
     },
@@ -597,6 +623,8 @@ export function validateFacturXReadiness(
       id: 'amount_valid',
       labelFr: 'Montant TTC positif (> 0 €) & Régime TVA',
       labelRu: 'Положительная сумма счёта (> 0 €) и режим НДС (TVA)',
+      labelHy: 'Դրական գումար (> 0 €) և ԱԱՀ (TVA) ռեժիմ',
+      labelKa: 'დადებითი თანხა (> 0 €) და დღგ-ს (TVA) რეჟიმი',
       passed: salePrice > 0 && Boolean(settings.tvaMention?.trim() || settings.taxRegime),
       valuePreview: `${roundToTwo(salePrice)} € (${settings.tvaMention || 'Art. 297 A CGI'})`,
     },
@@ -644,24 +672,38 @@ export function buildFacturXXml(
   const currency = settings.currency || 'EUR';
   const paymentMeansCode = options?.paymentMeansCode || '30'; // 30 = Credit transfer (SEPA)
 
+  const isCorporateVatSeller =
+    settings.taxRegime === 'sarl' ||
+    settings.taxRegime === 'sas' ||
+    settings.taxRegime === 'custom';
+
   const resolvedVatRegime: VatRegime = (() => {
-    const raw =
-      options?.vatMode ||
-      vehicle.buyerInfo?.vatRegime ||
-      vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-      settings.frenchTaxConfig?.vatRegime ||
-      'tva_marge';
+    const raw = isCorporateVatSeller
+      ? options?.vatMode ||
+        vehicle.buyerInfo?.vatRegime ||
+        vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+        settings.frenchTaxConfig?.vatRegime ||
+        'tva_marge'
+      : options?.vatMode ||
+        (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
+        vehicle.buyerInfo.taxSnapshot.vatAmount > 0
+          ? vehicle.buyerInfo.taxSnapshot.vatRegime
+          : 'franchise_base');
     if (raw === 'margin') return 'tva_marge';
     if (raw === 'standard_20') return 'tva_total';
     return raw;
   })();
 
-  const resolvedVatRate =
-    options?.vatRatePercent ??
-    vehicle.buyerInfo?.vatRatePercent ??
-    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-    settings.frenchTaxConfig?.vatRatePercent ??
-    20;
+  const resolvedVatRate = isCorporateVatSeller
+    ? options?.vatRatePercent ??
+      vehicle.buyerInfo?.vatRatePercent ??
+      vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+      settings.frenchTaxConfig?.vatRatePercent ??
+      20
+    : options?.vatRatePercent ??
+      (resolvedVatRegime === 'franchise_base'
+        ? 0
+        : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0);
 
   const cleanSiret = (settings.siret || '').replace(/\s+/g, '');
   const sellerName =

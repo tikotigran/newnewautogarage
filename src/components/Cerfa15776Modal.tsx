@@ -38,6 +38,7 @@ import { buildCerfa15776PdfBytes, generateCerfa15776FromFormData } from '../util
 import { CerfaAlignerPanel } from './CerfaAlignerPanel';
 import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 import { ThemedSelect } from './ThemedSelect';
+import { pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
 
 interface Cerfa15776ModalProps {
@@ -69,7 +70,6 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   onSaveVehicleFields,
 }) => {
   const { lang } = useI18n();
-  const isRu = lang === 'ru';
   const isPage = variant === 'page';
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -280,21 +280,30 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       }
 
       setSaveSuccess(
-        isRu
-          ? syncedVehicle
-            ? 'Шаблон и данные автомобиля (госномер, VIN, пробег) сохранены.'
-            : 'Выбранный шаблон и черновик настроек документов сохранены.'
-          : syncedVehicle
-          ? 'Modèle et données véhicule (immatriculation, VIN, kilométrage) enregistrés.'
-          : 'Modèle Cerfa et configuration document enregistrés.'
+        syncedVehicle
+          ? pickLocalized(lang, {
+              fr: 'Modèle et données véhicule (immatriculation, VIN, kilométrage) enregistrés.',
+              ru: 'Шаблон и данные автомобиля (госномер, VIN, пробег) сохранены.',
+              hy: 'Ձևանմուշը և ավտոմեքենայի տվյալները (համարանիշ, VIN, վազք) պահպանվեցին։',
+              ka: 'შაბლონი და ავტომობილის მონაცემები (ნომერი, VIN, გარბენი) შენახულია.',
+            })
+          : pickLocalized(lang, {
+              fr: 'Modèle Cerfa et configuration document enregistrés.',
+              ru: 'Выбранный шаблон и черновик настроек документов сохранены.',
+              hy: 'Ընտրված ձևանմուշը և փաստաթղթերի կարգավորումները պահպանվեցին։',
+              ka: 'არჩეული შაბლონი და დოკუმენტის პარამეტრები შენახულია.',
+            })
       );
     } catch (err) {
       setGenerationError(
         err instanceof Error
           ? err.message
-          : isRu
-          ? 'Ошибка при сохранении документа.'
-          : 'Erreur lors de l’enregistrement.'
+          : pickLocalized(lang, {
+              fr: 'Erreur lors de l’enregistrement.',
+              ru: 'Ошибка при сохранении документа.',
+              hy: 'Փաստաթղթի պահպանման սխալ։',
+              ka: 'დოკუმენტის შენახვის შეცდომა.',
+            })
       );
     } finally {
       setIsSaving(false);
@@ -363,9 +372,36 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   };
 
   const steps = [
-    { id: 1 as const, label: isRu ? '1. Автомобиль' : '1. Le Véhicule', icon: Car },
-    { id: 2 as const, label: isRu ? '2. Продавец' : '2. Ancien Propriétaire', icon: Building2 },
-    { id: 3 as const, label: isRu ? '3. Покупатель' : '3. Nouveau Propriétaire', icon: UserCheck },
+    {
+      id: 1 as const,
+      label: pickLocalized(lang, {
+        fr: '1. Le Véhicule',
+        ru: '1. Автомобиль',
+        hy: '1. Ավտոմեքենա',
+        ka: '1. ავტომობილი',
+      }),
+      icon: Car,
+    },
+    {
+      id: 2 as const,
+      label: pickLocalized(lang, {
+        fr: '2. Ancien Propriétaire',
+        ru: '2. Продавец',
+        hy: '2. Վաճառող',
+        ka: '2. გამყიდველი',
+      }),
+      icon: Building2,
+    },
+    {
+      id: 3 as const,
+      label: pickLocalized(lang, {
+        fr: '3. Nouveau Propriétaire',
+        ru: '3. Покупатель',
+        hy: '3. Գնորդ',
+        ka: '3. მყიდველი',
+      }),
+      icon: UserCheck,
+    },
   ];
 
   const inputClass =
@@ -396,9 +432,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 text-xs text-emerald-400 flex items-center gap-2.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>
-            {isRu
-              ? 'Официальный бланк Cerfa N° 15776*02 сформирован (поля подписей оставлены пустыми).'
-              : 'Le formulaire officiel Cerfa N° 15776*02 a été généré avec succès (signatures laissées vierges).'}
+            {pickLocalized(lang, {
+              fr: 'Le formulaire officiel Cerfa N° 15776*02 a été généré avec succès (signatures laissées vierges).',
+              ru: 'Официальный бланк Cerfa N° 15776*02 сформирован (поля подписей оставлены пустыми).',
+              hy: 'Պաշտոնական Cerfa N° 15776*02 ձևաթուղթը ձևավորվեց (ստորագրության դաշտերը դատարկ են)։',
+              ka: 'ოფიციალური ფორმა Cerfa N° 15776*02 შექმნილია (ხელმოწერის ველები ცარიელია).',
+            })}
           </span>
         </div>
       )}
@@ -1119,9 +1158,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   // Full In-Page Workspace Layout (Sidebar Mode)
   if (isPage) {
     return (
-      <div data-testid="documents-page-view" className="space-y-5">
+      <div data-testid="documents-page-view" className="space-y-4">
         {/* Page Header + Template & Vehicle Pre-fill Controls + Save/Export Bar */}
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-lg space-y-4">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 shadow-lg space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               {onClose && (
@@ -1129,23 +1168,36 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   type="button"
                   data-testid="documents-back-to-archive-btn"
                   onClick={onClose}
-                  title={isRu ? 'Назад к архиву документов' : 'Retour aux documents'}
+                  title={pickLocalized(lang, {
+                    fr: 'Retour aux documents',
+                    ru: 'Назад к архиву документов',
+                    hy: 'Վերադառնալ փաստաթղթերին',
+                    ka: 'დოკუმენტებთან დაბრუნება',
+                  })}
                   className="w-9 h-9 rounded-xl bg-[var(--surface-muted)] hover:opacity-90 border border-[var(--border)] text-[var(--foreground)] flex items-center justify-center shrink-0 transition"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
               )}
-              <div className="w-11 h-11 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
                 <FileCheck className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <h2 className="text-lg sm:text-xl font-bold text-[var(--foreground)]">
-                  {isRu ? 'Документы и Cerfa 15776*02' : 'Documents & Cerfa N° 15776*02'}
+                <h2 className="text-lg font-bold text-[var(--foreground)]">
+                  {pickLocalized(lang, {
+                    fr: 'Documents & Cerfa N° 15776*02',
+                    ru: 'Документы и Cerfa 15776*02',
+                    hy: 'Փաստաթղթեր և Cerfa 15776*02',
+                    ka: 'დოკუმენტები და Cerfa 15776*02',
+                  })}
                 </h2>
                 <p className="text-xs text-[var(--muted-foreground)]">
-                  {isRu
-                    ? 'Выбор шаблона, автозаполнение по автомобилю и калиброванный PDF-предпросмотр для печати'
-                    : 'Sélecteur de modèle, pré-remplissage véhicule et aperçu PDF calibré prêt à exporter'}
+                  {pickLocalized(lang, {
+                    fr: 'Sélecteur de modèle, pré-remplissage véhicule et aperçu PDF calibré prêt à exporter',
+                    ru: 'Выбор шаблона, автозаполнение по автомобилю и калиброванный PDF-предпросмотр для печати',
+                    hy: 'Ձևանմուշի ընտրություն, ավտոլրացում և կալիբրացված PDF նախադիտում',
+                    ka: 'შაბლონის არჩევა, ავტოშევსება და კალიბრირებული PDF გადახედვა',
+                  })}
                 </p>
               </div>
             </div>
@@ -1162,7 +1214,15 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                       : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
                   }`}
                 >
-                  <span>🔧 {isRu ? 'Выравнивание (Aligner)' : 'Aligner Mode'}</span>
+                  <span>
+                    🔧{' '}
+                    {pickLocalized(lang, {
+                      fr: 'Aligner Mode',
+                      ru: 'Выравнивание (Aligner)',
+                      hy: 'Հավասարեցում (Aligner)',
+                      ka: 'გასწორება (Aligner)',
+                    })}
+                  </span>
                 </button>
               )}
 
@@ -1178,7 +1238,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   }`}
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Данные формы' : 'Éditer les champs'}</span>
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Éditer les champs',
+                      ru: 'Данные формы',
+                      hy: 'Ձևի տվյալներ',
+                      ka: 'ფორმის მონაცემები',
+                    })}
+                  </span>
                 </button>
               )}
 
@@ -1190,7 +1257,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] disabled:opacity-50 transition flex items-center gap-1.5"
               >
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5 text-emerald-400" />}
-                <span>{isRu ? 'Сохранить' : 'Enregistrer'}</span>
+                <span>
+                  {pickLocalized(lang, {
+                    fr: 'Enregistrer',
+                    ru: 'Сохранить',
+                    hy: 'Պահպանել',
+                    ka: 'შენახვა',
+                  })}
+                </span>
               </button>
 
               <button
@@ -1201,7 +1275,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] disabled:opacity-50 transition flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>{isRu ? 'Печать' : 'Imprimer'}</span>
+                <span>
+                  {pickLocalized(lang, {
+                    fr: 'Imprimer',
+                    ru: 'Печать',
+                    hy: 'Տպել',
+                    ka: 'ბეჭდვა',
+                  })}
+                </span>
               </button>
 
               <button
@@ -1212,7 +1293,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] hover:opacity-95 text-[var(--primary-foreground)] disabled:opacity-50 transition flex items-center gap-1.5 shadow-md"
               >
                 {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                <span>{isRu ? 'Скачать PDF [15776*02]' : 'Télécharger PDF [15776*02]'}</span>
+                <span>
+                  {pickLocalized(lang, {
+                    fr: 'Télécharger PDF [15776*02]',
+                    ru: 'Скачать PDF [15776*02]',
+                    hy: 'Ներբեռնել PDF [15776*02]',
+                    ka: 'PDF ჩამოტვირთვა [15776*02]',
+                  })}
+                </span>
               </button>
             </div>
           </div>
@@ -1223,13 +1311,25 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               <label htmlFor="documents-template-select" className={labelClass}>
                 <span className="inline-flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5 text-[var(--primary)]" />
-                  <span>{isRu ? 'Шаблон документа' : 'Modèle de document'}</span>
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Modèle de document',
+                      ru: 'Шаблон документа',
+                      hy: 'Փաստաթղթի ձևանմուշ',
+                      ka: 'დოკუმენტის შაბლონი',
+                    })}
+                  </span>
                 </span>
               </label>
               <ThemedSelect
                 id="documents-template-select"
                 testId="documents-template-select"
-                ariaLabel={isRu ? 'Шаблон документа' : 'Modèle de document'}
+                ariaLabel={pickLocalized(lang, {
+                  fr: 'Modèle de document',
+                  ru: 'Шаблон документа',
+                  hy: 'Փաստաթղթի ձևանմուշ',
+                  ka: 'დოკუმენტის შაბლონი',
+                })}
                 value={selectedTemplateId}
                 onChange={(val) => {
                   setSelectedTemplateId(val);
@@ -1237,7 +1337,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 }}
                 options={CERFA_TEMPLATE_OPTIONS.map((tpl) => ({
                   value: tpl.id,
-                  label: isRu ? tpl.labelRu : tpl.labelFr,
+                  label: pickLocalized(lang, {
+                    fr: tpl.labelFr,
+                    ru: tpl.labelRu,
+                    hy: tpl.labelFr,
+                    ka: tpl.labelFr,
+                  }),
                 }))}
                 triggerClassName={inputClass}
               />
@@ -1248,13 +1353,25 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 <label htmlFor="documents-vehicle-select" className={labelClass}>
                   <span className="inline-flex items-center gap-1.5">
                     <Car className="w-3.5 h-3.5 text-[var(--primary)]" />
-                    <span>{isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}</span>
+                    <span>
+                      {pickLocalized(lang, {
+                        fr: 'Véhicule à pré-remplir',
+                        ru: 'Автомобиль для автозаполнения',
+                        hy: 'Ավտոլրացման ավտոմեքենա',
+                        ka: 'ავტოშევსების ავტომობილი',
+                      })}
+                    </span>
                   </span>
                 </label>
                 <ThemedSelect
                   id="documents-vehicle-select"
                   testId="documents-vehicle-select"
-                  ariaLabel={isRu ? 'Автомобиль для автозаполнения' : 'Véhicule à pré-remplir'}
+                  ariaLabel={pickLocalized(lang, {
+                    fr: 'Véhicule à pré-remplir',
+                    ru: 'Автомобиль для автозаполнения',
+                    hy: 'Ավտոլրացման ավտոմեքենա',
+                    ka: 'ავტოშევსების ავტომობილი',
+                  })}
                   value={activePick.vehicle.id}
                   onChange={handleSelectVehicle}
                   options={availableVehicles.map((v) => {
@@ -1273,7 +1390,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
 
         {/* Body: Superadmin Aligner Mode OR Clean Full-Width Calibrated Live Preview */}
         {showAlignerView ? (
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-lg">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 shadow-lg">
             <CerfaAlignerPanel
               formData={formData}
               config={alignerConfig}
@@ -1287,7 +1404,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             />
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {alertsBlock && <div className="w-full max-w-4xl mx-auto space-y-2">{alertsBlock}</div>}
 
             {showFormEditor && (
@@ -1321,9 +1438,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   })}
                 </div>
 
-                <div className="p-5 sm:p-6 space-y-5">{formStepsContent}</div>
+                <div className="p-4 space-y-4">{formStepsContent}</div>
 
-                <div className="px-5 py-3.5 border-t border-[var(--border)] bg-[var(--background)]/50 flex flex-wrap items-center justify-between gap-3">
+                <div className="px-4 py-3 border-t border-[var(--border)] bg-[var(--background)]/50 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     {step > 1 && (
                       <button
@@ -1332,7 +1449,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                         className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] transition flex items-center gap-1.5"
                       >
                         <ChevronLeft className="w-4 h-4" />
-                        <span>{isRu ? 'Назад' : 'Précédent'}</span>
+                        <span>
+                          {pickLocalized(lang, {
+                            fr: 'Précédent',
+                            ru: 'Назад',
+                            hy: 'Նախորդ',
+                            ka: 'წინა',
+                          })}
+                        </span>
                       </button>
                     )}
                   </div>
@@ -1343,7 +1467,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                         onClick={handleNext}
                         className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow"
                       >
-                        <span>{isRu ? 'Далее' : 'Suivant'}</span>
+                        <span>
+                          {pickLocalized(lang, {
+                            fr: 'Suivant',
+                            ru: 'Далее',
+                            hy: 'Հաջորդ',
+                            ka: 'შემდეგი',
+                          })}
+                        </span>
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     )}
@@ -1352,7 +1483,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                       onClick={() => setShowFormEditor(false)}
                       className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] border border-[var(--border)] transition"
                     >
-                      {isRu ? 'Свернуть' : 'Fermer'}
+                      {pickLocalized(lang, {
+                        fr: 'Fermer',
+                        ru: 'Свернуть',
+                        hy: 'Փակել',
+                        ka: 'დახურვა',
+                      })}
                     </button>
                   </div>
                 </div>
@@ -1362,7 +1498,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             {/* Full Clean Width Calibrated Live Cerfa PDF Preview */}
             <div data-testid="documents-live-preview-wrapper" className="w-full max-w-4xl mx-auto">
               <CerfaLivePreviewSheet
-                title={isRu ? 'Живой предпросмотр Cerfa N° 15776*02' : 'Aperçu en direct Cerfa N° 15776*02'}
+                title={pickLocalized(lang, {
+                  fr: 'Aperçu en direct Cerfa N° 15776*02',
+                  ru: 'Живой предпросмотр Cerfa N° 15776*02',
+                  hy: 'Ուղիղ նախադիտում Cerfa N° 15776*02',
+                  ka: 'პირდაპირი გადახედვა Cerfa N° 15776*02',
+                })}
                 generatePdfBytes={generateLivePagePdfBytes}
                 dependencyKey={livePagePreviewDependencyKey}
                 testIdPrefix="documents-cerfa"
@@ -1390,7 +1531,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         }`}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[var(--border)] flex flex-wrap items-center justify-between gap-3 bg-[var(--background)]/70">
+        <div className="px-5 py-3.5 border-b border-[var(--border)] flex flex-wrap items-center justify-between gap-3 bg-[var(--background)]/70">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/30 flex items-center justify-center">
               <FileCheck className="w-5 h-5" />
@@ -1416,7 +1557,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                     : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
                 }`}
               >
-                <span>🔧 Режим выравнивания / Aligner Mode</span>
+                <span>🔧 Aligner Mode</span>
               </button>
             )}
             <button
@@ -1432,7 +1573,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
 
         {/* Stepper (hidden in Aligner Mode) */}
         {!showAlignerView && (
-          <div className="px-6 py-3 bg-[var(--background)]/40 border-b border-[var(--border)] grid grid-cols-3 gap-2">
+          <div className="px-5 py-3 bg-[var(--background)]/40 border-b border-[var(--border)] grid grid-cols-3 gap-2">
             {steps.map((s) => {
               const Icon = s.icon;
               const isActive = step === s.id;
@@ -1468,7 +1609,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         )}
 
         {/* Form Body or Aligner Mode (Superadmin only) */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-5">
+        <div className="p-4 overflow-y-auto flex-1 space-y-4">
           {showAlignerView ? (
             <CerfaAlignerPanel
               formData={formData}

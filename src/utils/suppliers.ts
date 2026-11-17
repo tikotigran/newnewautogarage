@@ -1,4 +1,5 @@
 import {
+  FrenchTaxConfiguration,
   Purchase,
   PurchaseCategory,
   PurchasePaymentMethod,
@@ -319,7 +320,8 @@ export interface ChannelAnalyticsResult {
 function getVehicleProfitForReport(
   v: Vehicle,
   taxRegime: TaxRegime,
-  taxRatePercent?: number
+  taxRatePercent?: number,
+  frenchTaxConfig?: FrenchTaxConfiguration
 ) {
   const salePrice = getRealizedSalePrice(v);
   const purchasePrice = Number(v.purchasePrice) || 0;
@@ -342,6 +344,7 @@ function getVehicleProfitForReport(
     generalExpensesTotal,
     taxRegime,
     taxRatePercent,
+    frenchTaxConfig,
     vatRegime: v.buyerInfo?.vatRegime,
     vatRatePercent: v.buyerInfo?.vatRatePercent,
     taxSnapshot: v.buyerInfo?.taxSnapshot,
@@ -361,8 +364,16 @@ export function computeSupplierSummaries(params: {
   vehicles: Vehicle[];
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
+  frenchTaxConfig?: FrenchTaxConfiguration;
 }): SupplierSummary[] {
-  const { suppliers, purchases, vehicles, taxRegime = 'sarl', taxRatePercent } = params;
+  const {
+    suppliers,
+    purchases,
+    vehicles,
+    taxRegime = 'sarl',
+    taxRatePercent,
+    frenchTaxConfig,
+  } = params;
   const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
 
   return suppliers
@@ -398,7 +409,7 @@ export function computeSupplierSummaries(params: {
       for (const vId of sourcedVehicleIdSet) {
         const veh = vehicleMap.get(vId);
         if (!veh) continue;
-        const prof = getVehicleProfitForReport(veh, taxRegime, taxRatePercent);
+        const prof = getVehicleProfitForReport(veh, taxRegime, taxRatePercent, frenchTaxConfig);
         if (prof.isSold) {
           soldVehiclesCount += 1;
           realizedNetProfit = roundToTwo(realizedNetProfit + prof.netProfit);
@@ -433,8 +444,16 @@ export function computeChannelProfitability(params: {
   vehicles: Vehicle[];
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
+  frenchTaxConfig?: FrenchTaxConfiguration;
 }): ChannelAnalyticsResult {
-  const { suppliers, purchases, vehicles, taxRegime = 'sarl', taxRatePercent } = params;
+  const {
+    suppliers,
+    purchases,
+    vehicles,
+    taxRegime = 'sarl',
+    taxRatePercent,
+    frenchTaxConfig,
+  } = params;
   const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
   const supplierMap = new Map(suppliers.map((s) => [s.id, s]));
 
@@ -464,7 +483,7 @@ export function computeChannelProfitability(params: {
     for (const vId of sourcedVehicleIds) {
       const veh = vehicleMap.get(vId);
       if (!veh) continue;
-      const prof = getVehicleProfitForReport(veh, taxRegime, taxRatePercent);
+      const prof = getVehicleProfitForReport(veh, taxRegime, taxRatePercent, frenchTaxConfig);
       if (prof.isSold) {
         soldVehiclesCount += 1;
         realizedRevenue = roundToTwo(realizedRevenue + prof.revenue);

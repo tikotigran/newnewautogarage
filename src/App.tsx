@@ -13,7 +13,7 @@ import { ExportsBackupView } from './components/ExportsBackupView';
 import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
-import { Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense } from './types/garage';
+import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense } from './types/garage';
 import {
   auth,
   onAuthStateChanged,
@@ -33,12 +33,13 @@ import {
   deleteVehicle,
   seedDemoGarageData,
 } from './services/garageService';
-import { buildTransactionTaxSnapshot } from './utils/frenchTaxEngine';
+import { buildTransactionTaxSnapshot, resolveUserProfileType } from './utils/frenchTaxEngine';
 import {
   ensureAndGetUserProfile,
   subscribeCerfaTemplatesCalibration,
   subscribeFeatureFlags,
   subscribeSystemThemeConfig,
+  updateUserProfileType,
 } from './services/adminService';
 import {
   applySystemThemeVariables,
@@ -186,6 +187,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [cerfaVehicle, setCerfaVehicle] = useState<Vehicle | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [settingsVersion, setSettingsVersion] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('autogarage_theme');
@@ -243,8 +245,15 @@ export default function App() {
       setIsAdminMode(admin);
       setActiveView(admin ? 'admin' : 'desktop');
     };
+    const onSettingsUpdated = () => {
+      setSettingsVersion((n) => n + 1);
+    };
     window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    window.addEventListener('autogarage_settings_updated', onSettingsUpdated);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('autogarage_settings_updated', onSettingsUpdated);
+    };
   }, []);
 
   // Subscribe to global system theme config, feature flags, and Cerfa field calibration
@@ -345,6 +354,7 @@ export default function App() {
 
   const handleCreateGarage = async (input: {
     name: string;
+    profileType?: AppUserProfileType;
     entityType: 'morale' | 'physique';
     legalStatus?: LegalStatus;
     city?: string;
@@ -355,6 +365,20 @@ export default function App() {
     const created = await createGarage(effectiveUserId, input);
     handleSelectGarage(created.id);
   };
+
+  const activeProfileType: AppUserProfileType = useMemo(() => {
+    const activeGarage = activeGarageId ? garages.find((g) => g.id === activeGarageId) : null;
+    if (activeGarage?.profileType || activeGarage?.legalStatus || activeGarage?.taxRegime) {
+      return resolveUserProfileType(activeGarage);
+    }
+    if (activeGarageId) {
+      return resolveUserProfileType(getGarageSettings(activeGarageId));
+    }
+    if (userProfile?.profileType) {
+      return userProfile.profileType;
+    }
+    return resolveUserProfileType(getGarageSettings());
+  }, [activeGarageId, garages, userProfile?.profileType, settingsVersion]);
 
   // Subscribe to real-time vehicles (main garage workspace only)
   useEffect(() => {
@@ -549,33 +573,56 @@ export default function App() {
     if (!targetVehicle) return;
 
     const settingsForGarage = getGarageSettings(targetVehicle.garageId || activeGarageId || undefined);
+    const sellerProfile = resolveUserProfileType(settingsForGarage);
+    const isVatExemptSeller =
+      sellerProfile === 'particulier' ||
+      sellerProfile === 'micro_entrepreneur' ||
+      settingsForGarage.taxRegime === 'micro' ||
+      settingsForGarage.taxRegime === 'none';
+
     const enrichedBuyerInfo: BuyerInfo = buyerInfo.taxSnapshot?.isHistoricalSnapshot
       ? buyerInfo
       : {
           ...buyerInfo,
-          vatRegime: buyerInfo.vatRegime || settingsForGarage.frenchTaxConfig?.vatRegime || 'tva_marge',
-          vatRatePercent:
-            buyerInfo.vatRatePercent ?? settingsForGarage.frenchTaxConfig?.vatRatePercent ?? 20,
+          vatRegime: isVatExemptSeller
+            ? 'franchise_base'
+            : buyerInfo.vatRegime || settingsForGarage.frenchTaxConfig?.vatRegime || 'tva_marge',
+          vatRatePercent: isVatExemptSeller
+            ? 0
+            : buyerInfo.vatRatePercent ?? settingsForGarage.frenchTaxConfig?.vatRatePercent ?? 20,
           taxSnapshot: buildTransactionTaxSnapshot({
             salePrice: Number(buyerInfo.salePrice) || 0,
             purchasePrice: Number(targetVehicle.purchasePrice) || 0,
             repairCostTotal: Number(targetVehicle.repairCostTotal) || 0,
             generalExpensesTotal: Number(targetVehicle.generalExpensesTotal) || 0,
             settings: settingsForGarage,
-            vatRegimeOverride: buyerInfo.vatRegime,
-            vatRateOverride: buyerInfo.vatRatePercent,
+            vatRegimeOverride: isVatExemptSeller ? 'franchise_base' : buyerInfo.vatRegime,
+            vatRateOverride: isVatExemptSeller ? 0 : buyerInfo.vatRatePercent,
           }),
         };
 
-    const netProfit = Number(enrichedBuyerInfo.salePrice) - (targetVehicle.totalInvested || 0);
+    const computedTotalInvested =
+      Math.round(
+        ((Number(targetVehicle.purchasePrice) || 0) +
+          (Number(targetVehicle.repairCostTotal) || 0) +
+          (Number(targetVehicle.generalExpensesTotal) || 0) +
+          Number.EPSILON) *
+          100
+      ) / 100;
+
+    const realizedSalePrice = Number(enrichedBuyerInfo.salePrice) || 0;
+    const netProfit = enrichedBuyerInfo.taxSnapshot
+      ? enrichedBuyerInfo.taxSnapshot.netProfitAfterTax
+      : Math.round((realizedSalePrice - computedTotalInvested + Number.EPSILON) * 100) / 100;
     const marginPercentage =
-      Number(enrichedBuyerInfo.salePrice) > 0
-        ? (netProfit / Number(enrichedBuyerInfo.salePrice)) * 100
+      realizedSalePrice > 0
+        ? Math.round(((netProfit / realizedSalePrice) * 100 + Number.EPSILON) * 100) / 100
         : 0;
 
     await updateVehicle(vehicleId, {
       status: 'sold',
       buyerInfo: enrichedBuyerInfo,
+      totalInvested: computedTotalInvested,
       netProfit,
       marginPercentage,
     });
@@ -814,12 +861,13 @@ export default function App() {
         activeSessionEmail={userProfile?.email || null}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onSignOut={handleSignOut}
+        profileType={activeProfileType}
       />
 
       {/* Workspace Column */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Main App Container */}
-        <main className="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6">
+        <main className="flex-1 max-w-6xl w-full mx-auto p-3.5 md:p-5">
           {showInlineMobileNavTrigger && (
             <div className="lg:hidden flex items-center justify-between gap-2 mb-4">
               <button
@@ -972,6 +1020,13 @@ export default function App() {
               effectiveLayoutMode={effectiveLayoutMode}
               globalLayoutMode={systemConfig.layoutMode || 'sidebar'}
               onLayoutPreferenceChange={handleLayoutPreferenceChange}
+              onSettingsSaved={(saved) => {
+                const nextProfile = resolveUserProfileType(saved);
+                setUserProfile((prev) =>
+                  prev ? { ...prev, profileType: nextProfile } : prev
+                );
+                void updateUserProfileType(effectiveUserId, nextProfile);
+              }}
             />
           ) : featureFlags.multiGarage && !activeGarageId ? (
             <GarageSelector

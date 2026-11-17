@@ -8,6 +8,8 @@ import {
   AlertCircle,
   Loader2,
   UserPlus,
+  User as UserIcon,
+  Briefcase,
 } from 'lucide-react';
 import {
   auth,
@@ -17,7 +19,8 @@ import {
   createUserWithEmailAndPassword,
 } from '../services/firebase';
 import { SUPERADMIN_BOOTSTRAP_EMAIL } from '../utils/adminUtils';
-import { UserProfile } from '../types/garage';
+import { getPendingProfileType, setPendingProfileType } from '../services/adminService';
+import { AppUserProfileType, UserProfile } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 
 interface AuthModalProps {
@@ -34,6 +37,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const { t } = useI18n();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [selectedProfileType, setSelectedProfileType] = useState<AppUserProfileType>(
+    () => getPendingProfileType() || 'micro_entrepreneur'
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -47,10 +53,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       (window.location.hostname === 'localhost' ||
         window.location.hostname.includes('run.app')));
 
+  const handleProfileChoice = (next: AppUserProfileType) => {
+    setSelectedProfileType(next);
+    setPendingProfileType(next);
+  };
+
   const handleGoogleSignIn = async () => {
     setError(null);
     setIsLoading(true);
     try {
+      if (mode === 'register') {
+        setPendingProfileType(selectedProfileType);
+      }
       await signInWithPopup(auth, googleProvider);
       onClose();
     } catch (err: unknown) {
@@ -78,6 +92,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email.trim(), password);
       } else {
+        setPendingProfileType(selectedProfileType);
         await createUserWithEmailAndPassword(auth, email.trim(), password);
       }
       onClose();
@@ -97,6 +112,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       displayName: 'Direction AutoGarage',
       garageName: 'AutoGarage Manager HQ',
       role: 'superadmin',
+      profileType: 'micro_entrepreneur',
       planId: 'enterprise',
       vehicleLimit: 9999,
       activeVehiclesCount: 0,
@@ -121,7 +137,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     >
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
               <LogIn className="w-4 h-4 text-amber-400" />
@@ -145,11 +161,59 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-5">
+        <div className="p-5 space-y-3.5">
           {error && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Two-Profile Type Picker during Registration */}
+          {mode === 'register' && (
+            <div data-testid="auth-profile-picker" className="space-y-1.5">
+              <span className="block text-xs font-semibold text-slate-300">
+                {t('profileSwitchLabel')}
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="auth-profile-particulier"
+                  onClick={() => handleProfileChoice('particulier')}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    selectedProfileType === 'particulier'
+                      ? 'bg-amber-500/15 border-amber-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold">
+                    <UserIcon className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                    <span className="truncate">{t('profileParticulierTitle')}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">
+                    {t('profileParticulierDesc')}
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="auth-profile-micro"
+                  onClick={() => handleProfileChoice('micro_entrepreneur')}
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    selectedProfileType === 'micro_entrepreneur'
+                      ? 'bg-amber-500/15 border-amber-500 text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold">
+                    <Briefcase className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">{t('profileMicroTitle')}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">
+                    {t('profileMicroDesc')}
+                  </p>
+                </button>
+              </div>
             </div>
           )}
 
@@ -188,7 +252,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
 
           {/* Email & Password Form */}
-          <form onSubmit={handleEmailSubmit} className="space-y-3.5">
+          <form onSubmit={handleEmailSubmit} className="space-y-3">
             <div>
               <label
                 htmlFor="auth-email"
@@ -253,6 +317,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="text-center">
             <button
               type="button"
+              data-testid="auth-mode-toggle"
               onClick={() => {
                 setMode(mode === 'login' ? 'register' : 'login');
                 setError(null);
@@ -283,3 +348,4 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     </div>
   );
 };
+

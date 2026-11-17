@@ -105,9 +105,9 @@ export const DEFAULT_DARK_PALETTE: ThemePaletteTokens = {
 };
 
 export const CARD_PADDING_VALUES: Record<CardPaddingDensity, string> = {
-  compact: '14px',
-  comfortable: '20px',
-  spacious: '28px',
+  compact: '12px',
+  comfortable: '16px',
+  spacious: '24px',
 };
 
 export const USER_LAYOUT_MODE_STORAGE_KEY = 'autogarage_user_layout_mode';
@@ -118,7 +118,7 @@ export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
   cardBorderRadius: '16px',
   buttonBorderRadius: '12px',
   cardPadding: 'comfortable',
-  sectionGap: '24px',
+  sectionGap: '16px',
   defaultInventoryViewMode: 'grid',
   layoutMode: 'sidebar',
   cerfaAdjustments: {
@@ -580,9 +580,9 @@ export function applySystemThemeVariables(
   root.style.setProperty('--ag-button-radius', resolved.buttonBorderRadius || '12px');
   root.style.setProperty(
     '--ag-card-padding',
-    CARD_PADDING_VALUES[resolved.cardPadding || 'comfortable'] || '20px'
+    CARD_PADDING_VALUES[resolved.cardPadding || 'comfortable'] || '16px'
   );
-  root.style.setProperty('--ag-section-gap', resolved.sectionGap || '24px');
+  root.style.setProperty('--ag-section-gap', resolved.sectionGap || '16px');
 
   // Section-by-section CSS custom properties
   root.style.setProperty('--ag-header-bg', palette.headerBg || palette.card);

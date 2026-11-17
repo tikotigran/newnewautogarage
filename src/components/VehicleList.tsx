@@ -177,7 +177,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
       {/* Page Header & Primary Action Row */}
       <div
         data-testid="inventory-page-header"
-        className="flex items-center justify-between gap-3"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           {onOpenMobileSidebar && (
@@ -196,7 +196,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           </div>
           <h1
             data-testid="page-header-title"
-            className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)] truncate"
+            className="text-lg sm:text-xl font-extrabold tracking-tight text-[var(--foreground)] leading-tight break-words"
           >
             {t('navInventory')}
           </h1>
@@ -206,10 +206,10 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           type="button"
           data-testid="page-header-new-vehicle"
           onClick={onNewVehicle}
-          className="inline-flex items-center gap-1.5 h-9 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-sm transition whitespace-nowrap shrink-0 cursor-pointer"
+          className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto h-9 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-sm transition whitespace-nowrap shrink-0 cursor-pointer"
         >
           <PlusCircle className="w-4 h-4 shrink-0" />
-          <span>+ {t('newVehicle')}</span>
+          <span>{t('newVehicle')}</span>
         </button>
       </div>
 
@@ -671,7 +671,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
         )
       ) : (
         /* Empty State */
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-10 text-center max-w-xl mx-auto space-y-4">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-6 text-center max-w-xl mx-auto space-y-3.5">
           <div className="w-16 h-16 rounded-2xl bg-[var(--primary)]/10 border border-[var(--primary)]/25 text-[var(--primary)] flex items-center justify-center mx-auto">
             <Car className="w-8 h-8" />
           </div>

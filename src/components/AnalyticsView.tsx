@@ -33,7 +33,9 @@ import {
 } from '../utils/analytics';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { formatEuro } from '../utils/finance';
+import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 
 interface AnalyticsViewProps {
   vehicles: Vehicle[];
@@ -132,6 +134,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
   const analytics = report.expenseBreakdown;
   const { inventory, salesPerformance, monthlySnapshot, cashFlow } = report;
+  const activeProfileType = resolveUserProfileType(garageSettings);
+  const isParticulier = activeProfileType === 'particulier';
+  const hasHistoricalTaxAmounts =
+    salesPerformance.taxAmount > 0 ||
+    salesPerformance.vatAmount > 0 ||
+    salesPerformance.urssafAmount > 0 ||
+    salesPerformance.corporateIsAmount > 0;
+  const showFrenchTaxBreakdown = !isParticulier || hasHistoricalTaxAmounts;
+  const showHistoricalIsCard = salesPerformance.corporateIsAmount > 0;
 
   const timeRanges: { id: AnalyticsTimeRange; label: string }[] = [
     { id: 'today', label: t('periodToday') },
@@ -299,9 +310,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
               {t('analyticsPillarsHeading')}
             </h2>
-            <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[var(--surface-muted)] text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums">
-              {t('saleReportRegime', { regime: salesPerformance.taxLabel })}
-            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {!isParticulier && (
+                <span
+                  data-testid="analytics-tax-estimate-badge"
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                >
+                  {t('taxEstimateBadge')}
+                </span>
+              )}
+              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[var(--surface-muted)] text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums">
+                {isParticulier && !hasHistoricalTaxAmounts
+                  ? t('profileBadgeParticulier')
+                  : t('saleReportRegime', { regime: salesPerformance.taxLabel })}
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -400,91 +423,146 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </p>
               </div>
               <p className="text-xs text-[var(--muted-foreground)] mt-2 tabular-nums">
-                {t('pillarNetProfitHint', {
-                  regime: salesPerformance.taxLabel,
-                  tax: formatEuro(salesPerformance.taxAmount),
-                })}
+                {isParticulier && !hasHistoricalTaxAmounts
+                  ? t('profileBadgeParticulier')
+                  : t('pillarNetProfitHint', {
+                      regime: salesPerformance.taxLabel,
+                      tax: formatEuro(salesPerformance.taxAmount),
+                    })}
               </p>
             </div>
           </div>
 
-          {/* Strictly Separated French Tax & VAT Breakdown */}
-          <div
-            data-testid="analytics-french-tax-breakdown"
-            className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-[var(--foreground)]">
-                <Scale className="w-4 h-4 text-[var(--primary)]" />
-                <span>
-                  {lang === 'ru'
-                    ? 'Раздельный расчёт налогов и НДС (Франция)'
-                    : 'Ventilation fiscale séparée (TVA / URSSAF / IR / IS)'}
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-[var(--muted-foreground)] tabular-nums">
-                {salesPerformance.taxLabel}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs tabular-nums">
-              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
-                <span className="text-[11px] text-[var(--muted-foreground)] block">
-                  {lang === 'ru' ? 'Расчётный НДС (TVA)' : 'TVA transaction (séparée)'}
-                </span>
-                <span className="text-base font-bold text-sky-400 mt-0.5 block">
-                  {formatEuro(salesPerformance.vatAmount)}
-                </span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
-                <span className="text-[11px] text-[var(--muted-foreground)] block">
-                  {lang === 'ru' ? 'Взносы URSSAF (с CA)' : 'URSSAF Micro (sur CA)'}
-                </span>
-                <span className="text-base font-bold text-amber-400 mt-0.5 block">
-                  {formatEuro(salesPerformance.urssafAmount)}
-                </span>
-                {salesPerformance.versementLiberatoireAmount > 0 && (
-                  <span className="text-[10px] text-[var(--muted-foreground)] block">
-                    + VL {formatEuro(salesPerformance.versementLiberatoireAmount)}
+          {/* Strictly Separated French Tax & VAT Breakdown (Micro-entrepreneur or historical snapshot) */}
+          {showFrenchTaxBreakdown && (
+            <div
+              data-testid="analytics-french-tax-breakdown"
+              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--foreground)]">
+                  <Scale className="w-4 h-4 text-[var(--primary)]" />
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: showHistoricalIsCard
+                        ? 'Ventilation fiscale estimée (URSSAF / Micro-BIC / IS historique)'
+                        : 'Ventilation fiscale estimée (URSSAF / Micro-BIC)',
+                      ru: showHistoricalIsCard
+                        ? 'Раздельный расчёт налогов (URSSAF / Micro-BIC / архив IS)'
+                        : 'Раздельный расчёт налогов (URSSAF / Micro-BIC)',
+                      hy: showHistoricalIsCard
+                        ? 'Հարկերի գնահատական (URSSAF / Micro-BIC / IS)'
+                        : 'Հարկերի գնահատական (URSSAF / Micro-BIC)',
+                      ka: showHistoricalIsCard
+                        ? 'გადასახადების შეფასება (URSSAF / Micro-BIC / IS)'
+                        : 'გადასახადების შეფასება (URSSAF / Micro-BIC)',
+                    })}
                   </span>
-                )}
-              </div>
-
-              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
-                <span className="text-[11px] text-[var(--muted-foreground)] block">
-                  {lang === 'ru' ? 'Налог на прибыль (IS)' : 'IS Société (progressif)'}
-                </span>
-                <span className="text-base font-bold text-indigo-400 mt-0.5 block">
-                  {formatEuro(salesPerformance.corporateIsAmount)}
-                </span>
-                {salesPerformance.corporateIsBreakdown && salesPerformance.corporateIsAmount > 0 && (
-                  <span className="text-[10px] text-[var(--muted-foreground)] block">
-                    {salesPerformance.corporateIsBreakdown.reducedIsEligible
-                      ? `15% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket15Tax)}) + 25% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket25Tax)})`
-                      : `25% standard`}
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                    {t('taxEstimateBadge')}
                   </span>
+                </div>
+                <span className="text-[11px] font-mono text-[var(--muted-foreground)] tabular-nums">
+                  {salesPerformance.taxLabel}
+                </span>
+              </div>
+
+              <div
+                className={`grid grid-cols-1 ${
+                  salesPerformance.vatAmount > 0 && showHistoricalIsCard
+                    ? 'sm:grid-cols-2 lg:grid-cols-4'
+                    : salesPerformance.vatAmount > 0 || showHistoricalIsCard
+                    ? 'sm:grid-cols-3'
+                    : 'sm:grid-cols-2'
+                } gap-3 text-xs tabular-nums`}
+              >
+                {salesPerformance.vatAmount > 0 && (
+                  <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                    <span className="text-[11px] text-[var(--muted-foreground)] block">
+                      {pickLocalized(lang, {
+                        fr: 'TVA historique (archives)',
+                        ru: 'Архивный НДС (TVA)',
+                        hy: 'Պատմական ԱԱՀ (TVA)',
+                        ka: 'ისტორიული დღგ (TVA)',
+                      })}
+                    </span>
+                    <span className="text-base font-bold text-sky-400 mt-0.5 block">
+                      {formatEuro(salesPerformance.vatAmount)}
+                    </span>
+                  </div>
                 )}
+
+                <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <span className="text-[11px] text-[var(--muted-foreground)] block">
+                    {pickLocalized(lang, {
+                      fr: 'URSSAF Micro (sur CA)',
+                      ru: 'Взносы URSSAF (с оборота CA)',
+                      hy: 'URSSAF վճարներ (շրջանառությունից)',
+                      ka: 'URSSAF შენატანები (ბრუნვიდან)',
+                    })}
+                  </span>
+                  <span className="text-base font-bold text-amber-400 mt-0.5 block">
+                    {formatEuro(salesPerformance.urssafAmount)}
+                  </span>
+                  {salesPerformance.versementLiberatoireAmount > 0 && (
+                    <span className="text-[10px] text-[var(--muted-foreground)] block">
+                      + VL {formatEuro(salesPerformance.versementLiberatoireAmount)}
+                    </span>
+                  )}
+                </div>
+
+                {showHistoricalIsCard && (
+                  <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                    <span className="text-[11px] text-[var(--muted-foreground)] block">
+                      {pickLocalized(lang, {
+                        fr: 'IS historique (archives)',
+                        ru: 'Налог IS (архивные продажи)',
+                        hy: 'Պատմական IS հարկ',
+                        ka: 'ისტორიული IS გადასახადი',
+                      })}
+                    </span>
+                    <span className="text-base font-bold text-indigo-400 mt-0.5 block">
+                      {formatEuro(salesPerformance.corporateIsAmount)}
+                    </span>
+                    {salesPerformance.corporateIsBreakdown && (
+                      <span className="text-[10px] text-[var(--muted-foreground)] block">
+                        {salesPerformance.corporateIsBreakdown.reducedIsEligible
+                          ? `15% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket15Tax)}) + 25% (${formatEuro(salesPerformance.corporateIsBreakdown.bracket25Tax)})`
+                          : '25% standard'}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <span className="text-[11px] text-[var(--muted-foreground)] block">
+                    {pickLocalized(lang, {
+                      fr: 'IR Micro-BIC estimé (si VL = NON)',
+                      ru: 'Отд. оценка IR Micro-BIC (если VL = НЕТ)',
+                      hy: 'IR Micro-BIC գնահատական (եթե VL = ՈՉ)',
+                      ka: 'IR Micro-BIC შეფასება (თუ VL = არა)',
+                    })}
+                  </span>
+                  <span className="text-base font-bold text-[var(--secondary-foreground)] mt-0.5 block">
+                    {formatEuro(salesPerformance.microBicEstimatedIrAmount)}
+                  </span>
+                  <span className="text-[10px] text-[var(--muted-foreground)] block">
+                    {pickLocalized(lang, {
+                      fr: 'Abattement 71%, hors URSSAF',
+                      ru: 'Вычет 71%, отдельно от URSSAF',
+                      hy: '71% նվազեցում, URSSAF-ից դուրս',
+                      ka: '71% გამოქვითვა, URSSAF-ის გარეთ',
+                    })}
+                  </span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
-                <span className="text-[11px] text-[var(--muted-foreground)] block">
-                  {lang === 'ru' ? 'Отд. оценка IR Micro-BIC' : 'IR Micro-BIC estimé (si VL = NON)'}
-                </span>
-                <span className="text-base font-bold text-[var(--secondary-foreground)] mt-0.5 block">
-                  {formatEuro(salesPerformance.microBicEstimatedIrAmount)}
-                </span>
-                <span className="text-[10px] text-[var(--muted-foreground)] block">
-                  {lang === 'ru' ? 'Abattement 71%, не входит в 12.3%' : 'Abattement 71%, hors URSSAF'}
-                </span>
+              <div className="flex items-start gap-2 text-[11px] text-[var(--muted-foreground)] pt-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
+                <span>{t('taxAccountantDisclaimer')}</span>
               </div>
             </div>
-
-            <div className="flex items-start gap-2 text-[11px] text-[var(--muted-foreground)] pt-1">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500" />
-              <span>{t('taxAccountantDisclaimer')}</span>
-            </div>
-          </div>
+          )}
         </section>
       )}
 
@@ -653,7 +731,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* SECTION 3: Cash Flow Panel */}
       <section
         data-testid="analytics-cash-flow"
-        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4"
+        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
@@ -1009,7 +1087,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           {analytics.topCategory ? (
             <>
               <p className="text-lg font-bold text-[var(--foreground)] mt-1 truncate">
-                {lang === 'ru' ? analytics.topCategory.labelRu : analytics.topCategory.labelFr}
+                {pickLocalized(lang, {
+                  fr: analytics.topCategory.labelFr,
+                  ru: analytics.topCategory.labelRu,
+                  hy: analytics.topCategory.labelHy,
+                  ka: analytics.topCategory.labelKa,
+                })}
               </p>
               <p className="text-xs text-emerald-500 font-semibold tabular-nums mt-1">
                 {formatEuro(analytics.topCategory.amount)} · {analytics.topCategory.percentage}%
@@ -1022,13 +1105,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       </div>
 
       {analytics.totalSpent === 0 ? (
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 text-center">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 text-center">
           <p className="text-sm font-semibold text-[var(--secondary-foreground)]">{t('analyticsNoExpensesPeriod')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* Left: Category Breakdown (7 cols) */}
-          <div className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4">
+          <div className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-bold text-[var(--foreground)]">{t('analyticsBreakdownTitle')}</h2>
               {selectedCategoryId && (
@@ -1053,7 +1136,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       width: `${Math.max(cat.percentage, 2)}%`,
                       backgroundColor: cat.barColorHex,
                     }}
-                    title={`${lang === 'ru' ? cat.labelRu : cat.labelFr}: ${formatEuro(cat.amount)} (${cat.percentage}%)`}
+                    title={`${pickLocalized(lang, {
+                      fr: cat.labelFr,
+                      ru: cat.labelRu,
+                      hy: cat.labelHy,
+                      ka: cat.labelKa,
+                    })}: ${formatEuro(cat.amount)} (${cat.percentage}%)`}
                     className="h-full transition-all duration-300 first:rounded-l-full last:rounded-r-full"
                   />
                 ))}
@@ -1062,7 +1150,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <div className="divide-y divide-[var(--border)]">
               {analytics.categories.map((cat) => {
                 const isSelected = selectedCategoryId === cat.id;
-                const label = lang === 'ru' ? cat.labelRu : cat.labelFr;
+                const label = pickLocalized(lang, {
+                  fr: cat.labelFr,
+                  ru: cat.labelRu,
+                  hy: cat.labelHy,
+                  ka: cat.labelKa,
+                });
                 return (
                   <button
                     key={cat.id}
@@ -1135,7 +1228,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </h2>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
                   {activeCategory
-                    ? (lang === 'ru' ? activeCategory.labelRu : activeCategory.labelFr)
+                    ? pickLocalized(lang, {
+                        fr: activeCategory.labelFr,
+                        ru: activeCategory.labelRu,
+                        hy: activeCategory.labelHy,
+                        ka: activeCategory.labelKa,
+                      })
                     : t('analyticsAllCategories')}
                 </p>
               </div>

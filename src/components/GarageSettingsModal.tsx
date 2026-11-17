@@ -57,13 +57,13 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-              <Building2 className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+              <Building2 className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-base font-bold text-white">
                 {t('garageSettingsTitle')}
               </h2>
               <p className="text-xs text-slate-400">
@@ -80,19 +80,22 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-3.5">
           {/* Live Preview Box */}
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-950 to-slate-900 border border-slate-800 flex items-start justify-between text-xs">
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-slate-950 to-slate-900 border border-slate-800 flex items-start justify-between text-xs">
             <div className="space-y-0.5">
               <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400 block">
                 Prévisualisation En-Tête Facture & Cession Cerfa
               </span>
               <p className="font-bold text-white text-sm">
-                {settings.name || 'Nom du Garage'}
+                {settings.name || 'Nom'}
               </p>
-              <p className="text-slate-400 text-xs">
-                SIRET : {settings.siret || '894 123 456 00012'} • {settings.legalForm || 'SARL'}
-              </p>
+              {settings.profileType !== 'particulier' && (
+                <p className="text-slate-400 text-xs">
+                  {settings.siret ? `SIRET : ${settings.siret} • ` : ''}
+                  {settings.legalForm || 'Micro-entrepreneur'}
+                </p>
+              )}
               <p className="text-slate-400 text-xs">
                 {settings.streetNumber ? `${settings.streetNumber} ` : ''}{settings.streetName || 'Rue'}, {settings.postalCode || '75000'} {settings.city || 'Ville'}
               </p>
@@ -104,7 +107,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
           </div>
 
           {/* Row 1: Raison Sociale & SIRET */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`grid grid-cols-1 ${settings.profileType !== 'particulier' ? 'sm:grid-cols-2' : ''} gap-3.5`}>
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('garageNameLabel')}
@@ -116,32 +119,33 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   required
                   value={settings.name}
                   onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                  placeholder="ex. AutoGarage Manager SARL"
+                  placeholder="ex. AutoGarage Manager"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('garageSiretLabel')}
-              </label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <input
-                  type="text"
-                  required
-                  value={settings.siret}
-                  onChange={(e) => setSettings({ ...settings, siret: e.target.value })}
-                  placeholder="894 123 456 00012"
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
-                />
+            {settings.profileType !== 'particulier' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  {t('garageSiretLabel')}
+                </label>
+                <div className="relative">
+                  <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    value={settings.siret}
+                    onChange={(e) => setSettings({ ...settings, siret: e.target.value })}
+                    placeholder="894 123 456 00012"
+                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Row 2: Adresse (N° de voie & Nom de la voie) */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-4 gap-3.5">
             <div className="col-span-1">
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('garageStreetNumberLabel')}
@@ -174,7 +178,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
           </div>
 
           {/* Row 3: Code postal & Ville */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('garagePostalCodeLabel')}
@@ -205,7 +209,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
           </div>
 
           {/* Row 4: Téléphone & Courriel */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('garagePhoneLabel')}
@@ -241,8 +245,8 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Row 5: Forme juridique & Mention TVA */}
-          <div className="space-y-3">
+          {/* Row 5: Statut juridique (Micro-entrepreneur uniquement) */}
+          {settings.profileType !== 'particulier' && (
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
                 {t('garageLegalFormLabel')}
@@ -253,31 +257,18 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   type="text"
                   value={settings.legalForm || ''}
                   onChange={(e) => setSettings({ ...settings, legalForm: e.target.value })}
-                  placeholder="ex. SARL au capital de 10 000 €"
+                  placeholder="ex. Micro-entrepreneur"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('garageTvaLabel')}
-              </label>
-              <input
-                type="text"
-                value={settings.tvaMention || ''}
-                onChange={(e) => setSettings({ ...settings, tvaMention: e.target.value })}
-                placeholder="Régime particulier - TVA sur la marge (Art. 297 A du CGI)"
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-          </div>
+          )}
 
           {/* Notice */}
           <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-2">
             <Sparkles className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
             <p>
-              Ces données professionnelles seront automatiquement injectées dans la section <strong>« Ancien propriétaire »</strong> du Cerfa 15776*02 officiel ainsi que dans l'en-tête de vos <strong>Factures de Vente TTC</strong>.
+              Ces données seront automatiquement injectées dans la section <strong>« Ancien propriétaire »</strong> du Cerfa 15776*02 officiel ainsi que dans l'en-tête de vos <strong>Factures de Vente</strong>.
             </p>
           </div>
 

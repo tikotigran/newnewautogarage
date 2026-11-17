@@ -17,6 +17,7 @@ import {
   setCachedCerfaTemplatesCalibration,
 } from '../utils/cerfaConfig';
 import {
+  AppUserProfileType,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
   FrenchTaxConfiguration,
@@ -50,12 +51,40 @@ const LOCAL_TEXTS_CONFIG_KEY = 'autogarage_system_texts_config';
 const LOCAL_TAX_DEFAULTS_KEY = 'autogarage_superadmin_tax_defaults';
 const LOCAL_PLANS_KEY = 'autogarage_subscription_plans';
 
+export const PENDING_PROFILE_TYPE_KEY = 'autogarage_pending_profile_type';
+
+export function setPendingProfileType(profileType: AppUserProfileType): void {
+  try {
+    localStorage.setItem(PENDING_PROFILE_TYPE_KEY, profileType);
+  } catch {
+    // ignore
+  }
+}
+
+export function getPendingProfileType(): AppUserProfileType | null {
+  try {
+    const val = localStorage.getItem(PENDING_PROFILE_TYPE_KEY);
+    return val === 'particulier' || val === 'micro_entrepreneur' ? val : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingProfileType(): void {
+  try {
+    localStorage.removeItem(PENDING_PROFILE_TYPE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 const SEEDED_ACCOUNTS: UserProfile[] = [
   {
     uid: 'garage_hq_admin',
     email: SUPERADMIN_BOOTSTRAP_EMAIL,
     displayName: 'Direction AutoGarage',
     garageName: 'AutoGarage Manager HQ',
+    profileType: 'micro_entrepreneur',
     role: 'superadmin',
     planId: 'enterprise',
     vehicleLimit: 9999,
@@ -70,7 +99,8 @@ const SEEDED_ACCOUNTS: UserProfile[] = [
     uid: 'garage_lyon_01',
     email: 'contact@lyonautoselect.fr',
     displayName: 'Marc Dupont',
-    garageName: 'Lyon Auto Select SARL',
+    garageName: 'Lyon Auto Select',
+    profileType: 'micro_entrepreneur',
     role: 'user',
     planId: 'pro',
     vehicleLimit: 50,
@@ -167,11 +197,17 @@ export async function ensureAndGetUserProfile(user: User | null): Promise<UserPr
       emailVerified: user.emailVerified,
     });
 
+    const pendingProfile = getPendingProfileType();
+    if (pendingProfile) {
+      clearPendingProfileType();
+    }
+
     const newProfile: UserProfile = {
       uid: user.uid,
       email: user.email || '',
       displayName: user.displayName || user.email?.split('@')[0] || 'Garage User',
       garageName: 'AutoGarage Manager',
+      profileType: pendingProfile || 'micro_entrepreneur',
       role: isBootstrapAdmin ? 'superadmin' : 'user',
       planId: isBootstrapAdmin ? 'enterprise' : 'starter',
       vehicleLimit: isBootstrapAdmin ? 9999 : 5,
@@ -195,6 +231,32 @@ export async function ensureAndGetUserProfile(user: User | null): Promise<UserPr
   } catch (err) {
     console.warn('ensureAndGetUserProfile fallback:', err);
     return readLocal<UserProfile | null>(LOCAL_CURRENT_PROFILE_KEY, null);
+  }
+}
+
+export async function updateUserProfileType(
+  uid: string | undefined,
+  profileType: AppUserProfileType
+): Promise<void> {
+  const now = new Date().toISOString();
+  const current = readLocal<UserProfile | null>(LOCAL_CURRENT_PROFILE_KEY, null);
+  if (current && (!uid || current.uid === uid)) {
+    writeLocal(LOCAL_CURRENT_PROFILE_KEY, {
+      ...current,
+      profileType,
+      updatedAt: now,
+    });
+  }
+
+  if (auth.currentUser && uid) {
+    try {
+      await updateDoc(doc(db, 'users', uid), {
+        profileType,
+        updatedAt: now,
+      });
+    } catch (err) {
+      console.warn('updateUserProfileType sync warning:', err);
+    }
   }
 }
 
@@ -594,7 +656,7 @@ export function getSuperAdminTaxDefaults(): FrenchTaxConfiguration {
   const saved = readLocal<Partial<FrenchTaxConfiguration> | null>(LOCAL_TAX_DEFAULTS_KEY, null);
   return saved
     ? normalizeFrenchTaxConfig({ frenchTaxConfig: saved as FrenchTaxConfiguration })
-    : createDefaultFrenchTaxConfig('sarl');
+    : createDefaultFrenchTaxConfig('micro_entreprise');
 }
 
 export function subscribeSuperAdminTaxDefaults(

@@ -32,20 +32,18 @@ import {
   History,
   ShieldAlert,
   Info,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebase';
 import {
+  AppUserProfileType,
   FrenchTaxConfiguration,
   GarageSettings,
-  IsCalculationHistoryEntry,
-  IsRateMode,
   LayoutMode,
-  LegalStatus,
-  TaxRegime,
   TaxSettingsAuditEntry,
   UserLayoutPreference,
-  VatRegime,
   Vehicle,
 } from '../types/garage';
 import { ThemedSelect } from './ThemedSelect';
@@ -53,7 +51,6 @@ import {
   DEFAULT_GARAGE_SETTINGS,
   getGarageSettings,
   fetchGarageSettingsFromCloud,
-  getDefaultTaxRateForRegime,
   saveGarageSettings,
   exportGarageDatabase,
   importGarageDatabase,
@@ -67,20 +64,17 @@ import {
   subscribeCerfaTemplatesCalibration,
 } from '../services/adminService';
 import {
-  calculateCorporateIS,
-  calculateFrenchVat,
+  buildProfileSettingsPatch,
   calculateMicroEntrepriseTaxes,
   calculateVehicleProfitBeforeTaxes,
   FRENCH_TAX_DEFAULTS,
-  getTaxRegimeDisplayLabel,
   getTodayIsoDate,
-  mapLegalStatusToTaxRegime,
-  mapTaxRegimeToLegalStatus,
   normalizeFrenchTaxConfig,
+  resolveUserProfileType,
   roundCurrency,
 } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
-import { Language, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
+import { getIntlLocale, Language, pickLocalized, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
 import {
   validateGarageSettings,
   serializeBackupPayload,
@@ -151,7 +145,9 @@ export const Settings: React.FC<SettingsProps> = ({
   activeTab: controlledActiveTab,
   onTabChange,
 }) => {
-  const { lang, setLang } = useI18n();
+  const { lang, setLang, t } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
+  const intlLocale = getIntlLocale(lang);
   const [internalActiveTab, setInternalActiveTab] = useState<SettingsTab>('company');
   const activeTab = controlledActiveTab ?? internalActiveTab;
   const setActiveTab = (tab: SettingsTab) => {
@@ -166,6 +162,7 @@ export const Settings: React.FC<SettingsProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmClearCache, setConfirmClearCache] = useState(false);
+  const [isAdvancedTaxOpen, setIsAdvancedTaxOpen] = useState(false);
   const [defaultViewMode, setDefaultViewMode] = useState<'grid' | 'list'>(() => {
     try {
       const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
@@ -196,29 +193,43 @@ export const Settings: React.FC<SettingsProps> = ({
     if (isOpen || isPage) {
       const current = getGarageSettings();
       const globalDefaults = getSuperAdminTaxDefaults();
-      const normalizedTaxConfig = normalizeFrenchTaxConfig(current, globalDefaults);
-      const resolvedRegime = current.taxRegime || normalizedTaxConfig.businessTaxRegime || 'sarl';
+      const resolvedProfile = resolveUserProfileType(current);
+      const profileStatus = resolvedProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
+      const profileRegime = resolvedProfile === 'particulier' ? 'none' : 'micro';
+      const normalizedTaxConfig = normalizeFrenchTaxConfig(
+        {
+          ...current,
+          profileType: resolvedProfile,
+          legalStatus: profileStatus,
+          taxRegime: profileRegime,
+        },
+        globalDefaults
+      );
       const resolvedRate =
-        resolvedRegime === 'micro'
-          ? roundCurrency(
+        resolvedProfile === 'particulier'
+          ? 0
+          : roundCurrency(
               normalizedTaxConfig.socialContributionRate +
                 (normalizedTaxConfig.versementLiberatoireEnabled
                   ? normalizedTaxConfig.versementLiberatoireRate
                   : 0)
-            )
-          : typeof current.taxRatePercent === 'number' && !Number.isNaN(current.taxRatePercent)
-          ? current.taxRatePercent
-          : getDefaultTaxRateForRegime(resolvedRegime);
+            );
       setSettings({
         ...DEFAULT_GARAGE_SETTINGS,
         ...current,
         theme,
+        profileType: resolvedProfile,
+        entityType: 'physique',
         defaultMarginPercent: current.defaultMarginPercent ?? 20,
         currency: current.currency || 'EUR',
-        legalStatus: current.legalStatus || normalizedTaxConfig.legalStatus,
-        taxRegime: resolvedRegime,
+        legalStatus: profileStatus,
+        taxRegime: profileRegime,
         taxRatePercent: resolvedRate,
-        frenchTaxConfig: normalizedTaxConfig,
+        frenchTaxConfig: {
+          ...normalizedTaxConfig,
+          legalStatus: profileStatus,
+          businessTaxRegime: profileRegime,
+        },
         isCalculationHistory: current.isCalculationHistory || [],
         taxAuditHistory: current.taxAuditHistory || [],
       });
@@ -226,23 +237,47 @@ export const Settings: React.FC<SettingsProps> = ({
       setStatusMessage(null);
       setConfirmClearCache(false);
       setMobileMenuOpen(false);
+      setIsAdvancedTaxOpen(false);
 
       if (userId) {
         fetchGarageSettingsFromCloud(userId).then((cloudSettings) => {
-          const cloudTaxConfig = normalizeFrenchTaxConfig(cloudSettings, globalDefaults);
+          const cloudProfile = resolveUserProfileType(cloudSettings);
+          const cloudStatus = cloudProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
+          const cloudRegime = cloudProfile === 'particulier' ? 'none' : 'micro';
+          const cloudTaxConfig = normalizeFrenchTaxConfig(
+            {
+              ...cloudSettings,
+              profileType: cloudProfile,
+              legalStatus: cloudStatus,
+              taxRegime: cloudRegime,
+            },
+            globalDefaults
+          );
+          const cloudRate =
+            cloudProfile === 'particulier'
+              ? 0
+              : roundCurrency(
+                  cloudTaxConfig.socialContributionRate +
+                    (cloudTaxConfig.versementLiberatoireEnabled
+                      ? cloudTaxConfig.versementLiberatoireRate
+                      : 0)
+                );
           setSettings((prev) => ({
             ...prev,
             ...cloudSettings,
             theme,
+            profileType: cloudProfile,
+            entityType: 'physique',
             defaultMarginPercent: cloudSettings.defaultMarginPercent ?? prev.defaultMarginPercent ?? 20,
             currency: cloudSettings.currency || prev.currency || 'EUR',
-            legalStatus: cloudSettings.legalStatus || cloudTaxConfig.legalStatus,
-            taxRegime: cloudSettings.taxRegime || cloudTaxConfig.businessTaxRegime || 'sarl',
-            taxRatePercent:
-              typeof cloudSettings.taxRatePercent === 'number' && !Number.isNaN(cloudSettings.taxRatePercent)
-                ? cloudSettings.taxRatePercent
-                : prev.taxRatePercent ?? 15,
-            frenchTaxConfig: cloudTaxConfig,
+            legalStatus: cloudStatus,
+            taxRegime: cloudRegime,
+            taxRatePercent: cloudRate,
+            frenchTaxConfig: {
+              ...cloudTaxConfig,
+              legalStatus: cloudStatus,
+              businessTaxRegime: cloudRegime,
+            },
             isCalculationHistory: cloudSettings.isCalculationHistory || prev.isCalculationHistory || [],
             taxAuditHistory: cloudSettings.taxAuditHistory || prev.taxAuditHistory || [],
           }));
@@ -253,21 +288,44 @@ export const Settings: React.FC<SettingsProps> = ({
 
   if (!isPage && !isOpen) return null;
 
-  const isRu = lang === 'ru';
   const resolvedEmail = userEmail || auth.currentUser?.email || settings.email || 'garage@autogarage.fr';
   const resolvedUserId = userId || auth.currentUser?.uid || 'garage_pro_dealer';
-  const taxConfig: FrenchTaxConfiguration = normalizeFrenchTaxConfig(settings);
+  const activeProfileType: AppUserProfileType = resolveUserProfileType(settings);
+  const taxConfig: FrenchTaxConfiguration = normalizeFrenchTaxConfig({
+    ...settings,
+    profileType: activeProfileType,
+    legalStatus: activeProfileType === 'particulier' ? 'particulier' : 'micro_entreprise',
+    taxRegime: activeProfileType === 'particulier' ? 'none' : 'micro',
+  });
+
+  const handleSelectProfileType = (targetProfile: AppUserProfileType) => {
+    setErrors({});
+    const patch = buildProfileSettingsPatch(targetProfile, settings);
+    setSettings((prev) => ({
+      ...prev,
+      ...patch,
+    }));
+  };
 
   const updateTaxConfig = (
     patch: Partial<FrenchTaxConfiguration>,
     extraSettingsPatch?: Partial<GarageSettings>
   ) => {
+    const targetProfile: AppUserProfileType = activeProfileType;
+    const enforcedStatus = targetProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
+    const enforcedRegime = targetProfile === 'particulier' ? 'none' : 'micro';
     const nextConfig = normalizeFrenchTaxConfig({
       ...settings,
       ...extraSettingsPatch,
+      profileType: targetProfile,
+      entityType: 'physique',
+      legalStatus: enforcedStatus,
+      taxRegime: enforcedRegime,
       frenchTaxConfig: {
         ...taxConfig,
         ...patch,
+        legalStatus: enforcedStatus,
+        businessTaxRegime: enforcedRegime,
         effectiveDates: {
           ...taxConfig.effectiveDates,
           ...(patch.effectiveDates || {}),
@@ -275,101 +333,75 @@ export const Settings: React.FC<SettingsProps> = ({
       },
     });
     const syncedRate =
-      nextConfig.businessTaxRegime === 'micro'
-        ? roundCurrency(
+      targetProfile === 'particulier'
+        ? 0
+        : roundCurrency(
             nextConfig.socialContributionRate +
               (nextConfig.versementLiberatoireEnabled ? nextConfig.versementLiberatoireRate : 0)
-          )
-        : nextConfig.businessTaxRegime === 'none'
-        ? 0
-        : nextConfig.businessTaxRegime === 'custom'
-        ? nextConfig.corporateTaxCustomRate
-        : nextConfig.isRateMode === 'standard_25' || !nextConfig.reducedIsEligible
-        ? nextConfig.corporateTaxRateStandard
-        : nextConfig.corporateTaxRateReduced;
+          );
 
     setSettings((prev) => ({
       ...prev,
       ...extraSettingsPatch,
-      legalStatus: nextConfig.legalStatus,
-      taxRegime: nextConfig.businessTaxRegime,
+      profileType: targetProfile,
+      entityType: 'physique',
+      legalStatus: enforcedStatus,
+      taxRegime: enforcedRegime,
       taxRatePercent: syncedRate,
       frenchTaxConfig: nextConfig,
     }));
   };
 
-  const handleRecordIsHistory = async () => {
-    const isResult = calculateCorporateIS({
-      annualTaxableProfit: taxConfig.annualTaxableProfit,
-      config: taxConfig,
-    });
-    const entry: IsCalculationHistoryEntry = {
-      id: `is_${Date.now()}`,
-      financialYear: taxConfig.financialYear || new Date().getFullYear(),
-      legalStatus: taxConfig.legalStatus,
-      annualTaxableProfit: isResult.annualTaxableProfit,
-      reducedIsEligible: isResult.reducedIsEligible,
-      isRateMode: isResult.isRateMode,
-      bracket15Base: isResult.bracket15Base,
-      bracket15Tax: isResult.bracket15Tax,
-      bracket25Base: isResult.bracket25Base,
-      bracket25Tax: isResult.bracket25Tax,
-      totalIsTax: isResult.totalIsTax,
-      effectiveRatePercent: isResult.effectiveRatePercent,
-      calculatedAt: new Date().toISOString(),
-      recordedBy: resolvedEmail,
-    };
-    const nextHistory = [entry, ...(settings.isCalculationHistory || [])].slice(0, 50);
-    const updated = { ...settings, isCalculationHistory: nextHistory };
-    setSettings(updated);
-    await saveGarageSettings(updated, userId);
-    void logUserActivity({
-      userId: resolvedUserId,
-      garageId: updated.garageId,
-      actorEmail: resolvedEmail,
-      action: 'is_calculation_recorded',
-      entityType: 'settings',
-      entityId: updated.garageId || 'garage_default',
-      targetLabel: `IS ${entry.financialYear} — ${entry.totalIsTax.toFixed(2)} €`,
-      details: `Résultat: ${entry.annualTaxableProfit.toFixed(2)} € | IS: ${entry.totalIsTax.toFixed(2)} €`,
-    });
-    setStatusMessage({
-      type: 'success',
-      text: isRu
-        ? `Расчёт налога IS за ${entry.financialYear} г. (${entry.totalIsTax.toFixed(2)} €) сохранён в историю.`
-        : `Calcul IS ${entry.financialYear} (${entry.totalIsTax.toFixed(2)} €) enregistré dans l’historique.`,
-    });
-  };
-
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const targetProfile = resolveUserProfileType(settings);
+    const enforcedStatus = targetProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
+    const enforcedRegime = targetProfile === 'particulier' ? 'none' : 'micro';
+
     if (activeTab === 'company') {
-      const validationErrors = validateGarageSettings(settings);
+      const validationErrors = validateGarageSettings({
+        ...settings,
+        profileType: targetProfile,
+        entityType: 'physique',
+        legalStatus: enforcedStatus,
+        taxRegime: enforcedRegime,
+      });
       setErrors(validationErrors);
       if (Object.keys(validationErrors).length > 0) {
         setStatusMessage({
           type: 'error',
-          text: isRu
-            ? 'Проверьте корректность полей профиля компании (SIRET 14 цифр, индекс 5 цифр).'
-            : 'Veuillez corriger les erreurs dans le profil entreprise (SIRET 14 chiffres, code postal 5 chiffres).',
+          text: L(
+            'Veuillez corriger les erreurs du profil (nom, code postal 5 chiffres, e-mail).',
+            'Проверьте корректность полей профиля (имя, почтовый индекс 5 цифр, email).',
+            'Ստուգեք պրոֆիլի դաշտերը (անուն, փոստային ինդեքս 5 նիշ, էլ․ փոստ)։',
+            'შეამოწმეთ პროფილის ველები (სახელი, 5-ნიშნა საფოსტო კოდი, ელფოსტა).'
+          ),
         });
         return;
       }
     }
 
-    const normalizedTax = normalizeFrenchTaxConfig(settings);
-    const resolvedRegime = normalizedTax.businessTaxRegime || 'sarl';
+    const normalizedTax = normalizeFrenchTaxConfig({
+      ...settings,
+      profileType: targetProfile,
+      entityType: 'physique',
+      legalStatus: enforcedStatus,
+      taxRegime: enforcedRegime,
+      frenchTaxConfig: {
+        ...taxConfig,
+        legalStatus: enforcedStatus,
+        businessTaxRegime: enforcedRegime,
+        vatRegime: 'franchise_base',
+        vatRatePercent: 0,
+      },
+    });
     const resolvedTaxRate =
-      resolvedRegime === 'none'
+      targetProfile === 'particulier'
         ? 0
-        : resolvedRegime === 'micro'
-        ? roundCurrency(
+        : roundCurrency(
             normalizedTax.socialContributionRate +
               (normalizedTax.versementLiberatoireEnabled ? normalizedTax.versementLiberatoireRate : 0)
-          )
-        : typeof settings.taxRatePercent === 'number' && !Number.isNaN(settings.taxRatePercent)
-        ? Math.max(0, settings.taxRatePercent)
-        : getDefaultTaxRateForRegime(resolvedRegime);
+          );
 
     const prevSettings = getGarageSettings();
     const prevTaxConfig = normalizeFrenchTaxConfig(prevSettings);
@@ -384,15 +416,6 @@ export const Settings: React.FC<SettingsProps> = ({
         'versementLiberatoireRate',
         'microBicAbattementPercent',
         'microBicIncomeTaxRate',
-        'isRateMode',
-        'corporateTaxRateReduced',
-        'corporateTaxRateStandard',
-        'corporateTaxCustomRate',
-        'reducedIsEligible',
-        'annualTaxableProfit',
-        'financialYear',
-        'vatRegime',
-        'vatRatePercent',
       ]
     );
 
@@ -416,10 +439,17 @@ export const Settings: React.FC<SettingsProps> = ({
 
     const updatedSettings: GarageSettings = {
       ...settings,
-      siret: (settings.siret || '').trim(),
+      profileType: targetProfile,
+      entityType: 'physique',
+      siret: targetProfile === 'particulier' ? '' : (settings.siret || '').trim(),
+      legalForm: targetProfile === 'particulier' ? '' : settings.legalForm || 'Micro-entrepreneur',
+      tvaMention:
+        targetProfile === 'particulier'
+          ? ''
+          : 'TVA non applicable, art. 293 B du CGI',
       postalCode: (settings.postalCode || '').replace(/\s+/g, ''),
-      legalStatus: normalizedTax.legalStatus,
-      taxRegime: resolvedRegime,
+      legalStatus: enforcedStatus,
+      taxRegime: enforcedRegime,
       taxRatePercent: resolvedTaxRate,
       frenchTaxConfig: normalizedTax,
       taxAuditHistory: nextAuditHistory,
@@ -432,7 +462,7 @@ export const Settings: React.FC<SettingsProps> = ({
     const diffs = computeEntityFieldDiffs(
       prevSettings as unknown as Record<string, unknown>,
       updatedSettings as unknown as Record<string, unknown>,
-      ['name', 'siret', 'streetName', 'postalCode', 'city', 'email', 'legalStatus', 'taxRegime', 'taxRatePercent', 'tvaMention', 'currency']
+      ['profileType', 'name', 'siret', 'streetName', 'postalCode', 'city', 'email', 'legalStatus', 'taxRegime', 'taxRatePercent', 'tvaMention', 'currency']
     );
     void logUserActivity({
       userId: resolvedUserId,
@@ -459,9 +489,12 @@ export const Settings: React.FC<SettingsProps> = ({
     if (onSettingsSaved) onSettingsSaved(updatedSettings);
     setStatusMessage({
       type: 'success',
-      text: isRu
-        ? 'Настройки сохранены и синхронизированы с Cerfa 15776*02, НДС и P&L (исторические продажи не изменены).'
-        : 'Paramètres enregistrés et synchronisés avec Cerfa 15776*02, TVA et P&L (ventes historiques préservées).',
+      text: L(
+        'Paramètres enregistrés et synchronisés (véhicules et ventes historiques conservés).',
+        'Настройки сохранены и синхронизированы (автомобили и история продаж сохранены).',
+        'Կարգավորումները պահպանված և համաժամեցված են (տվյալները և վաճառքների պատմությունը պահպանվում են)։',
+        'პარამეტრები შენახულია და სინქრონიზებულია (ავტომობილები და გაყიდვების ისტორია შენარჩუნებულია).'
+      ),
     });
   };
 
@@ -474,9 +507,12 @@ export const Settings: React.FC<SettingsProps> = ({
     }
     setStatusMessage({
       type: 'success',
-      text: isRu
-        ? `Вид инвентаря по умолчанию: ${mode === 'grid' ? 'Сетка' : 'Список'}.`
-        : `Affichage par défaut mis à jour : ${mode === 'grid' ? 'Grille' : 'Liste'}.`,
+      text: L(
+        `Affichage par défaut mis à jour : ${mode === 'grid' ? 'Grille' : 'Liste'}.`,
+        `Вид инвентаря по умолчанию: ${mode === 'grid' ? 'Сетка' : 'Список'}.`,
+        `Լռելյայն տեսքը թարմացված է՝ ${mode === 'grid' ? 'Ցանց' : 'Ցանկ'}։`,
+        `ნაგულისხმევი ხედი განახლდა: ${mode === 'grid' ? 'ბადე' : 'სია'}.`
+      ),
     });
   };
 
@@ -484,9 +520,12 @@ export const Settings: React.FC<SettingsProps> = ({
     if (!auth.currentUser?.email) {
       setStatusMessage({
         type: 'error',
-        text: isRu
-          ? 'Сброс пароля доступен только при активной сессии Firebase Email.'
-          : 'La réinitialisation du mot de passe nécessite une session Firebase Email active.',
+        text: L(
+          'La réinitialisation du mot de passe nécessite une session Firebase Email active.',
+          'Сброс пароля доступен только при активной сессии Firebase Email.',
+          'Գաղտնաբառի վերականգնման համար անհրաժեշտ է ակտիվ Firebase էլ․ փոստի սեսիա։',
+          'პაროლის აღდგენა საჭიროებს აქტიურ Firebase Email სესიას.'
+        ),
       });
       return;
     }
@@ -494,14 +533,24 @@ export const Settings: React.FC<SettingsProps> = ({
       await sendPasswordResetEmail(auth, auth.currentUser.email);
       setStatusMessage({
         type: 'success',
-        text: isRu
-          ? `Письмо для сброса пароля отправлено на ${auth.currentUser.email}.`
-          : `Un e-mail de réinitialisation a été envoyé à ${auth.currentUser.email}.`,
+        text: L(
+          `Un e-mail de réinitialisation a été envoyé à ${auth.currentUser.email}.`,
+          `Письмо для сброса пароля отправлено на ${auth.currentUser.email}.`,
+          `Վերականգնման նամակն ուղարկվել է ${auth.currentUser.email} հասցեին։`,
+          `აღდგენის წერილი გაიგზავნა მისამართზე ${auth.currentUser.email}.`
+        ),
       });
     } catch (err: any) {
       setStatusMessage({
         type: 'error',
-        text: err?.message || (isRu ? 'Ошибка отправки письма.' : 'Erreur lors de l’envoi.'),
+        text:
+          err?.message ||
+          L(
+            'Erreur lors de l’envoi.',
+            'Ошибка отправки письма.',
+            'Ուղարկման սխալ։',
+            'გაგზავნის შეცდომა.'
+          ),
       });
     }
   };
@@ -527,7 +576,12 @@ export const Settings: React.FC<SettingsProps> = ({
     });
     setStatusMessage({
       type: 'success',
-      text: isRu ? 'Резервная копия JSON скачана.' : 'Sauvegarde JSON téléchargée avec succès.',
+      text: L(
+        'Sauvegarde JSON téléchargée avec succès.',
+        'Резервная копия JSON скачана.',
+        'JSON պահուստային պատճենը ներբեռնվեց։',
+        'JSON სარეზერვო ასლი ჩამოიტვირთა.'
+      ),
     });
   };
 
@@ -550,7 +604,12 @@ export const Settings: React.FC<SettingsProps> = ({
     });
     setStatusMessage({
       type: 'success',
-      text: isRu ? 'Таблица CSV экспортирована.' : 'Export CSV des véhicules téléchargé.',
+      text: L(
+        'Export CSV des véhicules téléchargé.',
+        'Таблица CSV экспортирована.',
+        'Ավտոմեքենաների CSV արտահանումը ներբեռնվեց։',
+        'ავტომობილების CSV ექსპორტი ჩამოიტვირთა.'
+      ),
     });
   };
 
@@ -567,9 +626,12 @@ export const Settings: React.FC<SettingsProps> = ({
       if (onSettingsSaved) onSettingsSaved(refreshed);
       setStatusMessage({
         type: 'success',
-        text: isRu
-          ? `Восстановлено автомобилей: ${parsed.vehicles.length}.`
-          : `Base restaurée avec succès (${parsed.vehicles.length} véhicule(s)).`,
+        text: L(
+          `Base restaurée avec succès (${parsed.vehicles.length} véhicule(s)).`,
+          `Восстановлено автомобилей: ${parsed.vehicles.length}.`,
+          `Տվյալների բազան վերականգնված է (${parsed.vehicles.length} մեքենա)։`,
+          `ბაზა აღდგენილია (${parsed.vehicles.length} ავტომობილი).`
+        ),
       });
     } catch (err) {
       setStatusMessage({
@@ -588,9 +650,12 @@ export const Settings: React.FC<SettingsProps> = ({
     if (onSettingsSaved) onSettingsSaved(DEFAULT_GARAGE_SETTINGS);
     setStatusMessage({
       type: 'success',
-      text: isRu
-        ? 'Локальный кэш очищен, настройки сброшены по умолчанию.'
-        : 'Cache local vidé et paramètres réinitialisés par défaut.',
+      text: L(
+        'Cache local vidé et paramètres réinitialisés par défaut.',
+        'Локальный кэш очищен, настройки сброшены по умолчанию.',
+        'Տեղային քեշը մաքրված է, կարգավորումները վերականգնված են։',
+        'ლოკალური ქეში გასუფთავდა და პარამეტრები განულდა.'
+      ),
     });
   };
 
@@ -602,32 +667,32 @@ export const Settings: React.FC<SettingsProps> = ({
   }[] = [
     {
       id: 'company',
-      label: isRu ? 'Профиль Гаража / ИП' : 'Profil Garage / EI',
-      shortLabel: isRu ? 'Профиль' : 'Profil',
+      label: L('Profil & Statut', 'Профиль и статус', 'Պրոֆիլ և կարգավիճակ', 'პროფილი და სტატუსი'),
+      shortLabel: L('Profil', 'Профиль', 'Պրոֆիլ', 'პროფილი'),
       icon: Building2,
     },
     {
       id: 'templates',
-      label: isRu ? 'Бланки и Настройки Cerfa' : 'Modèles & Cerfa',
+      label: L('Modèles & Cerfa', 'Бланки и Cerfa', 'Ձևաթղթեր և Cerfa', 'ბლანკები და Cerfa'),
       shortLabel: 'Cerfa',
       icon: FileText,
     },
     {
       id: 'finance',
-      label: isRu ? 'Финансы и Налоги' : 'Finances & TVA',
-      shortLabel: isRu ? 'Финансы' : 'Finances',
+      label: L('Finances & Estimations', 'Финансы и расчёты', 'Ֆինանսներ և հաշվարկներ', 'ფინანსები და გათვლები'),
+      shortLabel: L('Finances', 'Финансы', 'Ֆինանսներ', 'ფინანსები'),
       icon: Coins,
     },
     {
       id: 'appearance',
-      label: isRu ? 'Внешний вид' : 'Apparence',
-      shortLabel: isRu ? 'Вид' : 'Thème',
+      label: L('Apparence', 'Внешний вид', 'Արտաքին տեսք', 'გარეგნობა'),
+      shortLabel: L('Thème', 'Вид', 'Տեսք', 'იერსახე'),
       icon: Palette,
     },
     {
       id: 'security',
-      label: isRu ? 'Безопасность и Аккаунт' : 'Sécurité & Compte',
-      shortLabel: isRu ? 'Аккаунт' : 'Compte',
+      label: L('Sécurité & Compte', 'Безопасность и Аккаунт', 'Անվտանգություն և հաշիվ', 'უსაფრთხოება და ანგარიში'),
+      shortLabel: L('Compte', 'Аккаунт', 'Հաշիվ', 'ანგარიში'),
       icon: ShieldCheck,
     },
   ];
@@ -656,99 +721,134 @@ export const Settings: React.FC<SettingsProps> = ({
         </div>
       )}
 
-            {/* 1. GARAGE PROFILE / EI */}
+            {/* 1. USER PROFILE / SELLER DETAILS */}
             {activeTab === 'company' && (
               <form id="company-settings-form" onSubmit={handleSaveSettings} className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {isRu ? 'Профиль Гаража / ИП' : 'Profil du Garage / Entreprise'}
+                    {L(
+                      'Profil utilisateur & Coordonnées Cerfa',
+                      'Профиль пользователя и реквизиты Cerfa',
+                      'Օգտատիրոջ պրոֆիլ և Cerfa տվյալներ',
+                      'მომხმარებლის პროფილი და Cerfa მონაცემები'
+                    )}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {isRu
-                      ? 'Реквизиты продавца, юридический статус (Personne Morale / Physique) и адрес для Cerfa.'
-                      : 'Coordonnées vendeur, statut juridique (Personne morale / physique) et adresse Cerfa.'}
+                    {L(
+                      'Choisissez votre type de profil (Particulier ou Micro-entrepreneur) et renseignez vos coordonnées pour le Cerfa.',
+                      'Выберите тип профиля (Particulier или Micro-entrepreneur) и заполните данные продавца для Cerfa.',
+                      'Ընտրեք Ձեր պրոֆիլի տեսակը (Particulier կամ Micro-entrepreneur) և լրացրեք Cerfa տվյալները։',
+                      'აირჩიეთ პროფილის ტიპი (Particulier ან Micro-entrepreneur) და შეავსეთ Cerfa მონაცემები.'
+                    )}
                   </p>
                 </div>
 
-                {/* Entity Type Switch */}
-                <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                {/* 2-Profile Switch (STRICTLY Particulier vs Micro-entrepreneur) */}
+                <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                   <span className="block text-xs font-bold text-slate-300">
-                    {isRu ? 'Статус продавца (Forme Juridique)' : 'Statut du vendeur (Ancien Propriétaire)'}
+                    {t('profileSwitchLabel')}
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div
+                    data-testid="settings-profile-picker"
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+                  >
                     <button
                       type="button"
-                      onClick={() => {
-                        setErrors({});
-                        setSettings({ ...settings, entityType: 'morale' });
-                      }}
-                      className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition ${
-                        (settings.entityType || 'morale') === 'morale'
-                          ? 'bg-amber-500/15 text-amber-400 border-amber-500/50'
+                      data-testid="settings-profile-particulier"
+                      onClick={() => handleSelectProfileType('particulier')}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl text-left border transition cursor-pointer ${
+                        activeProfileType === 'particulier'
+                          ? 'bg-blue-600/20 text-blue-200 border-blue-500/60 shadow-sm'
                           : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                       }`}
                     >
-                      <Building2 className="w-4 h-4 shrink-0" />
-                      <span>
-                        {isRu ? 'Personne morale (Компания / Гараж)' : 'Personne morale (Professionnel / Garage)'}
-                      </span>
+                      <User className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <span className="block text-xs font-bold text-white">
+                          {t('profileParticulierTitle')}
+                        </span>
+                        <span className="block text-[11px] text-slate-400 leading-snug mt-0.5">
+                          {t('profileParticulierDesc')}
+                        </span>
+                      </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setErrors({});
-                        setSettings({ ...settings, entityType: 'physique' });
-                      }}
-                      className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold border transition ${
-                        settings.entityType === 'physique'
-                          ? 'bg-blue-600/20 text-blue-300 border-blue-500/50'
+                      data-testid="settings-profile-micro"
+                      onClick={() => handleSelectProfileType('micro_entrepreneur')}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl text-left border transition cursor-pointer ${
+                        activeProfileType === 'micro_entrepreneur'
+                          ? 'bg-amber-500/15 text-amber-200 border-amber-500/60 shadow-sm'
                           : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                       }`}
                     >
-                      <User className="w-4 h-4 shrink-0" />
-                      <span>
-                        {isRu ? 'Personne physique (Частное лицо)' : 'Personne physique (Particulier)'}
-                      </span>
+                      <Building2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                      <div className="min-w-0">
+                        <span className="block text-xs font-bold text-white">
+                          {t('profileMicroTitle')}
+                        </span>
+                        <span className="block text-[11px] text-slate-400 leading-snug mt-0.5">
+                          {t('profileMicroDesc')}
+                        </span>
+                      </div>
                     </button>
                   </div>
+                  <p className="text-[11px] text-emerald-300/90 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t('profileNonDestructiveNotice')}</span>
+                  </p>
                 </div>
 
                 {/* Live Cerfa Header Preview */}
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-start justify-between gap-3 text-xs">
+                <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-start justify-between gap-3 text-xs">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400">
-                        {isRu ? 'Предпросмотр: Раздел 2 (Ancien Propriétaire)' : 'Aperçu Section 2 Cerfa 15776*02'}
+                        {L(
+                          'Aperçu Section 2 Cerfa 15776*02',
+                          'Предпросмотр: Раздел 2 Cerfa 15776*02',
+                          'Նախադիտում․ Բաժին 2 Cerfa 15776*02',
+                          'წინასწარი ნახვა: ნაწილი 2 Cerfa 15776*02'
+                        )}
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                          settings.entityType === 'physique'
+                          activeProfileType === 'particulier'
                             ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
                             : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                         }`}
                       >
-                        {settings.entityType === 'physique' ? '☑ Personne physique' : '☑ Personne morale'}
+                        {activeProfileType === 'particulier'
+                          ? t('profileBadgeParticulier')
+                          : t('profileBadgeMicro')}
                       </span>
                     </div>
-                    {settings.entityType === 'physique' ? (
+                    {activeProfileType === 'particulier' ? (
                       <>
                         <p className="font-bold text-white text-sm">
                           {[settings.lastName, settings.firstName]
                             .filter(Boolean)
                             .join(' ')
                             .trim()
-                            .toUpperCase() || 'NOM PRÉNOM'}
+                            .toUpperCase() || settings.name || 'NOM PRÉNOM'}
                           {settings.sex ? ` (${settings.sex})` : ''}
                         </p>
                         <p className="text-slate-400">
-                          {isRu ? 'Частное лицо (Particulier) — без SIRET' : 'Particulier — Sans numéro SIRET'}
+                          {L(
+                            'Particulier — Vendeur non professionnel',
+                            'Частное лицо — непрофессиональный продавец',
+                            'Ֆիզիկական անձ — ոչ պրոֆեսիոնալ վաճառող',
+                            'კერძო პირი — არაპროფესիონალი გამყიდველი'
+                          )}
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="font-bold text-white text-sm">{settings.name || 'AutoGarage Manager SARL'}</p>
+                        <p className="font-bold text-white text-sm">
+                          {settings.name || 'AutoGarage Manager'}
+                        </p>
                         <p className="text-slate-400">
-                          SIRET : <span className="font-mono">{settings.siret || '—'}</span>
+                          SIRET : <span className="font-mono">{settings.siret || L('Optionnel / Non renseigné', 'Не указан', 'Նշված չէ', 'არ არის მითითებული')}</span>
                         </p>
                       </>
                     )}
@@ -766,11 +866,11 @@ export const Settings: React.FC<SettingsProps> = ({
                 </div>
 
                 {/* Conditional Identity Fields */}
-                {settings.entityType === 'physique' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {activeProfileType === 'particulier' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <label htmlFor="settings-last-name" className={labelClass}>
-                        {isRu ? 'Фамилия (Nom) *' : 'Nom *'}
+                        {L('Nom *', 'Фамилия (Nom) *', 'Ազգանուն *', 'გვარი *')}
                       </label>
                       <input
                         id="settings-last-name"
@@ -785,7 +885,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
                     <div>
                       <label htmlFor="settings-first-name" className={labelClass}>
-                        {isRu ? 'Имя (Prénom) *' : 'Prénom *'}
+                        {L('Prénom *', 'Имя (Prénom) *', 'Անուն *', 'სახელი *')}
                       </label>
                       <input
                         id="settings-first-name"
@@ -808,23 +908,28 @@ export const Settings: React.FC<SettingsProps> = ({
                             onClick={() =>
                               setSettings({ ...settings, sex: settings.sex === sx ? '' : sx })
                             }
-                            className={`py-2 rounded-xl text-xs font-bold border transition ${
+                            className={`h-9 rounded-xl text-xs font-bold border transition ${
                               settings.sex === sx
                                 ? 'bg-blue-600 text-white border-blue-500'
                                 : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                             }`}
                           >
-                            {sx === 'M' ? 'M (Homme)' : 'F (Femme)'}
+                            {sx === 'M' ? 'M' : 'F'}
                           </button>
                         ))}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label htmlFor="settings-company-name" className={labelClass}>
-                        {isRu ? 'Название компании (Raison Sociale) *' : 'Raison Sociale *'}
+                        {L(
+                          'Nom commercial / Activité *',
+                          'Название деятельности / Псевдоним *',
+                          'Առևտրային անվանում *',
+                          'სავაჭრო სახელი *'
+                        )}
                       </label>
                       <div className="relative">
                         <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -833,7 +938,7 @@ export const Settings: React.FC<SettingsProps> = ({
                           type="text"
                           value={settings.name}
                           onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                          placeholder="AutoGarage Manager SARL"
+                          placeholder="AutoGarage Manager"
                           className={`${inputClass} pl-9`}
                         />
                       </div>
@@ -843,15 +948,22 @@ export const Settings: React.FC<SettingsProps> = ({
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label htmlFor="settings-siret" className="text-xs font-semibold text-slate-300">
-                          {isRu ? 'Номер SIRET (14 цифр) *' : 'N° SIRET (14 chiffres) *'}
+                          {L(
+                            'N° SIRET (14 chiffres, optionnel)',
+                            'Номер SIRET (14 цифр, опционально)',
+                            'SIRET համար (14 նիշ, ըստ ցանկության)',
+                            'SIRET ნომერი (14 ციფრი, არასავალდებულო)'
+                          )}
                         </label>
-                        <span
-                          className={`text-[10px] font-mono ${
-                            siretDigits.length === 14 ? 'text-emerald-400' : 'text-amber-400'
-                          }`}
-                        >
-                          {siretDigits.length}/14
-                        </span>
+                        {siretDigits.length > 0 && (
+                          <span
+                            className={`text-[10px] font-mono ${
+                              siretDigits.length === 14 ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {siretDigits.length}/14
+                          </span>
+                        )}
                       </div>
                       <div className="relative">
                         <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -1003,10 +1115,10 @@ export const Settings: React.FC<SettingsProps> = ({
                   </div>
                 </div>
 
-                {(settings.entityType || 'morale') === 'morale' && (
+                {activeProfileType === 'micro_entrepreneur' && (
                   <div>
                     <label htmlFor="settings-legal-form" className={labelClass}>
-                      Forme juridique
+                      {L('Statut / Mention activité', 'Юридическая отметка', 'Իրավական նշում', 'იურიდიული სტატუსი')}
                     </label>
                     <div className="relative">
                       <Scale className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -1015,7 +1127,7 @@ export const Settings: React.FC<SettingsProps> = ({
                         type="text"
                         value={settings.legalForm || ''}
                         onChange={(e) => setSettings({ ...settings, legalForm: e.target.value })}
-                        placeholder="SARL au capital de 10 000 €"
+                        placeholder="ex. Micro-entrepreneur"
                         className={`${inputClass} pl-9`}
                       />
                     </div>
@@ -1025,9 +1137,12 @@ export const Settings: React.FC<SettingsProps> = ({
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-start gap-2">
                   <Sparkles className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
                   <p>
-                    {isRu
-                      ? 'Сохранение автоматически обновляет Раздел 2 (Ancien propriétaire) в мастере и PDF-генераторе Cerfa 15776*02 без перезагрузки страницы.'
-                      : 'Ces coordonnées pré-remplissent automatiquement la section 2 (Ancien propriétaire) du Cerfa 15776*02 et de vos factures sans rechargement.'}
+                    {L(
+                      'Ces coordonnées pré-remplissent automatiquement la section 2 (Ancien propriétaire) du Cerfa 15776*02 sans rechargement.',
+                      'Сохранение автоматически обновляет Раздел 2 (Ancien propriétaire) в мастере и PDF-генераторе Cerfa 15776*02.',
+                      'Պահպանումը ավտոմատ թարմացնում է Cerfa 15776*02-ի Բաժին 2-ը։',
+                      'შენახვა ავტომატურად განაახლებს Cerfa 15776*02-ის მე-2 ნაწილს.'
+                    )}
                   </p>
                 </div>
               </form>
@@ -1035,38 +1150,44 @@ export const Settings: React.FC<SettingsProps> = ({
 
             {/* 2. DOCUMENT TEMPLATES & CERFA */}
             {activeTab === 'templates' && (
-              <div className="space-y-5">
+              <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {isRu ? 'Бланки и Настройки Cerfa' : 'Modèles & Paramètres Cerfa'}
+                    {L('Modèles & Paramètres Cerfa', 'Бланки и Настройки Cerfa', 'Cerfa ձևաթղթեր և կարգավորումներ', 'Cerfa ბლანკები და პარამეტრები')}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {isRu
-                      ? 'Выбор официального бланка по умолчанию и калибровка смещения PDF.'
-                      : 'Configuration du formulaire Cerfa par défaut et calibration de l’impression PDF.'}
+                    {L(
+                      'Configuration du formulaire Cerfa par défaut et calibration de l’impression PDF.',
+                      'Выбор официального бланка по умолчанию и калибровка смещения PDF.',
+                      'Լռելյայն Cerfa ձևաթղթի ընտրություն և PDF տպագրության կարգավորում։',
+                      'ნაგულისხმევი Cerfa ბლანკის არჩევა და PDF ბეჭდვის კალიბრაცია.'
+                    )}
                   </p>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                   <div>
                     <h4 className="text-sm font-bold text-white">
-                      {isRu ? 'Шаблон Cerfa по умолчанию' : 'Modèle Cerfa par défaut'}
+                      {L('Modèle Cerfa par défaut', 'Шаблон Cerfa по умолчанию', 'Լռելյայն Cerfa ձևաթուղթ', 'ნაგულისხმევი Cerfa შაბლონი')}
                     </h4>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {isRu
-                        ? 'Официальный правительственный бланк для оформления продажи автомобиля'
-                        : 'Formulaire gouvernemental officiel utilisé pour la génération des certificats de cession'}
+                      {L(
+                        'Formulaire gouvernemental officiel utilisé pour la génération des certificats de cession',
+                        'Официальный правительственный бланк для оформления продажи автомобиля',
+                        'Պաշտոնական ձևաթուղթ ավտոմեքենայի վաճառքի ձևակերպման համար',
+                        'ოფიციალური სამთავრობო ფორმა ავტომობილის გაყიდვის გასაფორმებლად'
+                      )}
                     </p>
                   </div>
 
                   <div>
                     <label htmlFor="settings-cerfa-template" className={labelClass}>
-                      {isRu ? 'Активный шаблон PDF' : 'Modèle de document actif'}
+                      {L('Modèle de document actif', 'Активный шаблон PDF', 'Ակտիվ PDF ձևաթուղթ', 'აქტიური PDF შაბლონი')}
                     </label>
                     <ThemedSelect
                       id="settings-cerfa-template"
                       testId="settings-cerfa-template-select"
-                      ariaLabel={isRu ? 'Активный шаблон PDF' : 'Modèle de document actif'}
+                      ariaLabel={L('Modèle de document actif', 'Активный шаблон PDF', 'Ակտիվ PDF ձևաթուղթ', 'აქტიური PDF შაბლონი')}
                       value={settings.defaultCerfaTemplate || 'cerfa_15776_02'}
                       onChange={(val) =>
                         setSettings({ ...settings, defaultCerfaTemplate: val })
@@ -1082,21 +1203,27 @@ export const Settings: React.FC<SettingsProps> = ({
                   </div>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="space-y-1 max-w-md">
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
                         <FileText className="w-4 h-4 text-emerald-400" />
                         <span>
-                          {isRu
-                            ? 'Глобальная калибровка Cerfa (Superadmin)'
-                            : 'Calibration globale Cerfa (Superadmin)'}
+                          {L(
+                            'Calibration globale Cerfa (Superadmin)',
+                            'Глобальная калибровка Cerfa (Superadmin)',
+                            'Cerfa գլոբալ կարգավորում (Superadmin)',
+                            'Cerfa გლობალური კალიბრაცია (Superadmin)'
+                          )}
                         </span>
                       </h4>
                       <p className="text-xs text-slate-400">
-                        {isRu
-                          ? 'Координаты полей и смещения автоматически синхронизируются из облака (platform_settings/cerfa_templates) для предпросмотра и PDF-экспорта.'
-                          : 'Les coordonnées et décalages sont synchronisés depuis le cloud (platform_settings/cerfa_templates) pour l’aperçu et l’export PDF.'}
+                        {L(
+                          'Les coordonnées et décalages sont synchronisés depuis le cloud (platform_settings/cerfa_templates) pour l’aperçu et l’export PDF.',
+                          'Координаты полей и смещения автоматически синхронизируются из облака для предпросмотра и PDF-экспорта.',
+                          'Դաշտերի կոորդինատները համաժամեցվում են ամպից նախադիտման և PDF արտահանման համար։',
+                          'ველების კოორდინატები სინქრონიზდება ღრუბლიდან წინასწარი ნახვისა და PDF ექსპორტისთვის.'
+                        )}
                       </p>
                     </div>
 
@@ -1109,9 +1236,9 @@ export const Settings: React.FC<SettingsProps> = ({
                           onOpenAlignerMode();
                         }
                       }}
-                      className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
                     >
-                      <span>{isRu ? 'Предпросмотр и экспорт Cerfa' : 'Aperçu & Export Cerfa'}</span>
+                      <span>{L('Aperçu & Export Cerfa', 'Предпросмотр и экспорт Cerfa', 'Cerfa նախադիտում և արտահանում', 'Cerfa ნახვა და ექსპორტი')}</span>
                     </button>
                   </div>
 
@@ -1129,7 +1256,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       </span>
                     </div>
                     <div className="bg-slate-950 border border-slate-800 rounded-xl p-3">
-                      <span className="text-slate-500 block">{isRu ? 'Шрифт Δ' : 'Police Δ'}</span>
+                      <span className="text-slate-500 block">{L('Police Δ', 'Шрифт Δ', 'Տառաչափ Δ', 'შრიფტი Δ')}</span>
                       <span className="font-mono font-bold text-white tabular-nums">
                         {cerfaCalibration.cerfa_15776_02.offsets.fontSizeDelta} pt
                       </span>
@@ -1139,7 +1266,7 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
             )}
 
-            {/* 3. FINANCE & FRENCH TAX ENGINE */}
+            {/* 3. FINANCE & PROFILE-AWARE ESTIMATES */}
             {activeTab === 'finance' && (() => {
               const simPnl = calculateVehicleProfitBeforeTaxes({
                 salePrice: simSale,
@@ -1147,232 +1274,121 @@ export const Settings: React.FC<SettingsProps> = ({
                 repairCostTotal: simRepairs,
                 generalExpensesTotal: 0,
               });
-              const simVat = calculateFrenchVat({
-                salePrice: simSale,
-                purchasePrice: simPurchase,
-                vatRegime: taxConfig.vatRegime,
-                vatRatePercent: taxConfig.vatRatePercent,
-              });
               const simMicro = calculateMicroEntrepriseTaxes({
                 turnover: simSale,
                 config: taxConfig,
               });
-              const isBreakdown = calculateCorporateIS({
-                annualTaxableProfit: taxConfig.annualTaxableProfit,
-                config: taxConfig,
-              });
+              const simNetAfterTaxes = roundCurrency(
+                simPnl.profitBeforeTaxes - simMicro.totalSocialAndVlAmount
+              );
               const combinedMicroRate = roundCurrency(
                 taxConfig.socialContributionRate +
                   (taxConfig.versementLiberatoireEnabled ? taxConfig.versementLiberatoireRate : 0)
               );
 
               return (
-                <div className="space-y-5" data-testid="settings-finance-panel">
-                  <div>
-                    <h3 className="text-base font-bold text-white">
-                      {isRu
-                        ? 'Финансы и Налоговый движок (Франция)'
-                        : 'Finances & Fiscalité Automobile (France)'}
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {isRu
-                        ? 'Настройка юридической формы (Micro-entreprise, SARL, SAS), URSSAF, Versement libératoire, прогрессивного IS и режимов НДС (TVA).'
-                        : 'Configuration du statut juridique (Micro-entreprise, SARL, SAS), URSSAF, Versement libératoire, IS progressif et régimes de TVA.'}
-                    </p>
-                  </div>
-
-                  {/* Accountability Disclaimer */}
-                  <div
-                    data-testid="settings-tax-disclaimer"
-                    className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 text-xs text-amber-200"
-                  >
-                    <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    <p>{isRu ? FRENCH_TAX_DEFAULTS.DISCLAIMER_RU : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR}</p>
-                  </div>
-
-                  {/* Card 1: Legal Status, Regime & General Margin */}
-                  <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="settings-legal-status" className={labelClass}>
-                          {isRu ? 'Юридический статус (Франция)' : 'Statut juridique (France)'}
-                        </label>
-                        <ThemedSelect<LegalStatus>
-                          id="settings-legal-status"
-                          testId="settings-legal-status-select"
-                          ariaLabel={isRu ? 'Юридический статус (Франция)' : 'Statut juridique (France)'}
-                          value={taxConfig.legalStatus}
-                          onChange={(nextStatus) => {
-                            const mappedRegime = mapLegalStatusToTaxRegime(nextStatus);
-                            updateTaxConfig({
-                              legalStatus: nextStatus,
-                              businessTaxRegime: mappedRegime,
-                            });
-                          }}
-                          options={[
-                            {
-                              value: 'micro_entreprise',
-                              label: isRu
-                                ? 'Micro-entreprise (Achat / Revente)'
-                                : 'Micro-entreprise (Achat / Revente)',
-                            },
-                            { value: 'sarl', label: 'SARL (Société à responsabilité limitée)' },
-                            { value: 'sas', label: 'SAS (Société par actions simplifiée)' },
-                            { value: 'eurl', label: 'EURL' },
-                            { value: 'sasu', label: 'SASU' },
-                            { value: 'ei', label: 'EI (Entreprise Individuelle)' },
-                            { value: 'other', label: isRu ? 'Другое' : 'Autre structure' },
-                          ]}
-                          triggerClassName={inputClass}
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="settings-tax-regime" className={labelClass}>
-                          {isRu ? 'Налоговый режим расчётов P&L' : 'Régime fiscal de calcul P&L'}
-                        </label>
-                        <ThemedSelect<TaxRegime>
-                          id="settings-tax-regime"
-                          testId="settings-tax-regime-select"
-                          ariaLabel={isRu ? 'Налоговый режим расчётов P&L' : 'Régime fiscal de calcul P&L'}
-                          value={taxConfig.businessTaxRegime}
-                          onChange={(nextRegime) => {
-                            const nextStatus =
-                              nextRegime === 'micro' || nextRegime === 'sarl' || nextRegime === 'sas'
-                                ? mapTaxRegimeToLegalStatus(nextRegime, settings.entityType)
-                                : taxConfig.legalStatus;
-                            updateTaxConfig({
-                              businessTaxRegime: nextRegime,
-                              legalStatus: nextStatus,
-                            });
-                          }}
-                          options={[
-                            {
-                              value: 'sarl',
-                              label: isRu
-                                ? 'SARL — IS прогрессивный (15% / 25%)'
-                                : 'SARL — IS progressif (15% / 25%)',
-                            },
-                            {
-                              value: 'sas',
-                              label: isRu
-                                ? 'SAS — IS прогрессивный (15% / 25%)'
-                                : 'SAS — IS progressif (15% / 25%)',
-                            },
-                            {
-                              value: 'micro',
-                              label: isRu
-                                ? 'Micro-entreprise — на оборот (12.3% / 13.3%)'
-                                : 'Micro-entreprise — sur CA (12.3% / 13.3%)',
-                            },
-                            {
-                              value: 'custom',
-                              label: isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)',
-                            },
-                            {
-                              value: 'none',
-                              label: isRu ? 'Без налога (0%)' : 'Sans impôt estimé (0%)',
-                            },
-                          ]}
-                          triggerClassName={inputClass}
-                        />
-                      </div>
+                <div className="space-y-4" data-testid="settings-finance-panel">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        {L(
+                          'Finances & Mode de calcul',
+                          'Финансы и режим расчётов',
+                          'Ֆինանսներ և հաշվարկի ռեժիմ',
+                          'ფინანსები და გამოთვლის რეჟიმი'
+                        )}
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {activeProfileType === 'particulier'
+                          ? L(
+                              'Mode Particulier : suivi simple achat, dépenses, vente et résultat net sans calculs fiscaux professionnels.',
+                              'Режим Particulier: простой расчёт покупки, расходов, продажи и результата без профессиональных налогов.',
+                              'Particulier ռեժիմ․ գնման, ծախսերի, վաճառքի և արդյունքի պարզ հաշվարկ առանց պրոֆեսիոնալ հարկերի։',
+                              'Particulier რეჟიმი: შესყიდვის, ხარჯების, გაყიდვისა და შედეგის მარტივი გათვლა პროფესიული გადასახადების გარეშე.'
+                            )
+                          : L(
+                              'Mode Micro-entrepreneur : P&L simplifié sur chiffre d’affaires et estimation interne des cotisations.',
+                              'Режим Micro-entrepreneur: упрощённый P&L от оборота и внутренняя оценка взносов.',
+                              'Micro-entrepreneur ռեժիմ․ պարզեցված P&L շրջանառությունից և վճարումների ներքին գնահատական։',
+                              'Micro-entrepreneur რეჟიმი: გამარტივებული P&L ბრუნვიდან და შენატანების შიდა შეფასება.'
+                            )}
+                      </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="settings-default-margin" className={labelClass}>
-                          {isRu ? 'Целевая маржа по умолчанию (%)' : 'Marge cible par défaut (%)'}
-                        </label>
-                        <input
-                          id="settings-default-margin"
-                          type="number"
-                          min={0}
-                          max={200}
-                          step="any"
-                          value={settings.defaultMarginPercent ?? 20}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              defaultMarginPercent: Number(e.target.value) || 0,
-                            })
-                          }
-                          className={`${inputClass} tabular-nums font-bold`}
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="settings-currency" className={labelClass}>
-                          {isRu ? 'Валюта расчётов' : 'Devise principale'}
-                        </label>
-                        <ThemedSelect<NonNullable<GarageSettings['currency']>>
-                          id="settings-currency"
-                          testId="settings-currency-select"
-                          ariaLabel={isRu ? 'Валюта расчётов' : 'Devise principale'}
-                          value={settings.currency || 'EUR'}
-                          onChange={(val) =>
-                            setSettings({
-                              ...settings,
-                              currency: val,
-                            })
-                          }
-                          options={[
-                            { value: 'EUR', label: 'EUR (€) — Euro' },
-                            { value: 'CHF', label: 'CHF — Franc suisse' },
-                            { value: 'GBP', label: 'GBP (£) — Livre sterling' },
-                            { value: 'USD', label: 'USD ($) — Dollar US' },
-                          ]}
-                          triggerClassName={inputClass}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 2A: MICRO-ENTREPRISE — ACHAT / REVENTE */}
-                  {taxConfig.businessTaxRegime === 'micro' && (
+                    {/* Quick 2-Profile Switcher inside Finance */}
                     <div
-                      data-testid="settings-micro-panel"
-                      className="p-5 rounded-2xl bg-slate-900 border border-amber-500/30 space-y-4"
+                      data-testid="settings-finance-profile-switch"
+                      className="inline-flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 gap-1"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
+                      <button
+                        type="button"
+                        data-testid="settings-finance-profile-particulier"
+                        onClick={() => handleSelectProfileType('particulier')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          activeProfileType === 'particulier'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {t('profileBadgeParticulier')}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="settings-finance-profile-micro"
+                        onClick={() => handleSelectProfileType('micro_entrepreneur')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          activeProfileType === 'micro_entrepreneur'
+                            ? 'bg-amber-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {t('profileBadgeMicro')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {activeProfileType === 'particulier' ? (
+                    /* PARTICULIER: Clean financial formula + Margin & Currency only — ZERO URSSAF / TVA / IS */
+                    <div
+                      data-testid="settings-particulier-finance-card"
+                      className="p-4 rounded-2xl bg-slate-900 border border-blue-500/30 space-y-4"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <User className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
                           <h4 className="text-sm font-bold text-white">
-                            {isRu
-                              ? 'Micro-entreprise — Achat / Revente (налогообложение по обороту CA)'
-                              : 'Micro-entreprise — Achat / Revente (calcul sur Chiffre d’Affaires)'}
+                            {t('profileParticulierTitle')} — {L('Calcul financier simple', 'Простой финансовый расчёт', 'Պարզ ֆինանսական հաշվարկ', 'მარტივი ფინანსური გათვლა')}
                           </h4>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {isRu
-                              ? 'Взносы URSSAF (по умолч. 12.3%) и Versement libératoire (1%) считаются от цены продажи (CA), без вычета закупки и ремонта.'
-                              : 'Les cotisations URSSAF (12,3% par défaut) et le Versement libératoire (1%) s’appliquent au chiffre d’affaires encaissé, sans déduire achat ni réparations.'}
+                          <p className="text-xs text-slate-300">
+                            {L(
+                              'Formule appliquée : Prix de vente − Prix d’achat − Réparations & Dépenses = Résultat net. Aucune cotisation URSSAF ni TVA n’est calculée.',
+                              'Формула расчёта: Цена продажи − Покупка − Ремонт и расходы = Финансовый результат. Взносы URSSAF и TVA не применяются.',
+                              'Բանաձև՝ Վաճառքի գին − Գնում − Վերանորոգում և ծախսեր = Արդյունք։ URSSAF և TVA չեն հաշվարկվում։',
+                              'ფორმულა: გაყიდვის ფასი − შესყიდვა − რემონტი და ხარჯები = ფინანსური შედეგი. URSSAF და TVA არ ითვლება.'
+                            )}
+                          </p>
+                          <p className="text-[11px] text-emerald-300/90">
+                            {t('profileNonDestructiveNotice')}
                           </p>
                         </div>
-                        <span
-                          data-testid="settings-micro-combined-badge"
-                          className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/15 text-amber-300 border border-amber-500/30 tabular-nums"
-                        >
-                          {isRu
-                            ? `Итого на оборот: ${combinedMicroRate}%`
-                            : `Taux combiné CA : ${combinedMicroRate}%`}
-                        </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800">
                         <div>
-                          <label htmlFor="settings-urssaf-rate" className={labelClass}>
-                            {isRu ? 'Соцвзносы URSSAF (%)' : 'Cotisations URSSAF (%)'}
+                          <label htmlFor="settings-default-margin" className={labelClass}>
+                            {L('Marge cible indicative (%)', 'Целевой ориентир маржи (%)', 'Նպատակային մարժա (%)', 'სამიზნე მარჟა (%)')}
                           </label>
                           <input
-                            id="settings-urssaf-rate"
-                            data-testid="settings-urssaf-rate-input"
+                            id="settings-default-margin"
                             type="number"
                             min={0}
-                            max={100}
-                            step="0.1"
-                            value={taxConfig.socialContributionRate}
+                            max={200}
+                            step="any"
+                            value={settings.defaultMarginPercent ?? 20}
                             onChange={(e) =>
-                              updateTaxConfig({
-                                socialContributionRate: Math.max(0, Number(e.target.value) || 0),
+                              setSettings({
+                                ...settings,
+                                defaultMarginPercent: Number(e.target.value) || 0,
                               })
                             }
                             className={`${inputClass} tabular-nums font-bold`}
@@ -1380,767 +1396,561 @@ export const Settings: React.FC<SettingsProps> = ({
                         </div>
 
                         <div>
-                          <span className={labelClass}>
-                            {isRu ? 'Versement libératoire (1%)' : 'Versement libératoire'}
-                          </span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              data-testid="settings-vl-yes"
-                              onClick={() => updateTaxConfig({ versementLiberatoireEnabled: true })}
-                              className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                                taxConfig.versementLiberatoireEnabled
-                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              {isRu ? 'ДА (YES)' : 'OUI'}
-                            </button>
-                            <button
-                              type="button"
-                              data-testid="settings-vl-no"
-                              onClick={() => updateTaxConfig({ versementLiberatoireEnabled: false })}
-                              className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                                !taxConfig.versementLiberatoireEnabled
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              {isRu ? 'НЕТ (NO)' : 'NON'}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label htmlFor="settings-vl-rate" className={labelClass}>
-                            {isRu ? 'Ставка VL (%)' : 'Taux Versement libératoire (%)'}
+                          <label htmlFor="settings-currency" className={labelClass}>
+                            {L('Devise d’affichage', 'Валюта расчётов', 'Արժույթ', 'ვალუტა')}
                           </label>
-                          <input
-                            id="settings-vl-rate"
-                            data-testid="settings-vl-rate-input"
-                            type="number"
-                            min={0}
-                            max={50}
-                            step="0.1"
-                            disabled={!taxConfig.versementLiberatoireEnabled}
-                            value={taxConfig.versementLiberatoireRate}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                versementLiberatoireRate: Math.max(0, Number(e.target.value) || 0),
+                          <ThemedSelect<NonNullable<GarageSettings['currency']>>
+                            id="settings-currency"
+                            testId="settings-currency-select"
+                            ariaLabel={L('Devise d’affichage', 'Валюта расчётов', 'Արժույթ', 'ვალუტა')}
+                            value={settings.currency || 'EUR'}
+                            onChange={(val) =>
+                              setSettings({
+                                ...settings,
+                                currency: val,
                               })
                             }
-                            className={`${inputClass} tabular-nums font-bold disabled:opacity-45`}
-                          />
-                        </div>
-                      </div>
-
-                      {!taxConfig.versementLiberatoireEnabled && (
-                        <div className="p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
-                          <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
-                            <Info className="w-4 h-4 shrink-0" />
-                            <span>
-                              {isRu
-                                ? 'Versement libératoire отключён: применяется только 12.3% URSSAF. Подоходный налог (Micro-BIC) оценивается отдельно (без +1%).'
-                                : 'Versement libératoire désactivé : seul le taux URSSAF est déduit. L’impôt sur le revenu Micro-BIC est estimé séparément (jamais +1% automatique).'}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label htmlFor="settings-micro-abattement" className={labelClass}>
-                                {isRu
-                                  ? 'Вычет Micro-BIC Achat/Revente (%)'
-                                  : 'Abattement forfaitaire Micro-BIC (%)'}
-                              </label>
-                              <input
-                                id="settings-micro-abattement"
-                                type="number"
-                                min={0}
-                                max={100}
-                                step="1"
-                                value={taxConfig.microBicAbattementPercent}
-                                onChange={(e) =>
-                                  updateTaxConfig({
-                                    microBicAbattementPercent: Math.min(
-                                      100,
-                                      Math.max(0, Number(e.target.value) || 0)
-                                    ),
-                                  })
-                                }
-                                className={`${inputClass} tabular-nums font-bold`}
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor="settings-micro-ir-rate" className={labelClass}>
-                                {isRu
-                                  ? 'Оценочная ставка подоходного IR (%)'
-                                  : 'Taux marginal IR estimé (%)'}
-                              </label>
-                              <input
-                                id="settings-micro-ir-rate"
-                                type="number"
-                                min={0}
-                                max={60}
-                                step="0.5"
-                                value={taxConfig.microBicIncomeTaxRate}
-                                onChange={(e) =>
-                                  updateTaxConfig({
-                                    microBicIncomeTaxRate: Math.max(0, Number(e.target.value) || 0),
-                                  })
-                                }
-                                className={`${inputClass} tabular-nums font-bold`}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <label htmlFor="settings-urssaf-effective-date" className={labelClass}>
-                          {isRu ? 'Дата вступления в силу (URSSAF)' : 'Date d’effet (URSSAF)'}
-                        </label>
-                        <input
-                          id="settings-urssaf-effective-date"
-                          type="date"
-                          value={taxConfig.effectiveDates.urssaf || getTodayIsoDate()}
-                          onChange={(e) =>
-                            updateTaxConfig({
-                              effectiveDates: {
-                                ...taxConfig.effectiveDates,
-                                urssaf: e.target.value,
-                              },
-                            })
-                          }
-                          className={`${inputClass} sm:max-w-xs`}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Card 2B: SARL / SAS — IMPÔT SUR LES SOCIÉTÉS (IS) */}
-                  {(taxConfig.businessTaxRegime === 'sarl' ||
-                    taxConfig.businessTaxRegime === 'sas') && (
-                    <div
-                      data-testid="settings-corporate-is-panel"
-                      className="p-5 rounded-2xl bg-slate-900 border border-indigo-500/30 space-y-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h4 className="text-sm font-bold text-white">
-                            {isRu
-                              ? `${taxConfig.businessTaxRegime.toUpperCase()} — Налог на прибыль компаний (Impôt sur les Sociétés — IS)`
-                              : `${taxConfig.businessTaxRegime.toUpperCase()} — Impôt sur les Sociétés (IS progressif annuel)`}
-                          </h4>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            {isRu
-                              ? 'Считается от годовой налогооблагаемой прибыли компании: 15% до 42 500 € (при праве на льготу) и 25% свыше. При убытке = 0 €.'
-                              : 'Calculé sur le résultat fiscal annuel global : 15% jusqu’à 42 500 € (si éligible) puis 25% au-delà. Résultat négatif/nul = 0 €.'}
-                          </p>
-                        </div>
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                          {getTaxRegimeDisplayLabel(taxConfig)}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                          <label htmlFor="settings-is-mode" className={labelClass}>
-                            {isRu ? 'Режим расчёта IS' : 'Mode de calcul IS'}
-                          </label>
-                          <ThemedSelect<IsRateMode>
-                            id="settings-is-mode"
-                            testId="settings-is-mode-select"
-                            ariaLabel={isRu ? 'Режим расчёта IS' : 'Mode de calcul IS'}
-                            value={taxConfig.isRateMode}
-                            onChange={(mode) => updateTaxConfig({ isRateMode: mode })}
                             options={[
-                              {
-                                value: 'progressive_15_25',
-                                label: isRu
-                                  ? 'Прогрессивный (15% ≤ 42 500 € / 25%)'
-                                  : 'Progressif PME (15% ≤ 42 500 € / 25%)',
-                              },
-                              { value: 'standard_25', label: 'Standard (25%)' },
-                              { value: 'reduced_15', label: isRu ? 'Льготный (15%)' : 'Taux réduit (15%)' },
-                              { value: 'custom', label: isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)' },
+                              { value: 'EUR', label: 'EUR (€) — Euro' },
+                              { value: 'CHF', label: 'CHF — Franc suisse' },
+                              { value: 'GBP', label: 'GBP (£) — Livre sterling' },
+                              { value: 'USD', label: 'USD ($) — Dollar US' },
                             ]}
                             triggerClassName={inputClass}
                           />
                         </div>
-
-                        <div>
-                          <span className={labelClass}>
-                            {isRu ? 'Право на льготу 15% (PME)' : 'Éligible taux réduit 15% PME'}
-                          </span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              data-testid="settings-is-eligible-yes"
-                              onClick={() => updateTaxConfig({ reducedIsEligible: true })}
-                              className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                                taxConfig.reducedIsEligible
-                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              {isRu ? 'ДА (YES)' : 'OUI'}
-                            </button>
-                            <button
-                              type="button"
-                              data-testid="settings-is-eligible-no"
-                              onClick={() => updateTaxConfig({ reducedIsEligible: false })}
-                              className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
-                                !taxConfig.reducedIsEligible
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
-                              }`}
-                            >
-                              {isRu ? 'НЕТ (NO)' : 'NON'}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label htmlFor="settings-is-year" className={labelClass}>
-                            {isRu ? 'Отчётный год' : 'Exercice fiscal'}
-                          </label>
-                          <input
-                            id="settings-is-year"
-                            type="number"
-                            min={2020}
-                            max={2040}
-                            value={taxConfig.financialYear}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                financialYear: Number(e.target.value) || new Date().getFullYear(),
-                              })
-                            }
-                            className={`${inputClass} tabular-nums font-bold`}
-                          />
-                        </div>
                       </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        <div>
-                          <label htmlFor="settings-is-reduced-rate" className={labelClass}>
-                            {isRu ? 'Льготная ставка (%)' : 'Taux réduit (%)'}
-                          </label>
-                          <input
-                            id="settings-is-reduced-rate"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step="0.5"
-                            value={taxConfig.corporateTaxRateReduced}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                corporateTaxRateReduced: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                            className={`${inputClass} tabular-nums font-bold`}
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="settings-is-standard-rate" className={labelClass}>
-                            {isRu ? 'Стандартная ставка (%)' : 'Taux standard (%)'}
-                          </label>
-                          <input
-                            id="settings-is-standard-rate"
-                            type="number"
-                            min={0}
-                            max={100}
-                            step="0.5"
-                            value={taxConfig.corporateTaxRateStandard}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                corporateTaxRateStandard: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                            className={`${inputClass} tabular-nums font-bold`}
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="settings-is-threshold" className={labelClass}>
-                            {isRu ? 'Порог 15% (€)' : 'Plafond 15% (€)'}
-                          </label>
-                          <input
-                            id="settings-is-threshold"
-                            type="number"
-                            min={0}
-                            step="500"
-                            value={taxConfig.reducedIsThreshold}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                reducedIsThreshold: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                            className={`${inputClass} tabular-nums font-bold`}
-                          />
-                        </div>
-                        <div>
-                          <label htmlFor="settings-annual-profit" className={labelClass}>
-                            {isRu ? 'Годовая прибыль (€)' : 'Bénéfice annuel imposable (€)'}
-                          </label>
-                          <input
-                            id="settings-annual-profit"
-                            data-testid="settings-annual-profit-input"
-                            type="number"
-                            step="500"
-                            value={taxConfig.annualTaxableProfit}
-                            onChange={(e) =>
-                              updateTaxConfig({
-                                annualTaxableProfit: Number(e.target.value) || 0,
-                              })
-                            }
-                            className={`${inputClass} tabular-nums font-bold`}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Live Progressive IS Bracket Breakdown */}
+                    </div>
+                  ) : (
+                    /* MICRO-ENTREPRENEUR: Internal estimate banner + clean summary + collapsed-by-default detailed accordion */
+                    <>
                       <div
-                        data-testid="settings-is-breakdown"
-                        className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3"
+                        data-testid="settings-tax-disclaimer"
+                        className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200"
+                      >
+                        <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                              {t('taxEstimateBadge')}
+                            </span>
+                            <span className="font-semibold text-amber-100">
+                              {t('taxEstimateDisclaimerShort')}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-amber-200/80">
+                            {L(
+                              FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
+                              FRENCH_TAX_DEFAULTS.DISCLAIMER_RU,
+                              FRENCH_TAX_DEFAULTS.DISCLAIMER_HY,
+                              FRENCH_TAX_DEFAULTS.DISCLAIMER_KA
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Simplified P&L Overview + Currency/Margin */}
+                      <div
+                        data-testid="settings-micro-summary-card"
+                        className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-slate-200">
-                            {isRu
-                              ? `Расчёт годового налога IS (${taxConfig.financialYear})`
-                              : `Simulation Impôt sur les Sociétés (${taxConfig.financialYear})`}
-                          </span>
-                          <button
-                            type="button"
-                            data-testid="settings-record-is-history-btn"
-                            onClick={handleRecordIsHistory}
-                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition"
+                          <div>
+                            <h4 className="text-sm font-bold text-white">
+                              {t('profileMicroTitle')} — {L('Synthèse P&L simplifiée', 'Упрощённый расчёт P&L', 'Պարզեցված P&L ամփոփում', 'გამარტივებული P&L შეჯამება')}
+                            </h4>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {L(
+                                'Basé sur le chiffre d’affaires (prix de vente). Ajustez les taux précis dans le panneau avancé ci-dessous si besoin.',
+                                'Расчёт по обороту (цене продажи). При необходимости измените ставки в раскрывающемся разделе ниже.',
+                                'Հաշվարկը կատարվում է շրջանառությունից (վաճառքի գնից)։ Դրույքաչափերը կարող եք փոխել ստորև։',
+                                'გამოთვლა ეფუძნება ბრუნვას (გაყიდვის ფასს). ზუსტი განაკვეთების შეცვლა შეგიძლიათ ქვემოთ.'
+                              )}
+                            </p>
+                          </div>
+                          <span
+                            data-testid="settings-micro-combined-badge"
+                            className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500/15 text-amber-300 border border-amber-500/30 tabular-nums"
                           >
-                            {isRu ? 'Сохранить расчёт в историю' : 'Enregistrer ce calcul annuel'}
-                          </button>
+                            {L(
+                              `Taux CA estimé : ${combinedMicroRate}%`,
+                              `Ставка от оборота: ${combinedMicroRate}%`,
+                              `Շրջանառության դրույք՝ ${combinedMicroRate}%`,
+                              `ბრუნვის განაკვეთი: ${combinedMicroRate}%`
+                            )}
+                          </span>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                          <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu
-                                ? `До ${taxConfig.reducedIsThreshold.toLocaleString('fr-FR')} € (${taxConfig.corporateTaxRateReduced}%)`
-                                : `Tranche ≤ ${taxConfig.reducedIsThreshold.toLocaleString('fr-FR')} € (${taxConfig.corporateTaxRateReduced}%)`}
-                            </span>
-                            <span className="font-bold text-white tabular-nums">
-                              {isBreakdown.bracket15Tax.toLocaleString('fr-FR')} €
-                            </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <div>
+                            <label htmlFor="settings-default-margin" className={labelClass}>
+                              {L('Marge cible par défaut (%)', 'Целевая маржа по умолчанию (%)', 'Լռելյայն նպատակային մարժա (%)', 'ნაგულისხმევი სამიზნე მარჟა (%)')}
+                            </label>
+                            <input
+                              id="settings-default-margin"
+                              type="number"
+                              min={0}
+                              max={200}
+                              step="any"
+                              value={settings.defaultMarginPercent ?? 20}
+                              onChange={(e) =>
+                                setSettings({
+                                  ...settings,
+                                  defaultMarginPercent: Number(e.target.value) || 0,
+                                })
+                              }
+                              className={`${inputClass} tabular-nums font-bold`}
+                            />
                           </div>
-                          <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu
-                                ? `Свыше (${taxConfig.corporateTaxRateStandard}%)`
-                                : `Tranche > plafond (${taxConfig.corporateTaxRateStandard}%)`}
-                            </span>
-                            <span className="font-bold text-white tabular-nums">
-                              {isBreakdown.bracket25Tax.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'Итого IS к уплате' : 'Total IS estimé'}
-                            </span>
-                            <span
-                              data-testid="settings-is-total-value"
-                              className="font-extrabold text-amber-400 tabular-nums"
-                            >
-                              {isBreakdown.totalIsTax.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'Прибыль после IS' : 'Résultat net après IS'}
-                            </span>
-                            <span className="font-extrabold text-emerald-400 tabular-nums">
-                              {isBreakdown.netProfitAfterIs.toLocaleString('fr-FR')} €
-                            </span>
+
+                          <div>
+                            <label htmlFor="settings-currency" className={labelClass}>
+                              {L('Devise principale', 'Валюта расчётов', 'Հիմնական արժույթ', 'ძირითადი ვალუტა')}
+                            </label>
+                            <ThemedSelect<NonNullable<GarageSettings['currency']>>
+                              id="settings-currency"
+                              testId="settings-currency-select"
+                              ariaLabel={L('Devise principale', 'Валюта расчётов', 'Հիմնական արժույթ', 'ძირითადი ვალუტა')}
+                              value={settings.currency || 'EUR'}
+                              onChange={(val) =>
+                                setSettings({
+                                  ...settings,
+                                  currency: val,
+                                })
+                              }
+                              options={[
+                                { value: 'EUR', label: 'EUR (€) — Euro' },
+                                { value: 'CHF', label: 'CHF — Franc suisse' },
+                                { value: 'GBP', label: 'GBP (£) — Livre sterling' },
+                                { value: 'USD', label: 'USD ($) — Dollar US' },
+                              ]}
+                              triggerClassName={inputClass}
+                            />
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* Card 2C: Custom rate */}
-                  {taxConfig.businessTaxRegime === 'custom' && (
-                    <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label htmlFor="settings-tax-rate" className={labelClass}>
-                          {isRu ? 'Пользовательская ставка (%)' : 'Taux d’imposition personnalisé (%)'}
-                        </label>
-                        <input
-                          id="settings-tax-rate"
-                          type="number"
-                          min={0}
-                          max={100}
-                          step="any"
-                          value={taxConfig.corporateTaxCustomRate}
-                          onChange={(e) =>
-                            updateTaxConfig({
-                              corporateTaxCustomRate: Math.max(0, Number(e.target.value) || 0),
-                            })
-                          }
-                          className={`${inputClass} tabular-nums font-bold`}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="settings-is-effective-date" className={labelClass}>
-                          {isRu ? 'Дата вступления в силу' : 'Date d’effet'}
-                        </label>
-                        <input
-                          id="settings-is-effective-date"
-                          type="date"
-                          value={taxConfig.effectiveDates.is || getTodayIsoDate()}
-                          onChange={(e) =>
-                            updateTaxConfig({
-                              effectiveDates: { ...taxConfig.effectiveDates, is: e.target.value },
-                            })
-                          }
-                          className={inputClass}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Card 3: French VAT (TVA) Regimes */}
-                  <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-                    <div>
-                      <h4 className="text-sm font-bold text-white">
-                        {isRu
-                          ? 'Режимы НДС во Франции (TVA — по умолчанию для сделок и счетов)'
-                          : 'Régimes de TVA France (par défaut pour factures & cessions)'}
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {isRu
-                          ? 'Отделяется от URSSAF и IS. Для каждого автомобиля можно выбрать индивидуальный режим TVA при оформлении продажи.'
-                          : 'Strictement séparée de l’URSSAF et de l’IS. Modifiable au cas par cas lors de la vente d’un véhicule.'}
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="sm:col-span-2">
-                        <label htmlFor="settings-vat-regime" className={labelClass}>
-                          {isRu ? 'Режим TVA по умолчанию' : 'Régime TVA par défaut'}
-                        </label>
-                        <ThemedSelect<VatRegime>
-                          id="settings-vat-regime"
-                          testId="settings-vat-regime-select"
-                          ariaLabel={isRu ? 'Режим TVA по умолчанию' : 'Régime TVA par défaut'}
-                          value={taxConfig.vatRegime}
-                          onChange={(nextVat) => {
-                            const nextRate = nextVat === 'franchise_base' ? 0 : taxConfig.vatRatePercent || 20;
-                            const autoMention =
-                              nextVat === 'franchise_base'
-                                ? 'TVA non applicable, art. 293 B du CGI'
-                                : nextVat === 'tva_marge'
-                                ? 'Régime particulier - Biens d’occasion - TVA sur la marge (Art. 297 A du CGI)'
-                                : `TVA standard ${nextRate}% sur le prix total TTC (Art. 256 du CGI)`;
-                            updateTaxConfig(
-                              { vatRegime: nextVat, vatRatePercent: nextRate },
-                              { tvaMention: autoMention }
-                            );
-                          }}
-                          options={[
-                            {
-                              value: 'tva_marge',
-                              label: isRu
-                                ? 'TVA на маржу — Art. 297 A CGI (б/у авто)'
-                                : 'TVA sur la marge (Art. 297 A CGI)',
-                            },
-                            {
-                              value: 'tva_total',
-                              label: isRu
-                                ? 'Стандартный TVA 20% на всю цену'
-                                : 'TVA sur prix total (Standard 20%)',
-                            },
-                            {
-                              value: 'franchise_base',
-                              label: isRu
-                                ? 'Franchise en base (0% TVA — Art. 293 B CGI)'
-                                : 'Franchise en base de TVA (0% — Art. 293 B CGI)',
-                            },
-                            {
-                              value: 'custom',
-                              label: isRu ? 'Своя ставка TVA (%)' : 'Taux de TVA personnalisé (%)',
-                            },
-                          ]}
-                          triggerClassName={inputClass}
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="settings-vat-rate" className={labelClass}>
-                          {isRu ? 'Ставка TVA (%)' : 'Taux TVA (%)'}
-                        </label>
-                        <input
-                          id="settings-vat-rate"
-                          data-testid="settings-vat-rate-input"
-                          type="number"
-                          min={0}
-                          max={50}
-                          step="0.1"
-                          disabled={taxConfig.vatRegime === 'franchise_base'}
-                          value={taxConfig.vatRegime === 'franchise_base' ? 0 : taxConfig.vatRatePercent}
-                          onChange={(e) =>
-                            updateTaxConfig({
-                              vatRatePercent: Math.max(0, Number(e.target.value) || 0),
-                            })
-                          }
-                          className={`${inputClass} tabular-nums font-bold disabled:opacity-45`}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="settings-tva" className={labelClass}>
-                        {isRu ? 'Юридическая формулировка TVA в счетах' : 'Mention légale TVA (Factures & Factur-X)'}
-                      </label>
-                      <input
-                        id="settings-tva"
-                        type="text"
-                        value={settings.tvaMention || ''}
-                        onChange={(e) => setSettings({ ...settings, tvaMention: e.target.value })}
-                        placeholder="TVA sur marge — Article 297 A du CGI"
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Card 4: Live Interactive French Tax Simulator */}
-                  <div
-                    data-testid="settings-tax-simulator"
-                    className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Calculator className="w-4 h-4 text-amber-400" />
-                      <h4 className="text-sm font-bold text-white">
-                        {isRu
-                          ? 'Симулятор сделки (проверка разделения прибыли, URSSAF, IS и TVA)'
-                          : 'Simulateur en direct (Séparation Résultat / URSSAF / IR / IS / TVA)'}
-                      </h4>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label htmlFor="sim-purchase" className={labelClass}>
-                          {isRu ? 'Покупка авто (€)' : 'Achat véhicule (€)'}
-                        </label>
-                        <input
-                          id="sim-purchase"
-                          data-testid="sim-purchase-input"
-                          type="number"
-                          value={simPurchase}
-                          onChange={(e) => setSimPurchase(Math.max(0, Number(e.target.value) || 0))}
-                          className={`${inputClass} tabular-nums font-bold`}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="sim-repairs" className={labelClass}>
-                          {isRu ? 'Ремонт и расходы (€)' : 'Réparations & frais (€)'}
-                        </label>
-                        <input
-                          id="sim-repairs"
-                          data-testid="sim-repairs-input"
-                          type="number"
-                          value={simRepairs}
-                          onChange={(e) => setSimRepairs(Math.max(0, Number(e.target.value) || 0))}
-                          className={`${inputClass} tabular-nums font-bold`}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="sim-sale" className={labelClass}>
-                          {isRu ? 'Цена продажи (€ TTC)' : 'Prix de vente (€ TTC)'}
-                        </label>
-                        <input
-                          id="sim-sale"
-                          data-testid="sim-sale-input"
-                          type="number"
-                          value={simSale}
-                          onChange={(e) => setSimSale(Math.max(0, Number(e.target.value) || 0))}
-                          className={`${inputClass} tabular-nums font-bold`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                        <span className="text-[11px] text-slate-400 block">
-                          {isRu ? 'Прибыль до налогов' : 'Profit avant impôts'}
-                        </span>
-                        <span
-                          data-testid="sim-profit-before-tax"
-                          className={`font-extrabold tabular-nums ${
-                            simPnl.profitBeforeTaxes >= 0 ? 'text-emerald-400' : 'text-red-400'
-                          }`}
+                      {/* Collapsed-by-default Advanced Tax & TVA Accordion */}
+                      <div
+                        data-testid="settings-advanced-tax-accordion"
+                        className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          data-testid="settings-advanced-tax-toggle"
+                          aria-expanded={isAdvancedTaxOpen}
+                          onClick={() => setIsAdvancedTaxOpen((prev) => !prev)}
+                          className="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-slate-800/40 transition cursor-pointer"
                         >
-                          {simPnl.profitBeforeTaxes.toLocaleString('fr-FR')} €
-                        </span>
-                      </div>
-
-                      {taxConfig.businessTaxRegime === 'micro' ? (
-                        <>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              URSSAF ({taxConfig.socialContributionRate}% CA)
-                            </span>
-                            <span
-                              data-testid="sim-urssaf-amount"
-                              className="font-extrabold text-amber-400 tabular-nums"
-                            >
-                              {simMicro.urssafAmount.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {taxConfig.versementLiberatoireEnabled
-                                ? `VL (${taxConfig.versementLiberatoireRate}% CA)`
-                                : isRu
-                                ? `IR отд. (${taxConfig.microBicAbattementPercent}% вычет)`
-                                : `IR Micro-BIC séparé`}
-                            </span>
-                            <span
-                              data-testid="sim-vl-or-ir-amount"
-                              className="font-extrabold text-sky-400 tabular-nums"
-                            >
-                              {(taxConfig.versementLiberatoireEnabled
-                                ? simMicro.versementLiberatoireAmount
-                                : simMicro.separateMicroBicIncomeTax
-                              ).toLocaleString('fr-FR')}{' '}
-                              €
-                            </span>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'Итого URSSAF + VL' : 'Total cotis. Micro'}
-                            </span>
-                            <span
-                              data-testid="sim-micro-total-tax"
-                              className="font-extrabold text-white tabular-nums"
-                            >
-                              {simMicro.totalSocialAndVlAmount.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'НДС (TVA)' : 'TVA transaction'}
-                            </span>
-                            <span className="font-extrabold text-sky-400 tabular-nums">
-                              {simVat.vatAmount.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'База HT' : 'Montant HT'}
-                            </span>
-                            <span className="font-extrabold text-white tabular-nums">
-                              {simVat.htAmount.toLocaleString('fr-FR')} €
-                            </span>
-                          </div>
-                          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                            <span className="text-[11px] text-slate-400 block">
-                              {isRu ? 'Налог IS (годовой)' : 'Contexte IS annuel'}
-                            </span>
-                            <span className="font-semibold text-indigo-300 text-[11px]">
-                              {isRu
-                                ? 'По годовой прибыли компании'
-                                : 'Calculé sur résultat annuel'}
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Card 5: History (IS Calculations & Tax Settings Audit Trail) */}
-                  {((settings.isCalculationHistory && settings.isCalculationHistory.length > 0) ||
-                    (settings.taxAuditHistory && settings.taxAuditHistory.length > 0)) && (
-                    <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-                      <div className="flex items-center gap-2 text-xs font-bold text-white">
-                        <History className="w-4 h-4 text-amber-400" />
-                        <span>
-                          {isRu
-                            ? 'Журнал изменений налоговых настроек и история расчётов IS'
-                            : 'Historique fiscal (Calculs IS & Journal des modifications)'}
-                        </span>
-                      </div>
-
-                      {settings.isCalculationHistory && settings.isCalculationHistory.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-semibold text-slate-400">
-                            {isRu ? 'История расчётов IS:' : 'Calculs IS enregistrés :'}
-                          </p>
-                          {settings.isCalculationHistory.slice(0, 5).map((item) => (
-                            <div
-                              key={item.id}
-                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-[11px] flex flex-wrap items-center justify-between gap-2"
-                            >
-                              <span className="font-bold text-white">
-                                {item.financialYear} — {item.annualTaxableProfit.toLocaleString('fr-FR')} €
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Calculator className="w-4 h-4 text-amber-400 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="block text-xs sm:text-sm font-bold text-white truncate">
+                                {t('taxAdvancedAccordionTitle')}
                               </span>
-                              <span className="text-amber-400 font-bold tabular-nums">
-                                IS : {item.totalIsTax.toLocaleString('fr-FR')} € ({item.effectiveRatePercent}%)
+                              <span className="block text-[11px] text-slate-400 truncate">
+                                URSSAF {taxConfig.socialContributionRate}% •{' '}
+                                {taxConfig.versementLiberatoireEnabled
+                                  ? `VL +${taxConfig.versementLiberatoireRate}%`
+                                  : L('IR Micro-BIC séparé', 'IR Micro-BIC отдельно', 'IR Micro-BIC առանձին', 'IR Micro-BIC ცალკე')}
                               </span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          </div>
+                          {isAdvancedTaxOpen ? (
+                            <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                          )}
+                        </button>
 
-                      {settings.taxAuditHistory && settings.taxAuditHistory.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-[11px] font-semibold text-slate-400">
-                            {isRu ? 'Аудит изменений параметров:' : 'Audit des modifications fiscales :'}
-                          </p>
-                          {settings.taxAuditHistory.slice(0, 5).map((audit) => (
+                        {isAdvancedTaxOpen && (
+                          <div
+                            data-testid="settings-advanced-tax-body"
+                            className="px-4 pb-4 pt-2 border-t border-slate-800 space-y-4"
+                          >
+                            {/* URSSAF & Versement Libératoire */}
                             <div
-                              key={audit.id}
-                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-[11px] space-y-0.5"
+                              data-testid="settings-micro-panel"
+                              className="p-4 rounded-xl bg-slate-950/70 border border-amber-500/25 space-y-3"
                             >
-                              <div className="flex items-center justify-between text-slate-400">
-                                <span>{audit.actorEmail}</span>
-                                <span>{audit.timestamp.slice(0, 16).replace('T', ' ')}</span>
+                              <div>
+                                <h4 className="text-xs font-bold text-white">
+                                  {L(
+                                    'Micro-entreprise — Achat / Revente (estimation sur CA)',
+                                    'Micro-entreprise — Achat / Revente (оценка по обороту CA)',
+                                    'Micro-entreprise — Առք / Վաճառք (շրջանառությունից)',
+                                    'Micro-entreprise — ყიდვა / გაყიდვა (ბრუნვიდან)'
+                                  )}
+                                </h4>
+                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                  {L(
+                                    'Les cotisations URSSAF (12,3% par défaut) et le Versement libératoire (1% optionnel) s’appliquent au chiffre d’affaires encaissé.',
+                                    'Взносы URSSAF (по умолч. 12.3%) и Versement libératoire (1% опционально) рассчитываются от цены продажи (CA).',
+                                    'URSSAF (լռելյայն 12.3%) և Versement libératoire (1% ըստ ընտրության) հաշվարկվում են շրջանառությունից։',
+                                    'URSSAF (ნაგულისხმევი 12.3%) და Versement libératoire (1% არჩევითი) ითვლება გაყიდვის ბრუნვიდან.'
+                                  )}
+                                </p>
                               </div>
-                              <p className="text-slate-200 truncate">{audit.summary}</p>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                  <label htmlFor="settings-urssaf-rate" className={labelClass}>
+                                    {L('Cotisations URSSAF (%)', 'Соцвзносы URSSAF (%)', 'URSSAF վճարումներ (%)', 'URSSAF შენატანები (%)')}
+                                  </label>
+                                  <input
+                                    id="settings-urssaf-rate"
+                                    data-testid="settings-urssaf-rate-input"
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    step="0.1"
+                                    value={taxConfig.socialContributionRate}
+                                    onChange={(e) =>
+                                      updateTaxConfig({
+                                        socialContributionRate: Math.max(0, Number(e.target.value) || 0),
+                                      })
+                                    }
+                                    className={`${inputClass} tabular-nums font-bold`}
+                                  />
+                                </div>
+
+                                <div>
+                                  <span className={labelClass}>
+                                    {L('Versement libératoire', 'Versement libératoire (1%)', 'Versement libératoire', 'Versement libératoire')}
+                                  </span>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                      type="button"
+                                      data-testid="settings-vl-yes"
+                                      onClick={() => updateTaxConfig({ versementLiberatoireEnabled: true })}
+                                      className={`h-9 px-3 rounded-xl text-xs font-bold border transition ${
+                                        taxConfig.versementLiberatoireEnabled
+                                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                                      }`}
+                                    >
+                                      {L('OUI', 'ДА', 'ԱՅՈ', 'დიახ')}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      data-testid="settings-vl-no"
+                                      onClick={() => updateTaxConfig({ versementLiberatoireEnabled: false })}
+                                      className={`h-9 px-3 rounded-xl text-xs font-bold border transition ${
+                                        !taxConfig.versementLiberatoireEnabled
+                                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                                      }`}
+                                    >
+                                      {L('NON', 'НЕТ', 'ՈՉ', 'არა')}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label htmlFor="settings-vl-rate" className={labelClass}>
+                                    {L('Taux VL (%)', 'Ставка VL (%)', 'VL դրույք (%)', 'VL განაკვეთი (%)')}
+                                  </label>
+                                  <input
+                                    id="settings-vl-rate"
+                                    data-testid="settings-vl-rate-input"
+                                    type="number"
+                                    min={0}
+                                    max={50}
+                                    step="0.1"
+                                    disabled={!taxConfig.versementLiberatoireEnabled}
+                                    value={taxConfig.versementLiberatoireRate}
+                                    onChange={(e) =>
+                                      updateTaxConfig({
+                                        versementLiberatoireRate: Math.max(0, Number(e.target.value) || 0),
+                                      })
+                                    }
+                                    className={`${inputClass} tabular-nums font-bold disabled:opacity-45`}
+                                  />
+                                </div>
+                              </div>
+
+                              {!taxConfig.versementLiberatoireEnabled && (
+                                <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+                                  <div className="flex items-center gap-2 text-xs font-bold text-blue-300">
+                                    <Info className="w-4 h-4 shrink-0" />
+                                    <span>
+                                      {L(
+                                        'Versement libératoire désactivé : seul le taux URSSAF est appliqué. L’impôt sur le revenu Micro-BIC est estimé séparément (sans +1%).',
+                                        'Versement libératoire отключён: применяется только ставка URSSAF. Подоходный налог Micro-BIC оценивается отдельно (без +1%).',
+                                        'Versement libératoire-ն անջատված է՝ կիրառվում է միայն URSSAF-ը։ Micro-BIC եկամտահարկը գնահատվում է առանձին։',
+                                        'Versement libératoire გამორთულია: გამოიყენება მხოლოდ URSSAF. Micro-BIC საშემოსავლო გადასახადი ითვლება ცალკე.'
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label htmlFor="settings-micro-abattement" className={labelClass}>
+                                        {L(
+                                          'Abattement forfaitaire Micro-BIC (%)',
+                                          'Вычет Micro-BIC Achat/Revente (%)',
+                                          'Micro-BIC նվազեցում (%)',
+                                          'Micro-BIC გამოქვითვა (%)'
+                                        )}
+                                      </label>
+                                      <input
+                                        id="settings-micro-abattement"
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        step="1"
+                                        value={taxConfig.microBicAbattementPercent}
+                                        onChange={(e) =>
+                                          updateTaxConfig({
+                                            microBicAbattementPercent: Math.min(
+                                              100,
+                                              Math.max(0, Number(e.target.value) || 0)
+                                            ),
+                                          })
+                                        }
+                                        className={`${inputClass} tabular-nums font-bold`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label htmlFor="settings-micro-ir-rate" className={labelClass}>
+                                        {L(
+                                          'Taux marginal IR estimé (%)',
+                                          'Оценочная ставка подоходного IR (%)',
+                                          'Գնահատված IR դրույք (%)',
+                                          'სავარაუდო IR განაკვეთი (%)'
+                                        )}
+                                      </label>
+                                      <input
+                                        id="settings-micro-ir-rate"
+                                        type="number"
+                                        min={0}
+                                        max={60}
+                                        step="0.5"
+                                        value={taxConfig.microBicIncomeTaxRate}
+                                        onChange={(e) =>
+                                          updateTaxConfig({
+                                            microBicIncomeTaxRate: Math.max(0, Number(e.target.value) || 0),
+                                          })
+                                        }
+                                        className={`${inputClass} tabular-nums font-bold`}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div>
+                                <label htmlFor="settings-urssaf-effective-date" className={labelClass}>
+                                  {L('Date d’effet (URSSAF)', 'Дата вступления в силу (URSSAF)', 'Գործողության ամսաթիվ (URSSAF)', 'ძალაში შესვლის თარიღი (URSSAF)')}
+                                </label>
+                                <input
+                                  id="settings-urssaf-effective-date"
+                                  type="date"
+                                  value={taxConfig.effectiveDates.urssaf || getTodayIsoDate()}
+                                  onChange={(e) =>
+                                    updateTaxConfig({
+                                      effectiveDates: {
+                                        ...taxConfig.effectiveDates,
+                                        urssaf: e.target.value,
+                                      },
+                                    })
+                                  }
+                                  className={`${inputClass} sm:max-w-xs`}
+                                />
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+
+                            {/* Live Interactive Micro-entrepreneur Simulator */}
+                            <div
+                              data-testid="settings-tax-simulator"
+                              className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Calculator className="w-4 h-4 text-amber-400" />
+                                  <h4 className="text-xs font-bold text-white">
+                                    {L(
+                                      'Simulateur en direct (Estimation interne)',
+                                      'Симулятор сделки (Внутренняя оценка)',
+                                      'Գործարքի սիմուլյատոր (Ներքին գնահատական)',
+                                      'გარიგების სიმულატორი (შიდა შეფასება)'
+                                    )}
+                                  </h4>
+                                </div>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  {t('taxEstimateBadge')}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                  <label htmlFor="sim-purchase" className={labelClass}>
+                                    {L('Achat véhicule (€)', 'Покупка авто (€)', 'Գնում (€)', 'შესყიდვა (€)')}
+                                  </label>
+                                  <input
+                                    id="sim-purchase"
+                                    data-testid="sim-purchase-input"
+                                    type="number"
+                                    value={simPurchase}
+                                    onChange={(e) => setSimPurchase(Math.max(0, Number(e.target.value) || 0))}
+                                    className={`${inputClass} tabular-nums font-bold`}
+                                  />
+                                </div>
+                                <div>
+                                  <label htmlFor="sim-repairs" className={labelClass}>
+                                    {L('Réparations & frais (€)', 'Ремонт и расходы (€)', 'Վերանորոգում և ծախսեր (€)', 'რემონტი და ხარჯები (€)')}
+                                  </label>
+                                  <input
+                                    id="sim-repairs"
+                                    data-testid="sim-repairs-input"
+                                    type="number"
+                                    value={simRepairs}
+                                    onChange={(e) => setSimRepairs(Math.max(0, Number(e.target.value) || 0))}
+                                    className={`${inputClass} tabular-nums font-bold`}
+                                  />
+                                </div>
+                                <div>
+                                  <label htmlFor="sim-sale" className={labelClass}>
+                                    {L('Prix de vente (€ TTC)', 'Цена продажи (€ TTC)', 'Վաճառքի գին (€ TTC)', 'გაყიდვის ფასი (€ TTC)')}
+                                  </label>
+                                  <input
+                                    id="sim-sale"
+                                    data-testid="sim-sale-input"
+                                    type="number"
+                                    value={simSale}
+                                    onChange={(e) => setSimSale(Math.max(0, Number(e.target.value) || 0))}
+                                    className={`${inputClass} tabular-nums font-bold`}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                  <span className="text-[11px] text-slate-400 block">
+                                    {L('Profit avant taxes', 'Прибыль до налогов', 'Շահույթ մինչև հարկերը', 'მოგება გადასახადებამდე')}
+                                  </span>
+                                  <span
+                                    data-testid="sim-profit-before-tax"
+                                    className={`font-extrabold tabular-nums ${
+                                      simPnl.profitBeforeTaxes >= 0 ? 'text-emerald-400' : 'text-red-400'
+                                    }`}
+                                  >
+                                    {simPnl.profitBeforeTaxes.toLocaleString(intlLocale)} €
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                  <span className="text-[11px] text-slate-400 block">
+                                    URSSAF ({taxConfig.socialContributionRate}% CA)
+                                  </span>
+                                  <span
+                                    data-testid="sim-urssaf-amount"
+                                    className="font-extrabold text-amber-400 tabular-nums"
+                                  >
+                                    {simMicro.urssafAmount.toLocaleString(intlLocale)} €
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                  <span className="text-[11px] text-slate-400 block">
+                                    {taxConfig.versementLiberatoireEnabled
+                                      ? `VL (${taxConfig.versementLiberatoireRate}% CA)`
+                                      : L('IR Micro-BIC séparé', 'IR отд. (Micro-BIC)', 'IR առանձին', 'IR ცალკე')}
+                                  </span>
+                                  <span
+                                    data-testid="sim-vl-or-ir-amount"
+                                    className="font-extrabold text-sky-400 tabular-nums"
+                                  >
+                                    {(taxConfig.versementLiberatoireEnabled
+                                      ? simMicro.versementLiberatoireAmount
+                                      : simMicro.separateMicroBicIncomeTax
+                                    ).toLocaleString(intlLocale)}{' '}
+                                    €
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                                  <span className="text-[11px] text-slate-400 block">
+                                    {L('Net estimé après cotisations', 'Оценочный чистый результат', 'Գնահատված զուտ արդյունք', 'სავარაუდო წმინდა შედეგი')}
+                                  </span>
+                                  <span
+                                    data-testid="sim-net-after-tax"
+                                    className={`font-extrabold tabular-nums ${
+                                      simNetAfterTaxes >= 0 ? 'text-emerald-400' : 'text-red-400'
+                                    }`}
+                                  >
+                                    {simNetAfterTaxes >= 0 ? '+' : ''}
+                                    {simNetAfterTaxes.toLocaleString(intlLocale)} €
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {settings.taxAuditHistory && settings.taxAuditHistory.length > 0 && (
+                              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                                  <History className="w-4 h-4 text-amber-400" />
+                                  <span>
+                                    {L(
+                                      'Journal des modifications de paramètres',
+                                      'Журнал изменений параметров',
+                                      'Կարգավորումների փոփոխությունների մատյան',
+                                      'პარამეტრების ცვლილებების ჟურნალი'
+                                    )}
+                                  </span>
+                                </div>
+                                {settings.taxAuditHistory.slice(0, 5).map((audit) => (
+                                  <div
+                                    key={audit.id}
+                                    className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-[11px] space-y-0.5"
+                                  >
+                                    <div className="flex items-center justify-between text-slate-400">
+                                      <span>{audit.actorEmail}</span>
+                                      <span>{audit.timestamp.slice(0, 16).replace('T', ' ')}</span>
+                                    </div>
+                                    <p className="text-slate-200 truncate">{audit.summary}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
 
                   {/* Backup & Data Export */}
-                  <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                     <div>
                       <h4 className="text-sm font-bold text-white">
-                        {isRu ? 'Экспорт и резервное копирование' : 'Export comptable & Sauvegarde'}
+                        {L('Export comptable & Sauvegarde', 'Экспорт и резервное копирование', 'Արտահանում և պահուստավորում', 'ექსპორტი და სარეზერვო ასლი')}
                       </h4>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {isRu
-                          ? 'Выгрузите базу автомобилей в JSON или CSV для бухгалтерии.'
-                          : 'Exportez vos véhicules et bilans en JSON ou CSV pour votre comptabilité.'}
+                        {L(
+                          'Exportez vos véhicules et bilans en JSON ou CSV.',
+                          'Выгрузите базу автомобилей в JSON или CSV.',
+                          'Արտահանեք ավտոմեքենաների բազան JSON կամ CSV ձևաչափով։',
+                          'გაატანეთ ავტომობილების ბაზა JSON ან CSV ფორმატში.'
+                        )}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap gap-2.5">
                       <button
                         type="button"
                         onClick={handleExportJson}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2"
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-2"
                       >
                         <Download className="w-4 h-4" />
-                        <span>{isRu ? 'Экспорт БД (JSON)' : 'Exporter Base (JSON)'}</span>
+                        <span>{L('Exporter Base (JSON)', 'Экспорт БД (JSON)', 'Արտահանել (JSON)', 'ექსპორტი (JSON)')}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={handleExportCsv}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 border border-slate-700"
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 border border-slate-700"
                       >
                         <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                        <span>{isRu ? 'Экспорт авто (CSV)' : 'Exporter Véhicules (CSV)'}</span>
+                        <span>{L('Exporter Véhicules (CSV)', 'Экспорт авто (CSV)', 'Արտահանել (CSV)', 'ექსპორტი (CSV)')}</span>
                       </button>
 
                       <input
@@ -2154,10 +1964,10 @@ export const Settings: React.FC<SettingsProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 border border-slate-700"
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white transition flex items-center gap-2 border border-slate-700"
                       >
                         <Upload className="w-4 h-4 text-amber-400" />
-                        <span>{isRu ? 'Импорт БД (JSON)' : 'Importer Base (JSON)'}</span>
+                        <span>{L('Importer Base (JSON)', 'Импорт БД (JSON)', 'Ներմուծել (JSON)', 'იმპორტი (JSON)')}</span>
                       </button>
                     </div>
                   </div>
@@ -2170,12 +1980,15 @@ export const Settings: React.FC<SettingsProps> = ({
               <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {isRu ? 'Внешний вид' : 'Apparence & Affichage'}
+                    {L('Apparence & Affichage', 'Внешний вид', 'Արտաքին տեսք', 'გარეგნობა და ჩვენება')}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {isRu
-                      ? 'Выбор темы, языка интерфейса и вида автопарка по умолчанию.'
-                      : 'Préférence de thème, langue de l’interface et vue par défaut du parc.'}
+                    {L(
+                      'Préférence de thème, langue de l’interface et vue par défaut du parc.',
+                      'Выбор темы, языка интерфейса и вида автопарка по умолчанию.',
+                      'Թեմայի, ինտերֆեյսի լեզվի և լռելյայն տեսքի ընտրություն։',
+                      'თემის, ინტერფეისის ენისა და ნაგულისხმევი ხედის არჩევა.'
+                    )}
                   </p>
                 </div>
 
@@ -2187,7 +2000,7 @@ export const Settings: React.FC<SettingsProps> = ({
                     ) : (
                       <Sun className="w-4 h-4 text-amber-500" />
                     )}
-                    <span>{isRu ? 'Тема оформления' : 'Thème d’affichage'}</span>
+                    <span>{L('Thème d’affichage', 'Тема оформления', 'Թեմա', 'თემა')}</span>
                   </div>
                   <div className="grid grid-cols-2 sm:max-w-md gap-2">
                     <button
@@ -2223,7 +2036,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                   <div className="flex items-center gap-2 text-xs font-bold text-white">
                     <Languages className="w-4 h-4 text-blue-400" />
-                    <span>{isRu ? 'Язык интерфейса' : 'Langue de l’interface'}</span>
+                    <span>{L('Langue de l’interface', 'Язык интерфейса', 'Ինտերֆեյսի լեզուն', 'ინტერფეისის ენა')}</span>
                   </div>
                   <div
                     data-testid="settings-language-grid"
@@ -2259,9 +2072,12 @@ export const Settings: React.FC<SettingsProps> = ({
                     <div className="flex items-center gap-2 text-xs font-bold text-white">
                       <PanelLeft className="w-4 h-4 text-amber-400" />
                       <span>
-                        {isRu
-                          ? 'Новый дизайн / Макет интерфейса (Layout)'
-                          : 'Nouveau Design / Disposition de l’interface'}
+                        {L(
+                          'Disposition de l’interface',
+                          'Макет интерфейса (Layout)',
+                          'Ինտերֆեյսի դասավորություն',
+                          'ინტერფეისის განლაგება'
+                        )}
                       </span>
                     </div>
                     {layoutPreference !== 'global' && onLayoutPreferenceChange && (
@@ -2271,16 +2087,22 @@ export const Settings: React.FC<SettingsProps> = ({
                           onLayoutPreferenceChange('global');
                           setStatusMessage({
                             type: 'success',
-                            text: isRu
-                              ? 'Сброшено к глобальному макету платформы.'
-                              : 'Réinitialisé sur la disposition globale.',
+                            text: L(
+                              'Réinitialisé sur la disposition globale.',
+                              'Сброшено к глобальному макету платформы.',
+                              'Վերականգնված է գլոբալ դասավորությունը։',
+                              'აღდგენილია გლობალური განლაგება.'
+                            ),
                           });
                         }}
                         className="text-[11px] font-semibold text-amber-400 hover:underline"
                       >
-                        {isRu
-                          ? `По умолчанию (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`
-                          : `Par défaut (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classique'})`}
+                        {L(
+                          `Par défaut (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classique'})`,
+                          `По умолчанию (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`,
+                          `Լռելյայն (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`,
+                          `ნაგულისხმევი (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`
+                        )}
                       </button>
                     )}
                   </div>
@@ -2292,9 +2114,12 @@ export const Settings: React.FC<SettingsProps> = ({
                         onLayoutPreferenceChange?.('classic');
                         setStatusMessage({
                           type: 'success',
-                          text: isRu
-                            ? 'Включён классический макет (Top-Nav).'
-                            : 'Disposition classique (Top-Nav) activée.',
+                          text: L(
+                            'Disposition classique (Top-Nav) activée.',
+                            'Включён классический макет (Top-Nav).',
+                            'Դասական տեսքը միացված է։',
+                            'კლასიკური განლაგება ჩართულია.'
+                          ),
                         });
                       }}
                       className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
@@ -2304,7 +2129,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       }`}
                     >
                       <PanelTop className="w-3.5 h-3.5" />
-                      <span>{isRu ? 'Классическая шапка' : 'En-tête Classique'}</span>
+                      <span>{L('En-tête Classique', 'Классическая шапка', 'Դասական վերնագիր', 'კლასიკური მენიუ')}</span>
                     </button>
                     <button
                       type="button"
@@ -2313,9 +2138,12 @@ export const Settings: React.FC<SettingsProps> = ({
                         onLayoutPreferenceChange?.('sidebar');
                         setStatusMessage({
                           type: 'success',
-                          text: isRu
-                            ? 'Включён новый дизайн (Sidebar Layout).'
-                            : 'Nouveau design (Sidebar Layout) activé.',
+                          text: L(
+                            'Nouveau design (Sidebar Layout) activé.',
+                            'Включён новый дизайн (Sidebar Layout).',
+                            'Կողմնային ընտրացանկը միացված է։',
+                            'გვერდითი მენიუ ჩართულია.'
+                          ),
                         });
                       }}
                       className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
@@ -2325,7 +2153,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       }`}
                     >
                       <PanelLeft className="w-3.5 h-3.5" />
-                      <span>{isRu ? 'Новый дизайн (Sidebar)' : 'Nouveau Design (Sidebar)'}</span>
+                      <span>{L('Nouveau Design (Sidebar)', 'Новый дизайн (Sidebar)', 'Նոր դիզայն (Sidebar)', 'ახალი დიზაინი (Sidebar)')}</span>
                     </button>
                   </div>
                 </div>
@@ -2333,7 +2161,12 @@ export const Settings: React.FC<SettingsProps> = ({
                 {/* Compact Grid / List Default View */}
                 <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
                   <div className="text-xs font-bold text-white">
-                    {isRu ? 'Режим отображения инвентаря по умолчанию' : 'Mode d’affichage par défaut du parc'}
+                    {L(
+                      'Mode d’affichage par défaut du parc',
+                      'Режим отображения инвентаря по умолчанию',
+                      'Ավտոպարկի լռելյայն տեսքը',
+                      'ავტოპარკის ნაგულისხმევი ხედი'
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <button
@@ -2346,7 +2179,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       }`}
                     >
                       <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>{isRu ? 'Компактная сетка (Grid)' : 'Grille Compacte (Grid)'}</span>
+                      <span>{L('Grille Compacte (Grid)', 'Компактная сетка (Grid)', 'Ցանց (Grid)', 'ბადე (Grid)')}</span>
                     </button>
                     <button
                       type="button"
@@ -2358,7 +2191,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       }`}
                     >
                       <List className="w-3.5 h-3.5" />
-                      <span>{isRu ? 'Табличный список (List)' : 'Vue Liste (Tableau)'}</span>
+                      <span>{L('Vue Liste (Tableau)', 'Табличный список (List)', 'Ցանկ (List)', 'ცხრილი (List)')}</span>
                     </button>
                   </div>
                 </div>
@@ -2370,21 +2203,24 @@ export const Settings: React.FC<SettingsProps> = ({
               <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {isRu ? 'Безопасность и Аккаунт' : 'Sécurité & Compte'}
+                    {L('Sécurité & Compte', 'Безопасность и Аккаунт', 'Անվտանգություն և հաշիվ', 'უსაფრთხოება და ანგარიში')}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {isRu
-                      ? 'Управление паролем, ролью доступа, активной сессией и локальным кэшем.'
-                      : 'Gestion du mot de passe, rôle d’accès, session active et cache local.'}
+                    {L(
+                      'Gestion du mot de passe, rôle d’accès, session active et cache local.',
+                      'Управление паролем, ролью доступа, активной сессией и локальным кэшем.',
+                      'Գաղտնաբառի, մուտքի դերի և տեղային քեշի կառավարում։',
+                      'პაროლის, წვდომის როლის და ლოკალური ქეშის მართვა.'
+                    )}
                   </p>
                 </div>
 
                 {/* Account & Role Card */}
-                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <span className="text-[11px] text-slate-400 block">
-                        {isRu ? 'Активный аккаунт' : 'Compte actif'}
+                        {L('Compte actif', 'Активный аккаунт', 'Ակտիվ հաշիվ', 'აქტიური ანგარიში')}
                       </span>
                       <span className="text-sm font-bold text-white">{resolvedEmail}</span>
                     </div>
@@ -2395,15 +2231,22 @@ export const Settings: React.FC<SettingsProps> = ({
                           : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
                       }`}
                     >
-                      {userRole === 'superadmin' ? 'SUPERADMIN' : isRu ? 'Пользователь (User)' : 'Utilisateur'}
+                      {userRole === 'superadmin'
+                        ? 'SUPERADMIN'
+                        : activeProfileType === 'particulier'
+                        ? t('profileBadgeParticulier')
+                        : t('profileBadgeMicro')}
                     </span>
                   </div>
 
                   <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
                     <div className="text-xs text-slate-400">
-                      {isRu
-                        ? 'Отправить ссылку для смены пароля на ваш Email'
-                        : 'Envoyer un lien de réinitialisation de mot de passe par e-mail'}
+                      {L(
+                        'Envoyer un lien de réinitialisation de mot de passe par e-mail',
+                        'Отправить ссылку для смены пароля на ваш Email',
+                        'Ուղարկել գաղտնաբառի փոփոխման հղումը էլ․ փոստով',
+                        'გააგზავნეთ პაროლის აღდგენის ბმული ელფოსტაზე'
+                      )}
                     </div>
                     <button
                       type="button"
@@ -2411,15 +2254,15 @@ export const Settings: React.FC<SettingsProps> = ({
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 transition"
                     >
                       <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{isRu ? 'Сменить пароль' : 'Réinitialiser mot de passe'}</span>
+                      <span>{L('Réinitialiser mot de passe', 'Сменить пароль', 'Փոխել գաղտնաբառը', 'პაროლის შეცვლა')}</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Clear Local Cache with inline confirmation */}
-                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                   <h4 className="text-sm font-bold text-white">
-                    {isRu ? 'Сброс локального кэша' : 'Réinitialisation du cache local'}
+                    {L('Réinitialisation du cache local', 'Сброс локального кэша', 'Տեղային քեշի մաքրում', 'ლოკალური ქეშის განულება')}
                   </h4>
                   {!confirmClearCache ? (
                     <button
@@ -2428,14 +2271,17 @@ export const Settings: React.FC<SettingsProps> = ({
                       className="px-4 py-2 rounded-xl text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition flex items-center gap-2"
                     >
                       <Trash2 className="w-4 h-4" />
-                      <span>{isRu ? 'Очистить локальный кэш' : 'Vider le cache local'}</span>
+                      <span>{L('Vider le cache local', 'Очистить локальный кэш', 'Մաքրել տեղային քեշը', 'ლოკალური ქეშის გასუფთავება')}</span>
                     </button>
                   ) : (
-                    <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 flex flex-wrap items-center justify-between gap-3">
+                    <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex flex-wrap items-center justify-between gap-3">
                       <span className="text-xs text-red-300 font-semibold">
-                        {isRu
-                          ? 'Подтвердить удаление локальных данных (авто, расходы, настройки)?'
-                          : 'Confirmer la suppression du cache local (véhicules, dépenses, paramètres) ?'}
+                        {L(
+                          'Confirmer la suppression du cache local (véhicules, dépenses, paramètres) ?',
+                          'Подтвердить удаление локальных данных (авто, расходы, настройки)?',
+                          'Հաստատե՞լ տեղային տվյալների ջնջումը։',
+                          'დავადასტუროთ ლოკალური მონაცემების წაშლა?'
+                        )}
                       </span>
                       <div className="flex items-center gap-2">
                         <button
@@ -2443,14 +2289,14 @@ export const Settings: React.FC<SettingsProps> = ({
                           onClick={() => setConfirmClearCache(false)}
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:text-white"
                         >
-                          {isRu ? 'Отмена' : 'Annuler'}
+                          {L('Annuler', 'Отмена', 'Չեղարկել', 'გაუქმება')}
                         </button>
                         <button
                           type="button"
                           onClick={handleConfirmClearCache}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-500 text-white"
                         >
-                          {isRu ? 'Да, очистить' : 'Confirmer'}
+                          {L('Confirmer', 'Да, очистить', 'Հաստատել', 'დადასტურება')}
                         </button>
                       </div>
                     </div>
@@ -2473,16 +2319,19 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base sm:text-lg font-extrabold text-[var(--foreground)]">
-                  {isRu ? 'Настройки гаража' : 'Paramètres du Garage'}
+                  {L('Paramètres du Garage', 'Настройки гаража', 'Ավտոսրահի կարգավորումներ', 'გარაჟის პარამეტრები')}
                 </h2>
                 <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[200px]">
                   {settings.name || 'AutoGarage Manager'}
                 </span>
               </div>
               <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                {isRu
-                  ? 'Реквизиты компании, налоговый режим (SARL/Micro/Custom), валюта, заметки TVA и резервное копирование'
-                  : 'Coordonnées entreprise, régime fiscal (SARL/Micro/Personnalisé), devise, mention TVA et sauvegarde'}
+                {L(
+                  'Profil (Particulier / Micro-entrepreneur), devise, Cerfa et sauvegarde',
+                  'Профиль (Particulier / Micro-entrepreneur), валюта, Cerfa и резервное копирование',
+                  'Պրոֆիլ (Particulier / Micro-entrepreneur), արժույթ, Cerfa և պահուստավորում',
+                  'პროფილი (Particulier / Micro-entrepreneur), ვალუტა, Cerfa და სარეზერვო ასლი'
+                )}
               </p>
             </div>
           </div>
@@ -2494,12 +2343,12 @@ export const Settings: React.FC<SettingsProps> = ({
             className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
+            <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
           </button>
         </div>
 
         {/* Full-Width Natural-Scrolling Workspace Content */}
-        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-4">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
           {mainContent}
 
           <div className="pt-3 border-t border-[var(--border)] flex items-center justify-end">
@@ -2510,7 +2359,7 @@ export const Settings: React.FC<SettingsProps> = ({
               className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 cursor-pointer"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
+              <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
             </button>
           </div>
         </div>
@@ -2532,7 +2381,7 @@ export const Settings: React.FC<SettingsProps> = ({
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label={isRu ? 'Меню настроек' : 'Menu des paramètres'}
+              aria-label={L('Menu des paramètres', 'Меню настроек', 'Կարգավորումների մենյու', 'პარამეტრების მენიუ')}
               className="md:hidden p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white transition"
             >
               <Menu className="w-4 h-4" />
@@ -2542,12 +2391,15 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h2 id="settings-modal-title" className="text-base sm:text-lg font-bold text-white">
-                {isRu ? 'Настройки AutoGarage Manager' : 'Paramètres AutoGarage Manager'}
+                {L('Paramètres AutoGarage Manager', 'Настройки AutoGarage Manager', 'AutoGarage Manager կարգավորումներ', 'AutoGarage Manager პარამეტრები')}
               </h2>
               <p className="text-[11px] text-slate-400 hidden sm:block">
-                {isRu
-                  ? 'Профиль гаража, бланки Cerfa, финансы, внешний вид и безопасность'
-                  : 'Profil garage, modèles Cerfa, finances, apparence et sécurité'}
+                {L(
+                  'Profil, modèles Cerfa, finances, apparence et sécurité',
+                  'Профиль, бланки Cerfa, финансы, внешний вид и безопасность',
+                  'Պրոֆիլ, Cerfa ձևաթղթեր, ֆինանսներ և անվտանգություն',
+                  'პროფილი, Cerfa ბლანკები, ფინანსები და უსაფრთხოება'
+                )}
               </p>
             </div>
           </div>
@@ -2594,7 +2446,7 @@ export const Settings: React.FC<SettingsProps> = ({
             <div className="md:hidden absolute inset-0 z-20 flex">
               <aside className="w-64 bg-slate-900 border-r border-slate-800 p-4 space-y-2 shadow-2xl">
                 <p className="text-[11px] font-bold tracking-wider text-amber-400 px-2 pb-2 border-b border-slate-800">
-                  {isRu ? 'РАЗДЕЛЫ НАСТРОЕК' : 'SECTIONS'}
+                  {L('SECTIONS', 'РАЗДЕЛЫ НАСТРОЕК', 'ԲԱԺԻՆՆԵՐ', 'სექციები')}
                 </p>
                 <nav className="space-y-1" aria-label="Settings mobile navigation">
                   {navItems.map((item) => {
@@ -2608,7 +2460,7 @@ export const Settings: React.FC<SettingsProps> = ({
                           setActiveTab(item.id);
                           setMobileMenuOpen(false);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
                           active
                             ? 'bg-amber-500 text-slate-950 shadow-sm'
                             : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -2628,11 +2480,11 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
           )}
 
-          {/* Desktop Fixed Left Sidebar (Matching SuperAdmin Panel UX) */}
+          {/* Desktop Fixed Left Sidebar */}
           <aside className="hidden md:flex md:flex-col w-64 shrink-0 bg-slate-900/95 border-r border-slate-800 p-4 space-y-4 overflow-y-auto">
             <div className="px-2 pb-2 border-b border-slate-800">
               <p className="text-[11px] font-bold tracking-wider text-amber-400">
-                {isRu ? 'КОНФИГУРАЦИЯ' : 'CONFIGURATION'}
+                {L('CONFIGURATION', 'КОНФИГУРАЦИЯ', 'ԿԱՐԳԱՎՈՐՈՒՄ', 'კონფიგურაცია')}
               </p>
               <p className="text-xs font-bold text-white mt-0.5 truncate">
                 {settings.name || 'AutoGarage Manager'}
@@ -2648,7 +2500,7 @@ export const Settings: React.FC<SettingsProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => setActiveTab(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap ${
                       active
                         ? 'bg-amber-500 text-slate-950 shadow-sm'
                         : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -2663,27 +2515,27 @@ export const Settings: React.FC<SettingsProps> = ({
           </aside>
 
           {/* Right Content Area */}
-          <section className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-6 space-y-5 bg-slate-950/30">
+          <section className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-5 space-y-4 bg-slate-950/30">
             {mainContent}
           </section>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-slate-800 bg-slate-950/70 flex items-center justify-end gap-3 shrink-0">
+        <div className="px-5 py-3.5 border-t border-slate-800 bg-slate-950/70 flex items-center justify-end gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}
             className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl transition"
           >
-            {isRu ? 'Закрыть' : 'Fermer'}
+            {L('Fermer', 'Закрыть', 'Փակել', 'დახურვა')}
           </button>
           <button
             type="button"
             onClick={() => handleSaveSettings()}
-            className="px-6 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
+            className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />
-            <span>{isRu ? 'Сохранить настройки' : 'Enregistrer les paramètres'}</span>
+            <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
           </button>
         </div>
       </div>

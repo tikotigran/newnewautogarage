@@ -122,10 +122,15 @@ export function generateSalesInvoicePDF(
   doc.text(`Facture N° ${invoiceNumber}  |  Date de cession : ${buyer.saleDate}`, 14, 26);
 
   // Seller & Buyer 2-Column Boxes
+  const isParticulierSeller =
+    garageSettings.profileType === 'particulier' ||
+    garageSettings.legalStatus === 'particulier' ||
+    garageSettings.taxRegime === 'none';
+
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('VÉNDEUR (GARAGE)', 14, 42);
+  doc.text(isParticulierSeller ? 'VENDEUR (PARTICULIER)' : 'VENDEUR (GARAGE)', 14, 42);
   doc.text('ACHETEUR (CLIENT)', 112, 42);
 
   doc.setFillColor(248, 250, 252);
@@ -140,7 +145,11 @@ export function generateSalesInvoicePDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(`SIRET : ${garageSettings.siret}`, 18, 58);
+  if (!isParticulierSeller && garageSettings.siret) {
+    doc.text(`SIRET : ${garageSettings.siret}`, 18, 58);
+  } else if (isParticulierSeller) {
+    doc.text('Vendeur particulier (vente privée)', 18, 58);
+  }
   doc.text(sellerAddress, 18, 64, { maxWidth: 80 });
   doc.text(`Tél : ${garageSettings.phone}  |  ${garageSettings.email}`, 18, 76, { maxWidth: 80 });
 
@@ -226,16 +235,27 @@ export function generateSalesInvoicePDF(
   doc.setTextColor(100, 116, 139);
   doc.text('Contrôle technique valide remis et certificat de situation administrative vierge', 20, 166);
 
-  const resolvedVatRegime: VatRegime =
-    vehicle.buyerInfo?.vatRegime ||
-    vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-    garageSettings.frenchTaxConfig?.vatRegime ||
-    'tva_marge';
-  const resolvedVatRate =
-    vehicle.buyerInfo?.vatRatePercent ??
-    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-    garageSettings.frenchTaxConfig?.vatRatePercent ??
-    20;
+  const isCorporateVatSeller =
+    garageSettings.taxRegime === 'sarl' ||
+    garageSettings.taxRegime === 'sas' ||
+    garageSettings.taxRegime === 'custom';
+  const resolvedVatRegime: VatRegime = isCorporateVatSeller
+    ? vehicle.buyerInfo?.vatRegime ||
+      vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+      garageSettings.frenchTaxConfig?.vatRegime ||
+      'tva_marge'
+    : vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
+      vehicle.buyerInfo.taxSnapshot.vatAmount > 0
+    ? vehicle.buyerInfo.taxSnapshot.vatRegime
+    : 'franchise_base';
+  const resolvedVatRate = isCorporateVatSeller
+    ? vehicle.buyerInfo?.vatRatePercent ??
+      vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+      garageSettings.frenchTaxConfig?.vatRatePercent ??
+      20
+    : resolvedVatRegime === 'franchise_base'
+    ? 0
+    : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0;
   const vatBreakdown = calculateFrenchVat({
     salePrice: Number(buyer.salePrice) || 0,
     purchasePrice: Number(vehicle.purchasePrice) || 0,
@@ -1055,17 +1075,26 @@ export function generateVehicleFinancialReportPDF(
     taxSnapshot: isSold ? vehicle.buyerInfo?.taxSnapshot : undefined,
   });
 
-  const outcomeProfit = saleReport.grossMargin;
+  const isParticulierReport = saleReport.taxRegime === 'none';
+  const computedTotalInvested =
+    Math.round(
+      ((Number(vehicle.purchasePrice) || 0) +
+        (Number(vehicle.repairCostTotal) || 0) +
+        (Number(vehicle.generalExpensesTotal) || 0) +
+        Number.EPSILON) *
+        100
+    ) / 100;
+  const outcomeProfit = saleReport.netProfitAfterTax;
   const outcomeMargin = outcomePrice > 0 ? (outcomeProfit / outcomePrice) * 100 : 0;
-  const roi = vehicle.totalInvested > 0 ? (outcomeProfit / vehicle.totalInvested) * 100 : 0;
+  const roi = computedTotalInvested > 0 ? (outcomeProfit / computedTotalInvested) * 100 : 0;
 
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(14, 86, 182, 36, 2, 2, 'F');
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.text(isSold ? 'PRIX DE VENTE FINAL' : 'PRIX DE VENTE VISÉ', 20, 93);
-  doc.text('PROFIT AVANT IMPÔTS', 72, 93);
-  doc.text('TVA / RÉGIME', 124, 93);
+  doc.text(isParticulierReport ? 'RÉSULTAT NET' : 'BÉNÉFICE NET', 72, 93);
+  doc.text(saleReport.vatAmount > 0 ? 'TVA / RÉGIME' : 'RÉGIME FISCAL', 124, 93);
   doc.text('RENTABILITÉ (ROI)', 166, 93);
 
   doc.setFontSize(11);
@@ -1076,21 +1105,38 @@ export function generateVehicleFinancialReportPDF(
   doc.text(`${outcomeProfit >= 0 ? '+' : ''}${formatEuro(outcomeProfit)} (${outcomeMargin.toFixed(1)}%)`, 72, 101);
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(9.5);
-  doc.text(`${formatEuro(saleReport.vatAmount)}`, 124, 101);
+  doc.text(
+    saleReport.vatAmount > 0
+      ? `${formatEuro(saleReport.vatAmount)}`
+      : saleReport.taxRegime === 'micro'
+      ? 'Franchise 0%'
+      : 'Particulier',
+    124,
+    101
+  );
   doc.text(`${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%`, 166, 101);
 
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  const taxDetailLine =
-    saleReport.taxRegime === 'micro'
-      ? `URSSAF : ${formatEuro(saleReport.urssafAmount)} | VL : ${formatEuro(saleReport.versementLiberatoireAmount)} | Net après cotisations : ${formatEuro(saleReport.netProfitAfterTax)}`
-      : saleReport.corporateIsContextNote
-      ? `${saleReport.corporateIsContextNote}`
-      : `Impôt estimé : ${formatEuro(saleReport.taxAmount)} | Net estimé : ${formatEuro(saleReport.netProfitAfterTax)}`;
-  doc.text(`Fiscalité (${saleReport.taxLabel}) : ${taxDetailLine}`, 20, 111, { maxWidth: 172 });
-  doc.setFontSize(7);
-  doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 20, 118, { maxWidth: 172 });
+  if (isParticulierReport) {
+    doc.text(
+      `Profil Particulier — Vente privée sans fiscalité professionnelle (0 € de cotisations / TVA) | Résultat net : ${formatEuro(saleReport.netProfitAfterTax)}`,
+      20,
+      111,
+      { maxWidth: 172 }
+    );
+  } else {
+    const taxDetailLine =
+      saleReport.taxRegime === 'micro'
+        ? `Marge brute : ${formatEuro(saleReport.grossMargin)} | URSSAF : ${formatEuro(saleReport.urssafAmount)} | VL : ${formatEuro(saleReport.versementLiberatoireAmount)} | Net après cotisations : ${formatEuro(saleReport.netProfitAfterTax)}`
+        : saleReport.corporateIsContextNote
+        ? `${saleReport.corporateIsContextNote}`
+        : `Impôt estimé : ${formatEuro(saleReport.taxAmount)} | Net estimé : ${formatEuro(saleReport.netProfitAfterTax)}`;
+    doc.text(`Fiscalité (${saleReport.taxLabel}) : ${taxDetailLine}`, 20, 111, { maxWidth: 172 });
+    doc.setFontSize(7);
+    doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 20, 118, { maxWidth: 172 });
+  }
 
   // Breakdown tables
   doc.setTextColor(15, 23, 42);
@@ -1290,25 +1336,48 @@ export function generateDealershipFinancialReportPDF(params: {
     111
   );
 
+  const isParticulierDealership =
+    (garageSettings.profileType === 'particulier' ||
+      garageSettings.legalStatus === 'particulier' ||
+      garageSettings.taxRegime === 'none') &&
+    analytics.salesPerformance.taxAmount === 0 &&
+    analytics.salesPerformance.urssafAmount === 0 &&
+    analytics.salesPerformance.vatAmount === 0;
+
   // Cash Flow Block
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('3. DÉTAIL FISCAL SÉPARÉ & TRÉSORERIE (TVA / URSSAF / IS)', 14, 125);
+  doc.text(
+    isParticulierDealership
+      ? '3. SYNTHÈSE TRÉSORERIE (PROFIL PARTICULIER)'
+      : '3. DÉTAIL FISCAL SÉPARÉ & TRÉSORERIE (TVA / URSSAF / IS)',
+    14,
+    125
+  );
 
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(14, 128, 182, 14, 2, 2, 'F');
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(
-    `TVA estimée : ${formatEuro(analytics.salesPerformance.vatAmount)}  |  URSSAF Micro : ${formatEuro(analytics.salesPerformance.urssafAmount)}  |  VL : ${formatEuro(analytics.salesPerformance.versementLiberatoireAmount)}  |  IR Micro-BIC sép. : ${formatEuro(analytics.salesPerformance.microBicEstimatedIrAmount)}  |  IS Société : ${formatEuro(analytics.salesPerformance.corporateIsAmount)}`,
-    18,
-    134,
-    { maxWidth: 174 }
-  );
-  doc.setFontSize(6.8);
-  doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 18, 139.5, { maxWidth: 174 });
+  if (isParticulierDealership) {
+    doc.text(
+      'Profil Particulier — Ventes privées sans fiscalité professionnelle (0 € URSSAF / 0 € TVA). Résultat net égal à la marge nette.',
+      18,
+      136,
+      { maxWidth: 174 }
+    );
+  } else {
+    doc.text(
+      `TVA estimée : ${formatEuro(analytics.salesPerformance.vatAmount)}  |  URSSAF Micro : ${formatEuro(analytics.salesPerformance.urssafAmount)}  |  VL : ${formatEuro(analytics.salesPerformance.versementLiberatoireAmount)}  |  IR Micro-BIC sép. : ${formatEuro(analytics.salesPerformance.microBicEstimatedIrAmount)}  |  IS Société : ${formatEuro(analytics.salesPerformance.corporateIsAmount)}`,
+      18,
+      134,
+      { maxWidth: 174 }
+    );
+    doc.setFontSize(6.8);
+    doc.text(FRENCH_TAX_DEFAULTS.DISCLAIMER_FR, 18, 139.5, { maxWidth: 174 });
+  }
 
   doc.setFillColor(241, 245, 249);
   doc.roundedRect(14, 145, 182, 22, 2, 2, 'F');
@@ -1395,23 +1464,36 @@ export async function generateFacturXHybridPdf(params: {
   vatRatePercent?: number;
 }): Promise<{ fileName: string; invoiceNumber: string; xml: string }> {
   const { vehicle, garageSettings, paymentMeansCode = '30', vatMode, vatRatePercent } = params;
+  const isCorporateVatSeller =
+    garageSettings.taxRegime === 'sarl' ||
+    garageSettings.taxRegime === 'sas' ||
+    garageSettings.taxRegime === 'custom';
   const resolvedVatRegime: VatRegime = (() => {
-    const raw =
-      vatMode ||
-      vehicle.buyerInfo?.vatRegime ||
-      vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-      garageSettings.frenchTaxConfig?.vatRegime ||
-      'tva_marge';
+    const raw = isCorporateVatSeller
+      ? vatMode ||
+        vehicle.buyerInfo?.vatRegime ||
+        vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+        garageSettings.frenchTaxConfig?.vatRegime ||
+        'tva_marge'
+      : vatMode ||
+        (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
+        vehicle.buyerInfo.taxSnapshot.vatAmount > 0
+          ? vehicle.buyerInfo.taxSnapshot.vatRegime
+          : 'franchise_base');
     if (raw === 'margin') return 'tva_marge';
     if (raw === 'standard_20') return 'tva_total';
     return raw;
   })();
-  const resolvedVatRate =
-    vatRatePercent ??
-    vehicle.buyerInfo?.vatRatePercent ??
-    vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-    garageSettings.frenchTaxConfig?.vatRatePercent ??
-    20;
+  const resolvedVatRate = isCorporateVatSeller
+    ? vatRatePercent ??
+      vehicle.buyerInfo?.vatRatePercent ??
+      vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+      garageSettings.frenchTaxConfig?.vatRatePercent ??
+      20
+    : vatRatePercent ??
+      (resolvedVatRegime === 'franchise_base'
+        ? 0
+        : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0);
 
   const invoiceNumber = buildFacturXInvoiceNumber(vehicle);
   const xml = buildFacturXXml(vehicle, garageSettings, {

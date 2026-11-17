@@ -64,6 +64,7 @@ import {
 import { generateId, getGarageSettings } from '../services/garageService';
 import { formatEuro } from '../utils/finance';
 import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
+import { pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
 
@@ -139,7 +140,6 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
   onSeedSuppliers,
 }) => {
   const { lang, t } = useI18n();
-  const isRu = lang === 'ru';
 
   const [activeTab, setActiveTab] = useState<SuppliersTab>('purchases');
   const [searchQuery, setSearchQuery] = useState('');
@@ -207,8 +207,16 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
         vehicles,
         taxRegime: garageSettings.taxRegime,
         taxRatePercent: garageSettings.taxRatePercent,
+        frenchTaxConfig: garageSettings.frenchTaxConfig,
       }),
-    [suppliers, purchases, vehicles, garageSettings.taxRegime, garageSettings.taxRatePercent]
+    [
+      suppliers,
+      purchases,
+      vehicles,
+      garageSettings.taxRegime,
+      garageSettings.taxRatePercent,
+      garageSettings.frenchTaxConfig,
+    ]
   );
 
   const channelAnalytics = useMemo(
@@ -219,8 +227,16 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
         vehicles,
         taxRegime: garageSettings.taxRegime,
         taxRatePercent: garageSettings.taxRatePercent,
+        frenchTaxConfig: garageSettings.frenchTaxConfig,
       }),
-    [suppliers, purchases, vehicles, garageSettings.taxRegime, garageSettings.taxRatePercent]
+    [
+      suppliers,
+      purchases,
+      vehicles,
+      garageSettings.taxRegime,
+      garageSettings.taxRatePercent,
+      garageSettings.frenchTaxConfig,
+    ]
   );
 
   // Auto-select first supplier when viewing suppliers tab if current selection is absent
@@ -329,17 +345,72 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
 
   const formatValidationError = (codes: string[]): string => {
     const map: Record<string, string> = {
-      name_required: isRu ? 'Укажите название или имя поставщика.' : 'Veuillez saisir le nom du fournisseur.',
-      name_too_long: isRu ? 'Название поставщика слишком длинное (макс. 120 символов).' : 'Nom trop long (max 120 caractères).',
-      invalid_type: isRu ? 'Выберите корректный тип поставщика.' : 'Type de fournisseur invalide.',
-      invalid_email: isRu ? 'Неверный формат email.' : 'Format d’email invalide.',
-      supplier_required: isRu ? 'Выберите поставщика.' : 'Veuillez sélectionner un fournisseur.',
-      description_required: isRu ? 'Укажите описание или автомобиль.' : 'Veuillez saisir une description.',
-      description_too_long: isRu ? 'Описание слишком длинное (макс. 240 символов).' : 'Description trop longue.',
-      invalid_amount: isRu ? 'Введите корректную цену покупки (≥ 0).' : 'Montant invalide (≥ 0).',
-      date_required: isRu ? 'Укажите дату закупки.' : 'Veuillez saisir la date.',
-      invalid_payment_method: isRu ? 'Выберите способ оплаты.' : 'Mode de paiement invalide.',
-      invalid_category: isRu ? 'Выберите категорию закупки.' : 'Catégorie invalide.',
+      name_required: pickLocalized(lang, {
+        fr: 'Veuillez saisir le nom du fournisseur.',
+        ru: 'Укажите название или имя поставщика.',
+        hy: 'Նշեք մատակարարի անունը կամ անվանումը։',
+        ka: 'მიუთითეთ მომწოდებლის სახელი.',
+      }),
+      name_too_long: pickLocalized(lang, {
+        fr: 'Nom trop long (max 120 caractères).',
+        ru: 'Название поставщика слишком длинное (макс. 120 символов).',
+        hy: 'Անվանումը չափազանց երկար է (առավելագույնը 120 նիշ)։',
+        ka: 'სახელი ძალიან გრძელია (მაქს. 120 სიმბოლო).',
+      }),
+      invalid_type: pickLocalized(lang, {
+        fr: 'Type de fournisseur invalide.',
+        ru: 'Выберите корректный тип поставщика.',
+        hy: 'Ընտրեք մատակարարի ճիշտ տիպը։',
+        ka: 'აირჩიეთ მომწოდებლის სწორი ტიპი.',
+      }),
+      invalid_email: pickLocalized(lang, {
+        fr: 'Format d’email invalide.',
+        ru: 'Неверный формат email.',
+        hy: 'Էլ. փոստի սխալ ձևաչափ։',
+        ka: 'ელფოსტის არასწორი ფორმატი.',
+      }),
+      supplier_required: pickLocalized(lang, {
+        fr: 'Veuillez sélectionner un fournisseur.',
+        ru: 'Выберите поставщика.',
+        hy: 'Ընտրեք մատակարարին։',
+        ka: 'აირჩიეთ მომწოდებელი.',
+      }),
+      description_required: pickLocalized(lang, {
+        fr: 'Veuillez saisir une description.',
+        ru: 'Укажите описание или автомобиль.',
+        hy: 'Նշեք նկարագրությունը կամ ավտոմեքենան։',
+        ka: 'მიუთითეთ აღწერა ან ავტომობილი.',
+      }),
+      description_too_long: pickLocalized(lang, {
+        fr: 'Description trop longue.',
+        ru: 'Описание слишком длинное (макс. 240 символов).',
+        hy: 'Նկարագրությունը չափազանց երկար է (առավելագույնը 240 նիշ)։',
+        ka: 'აღწერა ძალიან გრძელია (მაქს. 240 სიმბოლო).',
+      }),
+      invalid_amount: pickLocalized(lang, {
+        fr: 'Montant invalide (≥ 0).',
+        ru: 'Введите корректную цену покупки (≥ 0).',
+        hy: 'Մուտքագրեք գնման ճիշտ գինը (≥ 0)։',
+        ka: 'შეიყვანეთ შესყიდვის სწორი ფასი (≥ 0).',
+      }),
+      date_required: pickLocalized(lang, {
+        fr: 'Veuillez saisir la date.',
+        ru: 'Укажите дату закупки.',
+        hy: 'Նշեք գնման ամսաթիվը։',
+        ka: 'მიუთითეთ შესყიდვის თარიღი.',
+      }),
+      invalid_payment_method: pickLocalized(lang, {
+        fr: 'Mode de paiement invalide.',
+        ru: 'Выберите способ оплаты.',
+        hy: 'Ընտրեք վճարման եղանակը։',
+        ka: 'აირჩიეთ გადახდის მეთოდი.',
+      }),
+      invalid_category: pickLocalized(lang, {
+        fr: 'Catégorie invalide.',
+        ru: 'Выберите категорию закупки.',
+        hy: 'Ընտրեք գնման կատեգորիան։',
+        ka: 'აირჩიეთ შესყიდვის კატეგორია.',
+      }),
     };
     return codes.map((c) => map[c] || c).join(' ');
   };
@@ -398,7 +469,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       setIsSupplierModalOpen(false);
     } catch (err) {
       console.error('Save supplier error:', err);
-      setSupError(isRu ? 'Ошибка сохранения поставщика.' : 'Erreur lors de l’enregistrement.');
+      setSupError(
+        pickLocalized(lang, {
+          fr: 'Erreur lors de l’enregistrement.',
+          ru: 'Ошибка сохранения поставщика.',
+          hy: 'Մատակարարի պահպանման սխալ։',
+          ka: 'მომწოდებლის შენახვის შეცდომა.',
+        })
+      );
     } finally {
       setIsSavingSupplier(false);
     }
@@ -591,7 +669,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       setIsPurchaseModalOpen(false);
     } catch (err) {
       console.error('Save purchase error:', err);
-      setPurError(isRu ? 'Ошибка сохранения закупки.' : 'Erreur lors de l’enregistrement.');
+      setPurError(
+        pickLocalized(lang, {
+          fr: 'Erreur lors de l’enregistrement.',
+          ru: 'Ошибка сохранения закупки.',
+          hy: 'Գնման պահպանման սխալ։',
+          ka: 'შესყიდვის შენახვის შეცდომა.',
+        })
+      );
     } finally {
       setIsSavingPurchase(false);
     }
@@ -704,9 +789,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
               <Award className="w-3.5 h-3.5 text-[var(--ag-profit-color)] shrink-0" />
               <span className="text-[var(--muted-foreground)]">{t('channelBestBadge')}:</span>
               <span className="font-bold text-[var(--ag-profit-color)]">
-                {isRu
-                  ? channelAnalytics.bestVehicleChannel.labelRu
-                  : channelAnalytics.bestVehicleChannel.labelFr}
+                {pickLocalized(lang, {
+                  fr: channelAnalytics.bestVehicleChannel.labelFr,
+                  ru: channelAnalytics.bestVehicleChannel.labelRu,
+                  hy: channelAnalytics.bestVehicleChannel.labelHy,
+                  ka: channelAnalytics.bestVehicleChannel.labelKa,
+                })}
               </span>
               <span className="font-bold text-[var(--foreground)] tabular-nums">
                 ({formatEuro(channelAnalytics.bestVehicleChannel.realizedNetProfit)}
@@ -741,11 +829,30 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--foreground)]">
                     <span className="text-[var(--primary)]">{getSupplierTypeIcon(ch.type)}</span>
-                    <span>{isRu ? ch.labelRu : ch.labelFr}</span>
+                    <span>
+                      {pickLocalized(lang, {
+                        fr: ch.labelFr,
+                        ru: ch.labelRu,
+                        hy: ch.labelHy,
+                        ka: ch.labelKa,
+                      })}
+                    </span>
                   </span>
                   <span className="text-[11px] font-medium text-[var(--muted-foreground)] tabular-nums">
-                    {ch.suppliersCount} {isRu ? 'пост.' : 'fourn.'} · {ch.purchasesCount}{' '}
-                    {isRu ? 'сдел.' : 'ach.'}
+                    {ch.suppliersCount}{' '}
+                    {pickLocalized(lang, {
+                      fr: 'fourn.',
+                      ru: 'пост.',
+                      hy: 'մատ.',
+                      ka: 'მომწ.',
+                    })}{' '}
+                    · {ch.purchasesCount}{' '}
+                    {pickLocalized(lang, {
+                      fr: 'ach.',
+                      ru: 'сдел.',
+                      hy: 'գործ.',
+                      ka: 'შესყ.',
+                    })}
                   </span>
                 </div>
 
@@ -779,12 +886,20 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   ) : (
                     <div className="text-right">
                       <div className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
-                        {isRu ? 'Доля операций' : 'Activité'}
+                        {pickLocalized(lang, {
+                          fr: 'Activité',
+                          ru: 'Доля операций',
+                          hy: 'Ակտիվություն',
+                          ka: 'აქტივობა',
+                        })}
                       </div>
                       <div className="text-xs font-semibold text-[var(--secondary-foreground)] tabular-nums">
-                        {isRu
-                          ? formatRussianPurchasesCount(ch.purchasesCount)
-                          : `${ch.purchasesCount} ${ch.purchasesCount <= 1 ? 'achat' : 'achats'}`}
+                        {pickLocalized(lang, {
+                          fr: `${ch.purchasesCount} ${ch.purchasesCount <= 1 ? 'achat' : 'achats'}`,
+                          ru: formatRussianPurchasesCount(ch.purchasesCount),
+                          hy: `${ch.purchasesCount} գնում`,
+                          ka: `${ch.purchasesCount} შესყიდვა`,
+                        })}
                       </div>
                     </div>
                   )}
@@ -896,7 +1011,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   { value: 'all', label: t('allSupplierTypes') },
                   ...SUPPLIER_TYPES.map((st) => ({
                     value: st.id,
-                    label: isRu ? st.labelRu : st.labelFr,
+                    label: getSupplierTypeLabel(st.id, lang),
                   })),
                 ]}
                 triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
@@ -915,7 +1030,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                       { value: 'all', label: t('allCategoriesFilter') },
                       ...PURCHASE_CATEGORIES.map((c) => ({
                         value: c.id,
-                        label: isRu ? c.labelRu : c.labelFr,
+                        label: getPurchaseCategoryLabel(c.id, lang),
                       })),
                     ]}
                     triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
@@ -931,7 +1046,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                       { value: 'all', label: t('allPaymentsFilter') },
                       ...PAYMENT_METHODS.map((pm) => ({
                         value: pm.id,
-                        label: isRu ? pm.labelRu : pm.labelFr,
+                        label: getPaymentMethodLabel(pm.id, lang),
                       })),
                     ]}
                     triggerClassName="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] whitespace-nowrap"
@@ -955,7 +1070,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] hover:opacity-90 cursor-pointer shrink-0 whitespace-nowrap"
               >
                 <Filter className="w-3 h-3" />
-                <span>{isRu ? 'Сброс' : 'Réinit.'}</span>
+                <span>
+                  {pickLocalized(lang, {
+                    fr: 'Réinit.',
+                    ru: 'Сброс',
+                    hy: 'Զրոյացնել',
+                    ka: 'განულება',
+                  })}
+                </span>
               </button>
             )}
           </div>
@@ -1058,7 +1180,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                                 onClick={() => handleDeletePurchase(p.id)}
                                 className="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
                               >
-                                {isRu ? 'Удалить' : 'Suppr.'}
+                                {pickLocalized(lang, {
+                                  fr: 'Suppr.',
+                                  ru: 'Удалить',
+                                  hy: 'Ջնջել',
+                                  ka: 'წაშლა',
+                                })}
                               </button>
                               <button
                                 type="button"
@@ -1073,8 +1200,18 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => openEditPurchaseModal(p)}
-                                aria-label={`${isRu ? 'Изменить' : 'Modifier'} ${p.description}`}
-                                title={isRu ? 'Изменить' : 'Modifier'}
+                                aria-label={`${pickLocalized(lang, {
+                                  fr: 'Modifier',
+                                  ru: 'Изменить',
+                                  hy: 'Փոփոխել',
+                                  ka: 'შეცვლა',
+                                })} ${p.description}`}
+                                title={pickLocalized(lang, {
+                                  fr: 'Modifier',
+                                  ru: 'Изменить',
+                                  hy: 'Փոփոխել',
+                                  ka: 'შეცვლა',
+                                })}
                                 className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)] transition cursor-pointer"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
@@ -1168,7 +1305,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                       <th className="py-3 px-3">{t('thInvoiceAndDocs')}</th>
                       <th className="py-3 px-3 text-right whitespace-nowrap">{t('thSupplierPurchasePrice')}</th>
                       <th className="py-3 px-3 text-right whitespace-nowrap">
-                        {isRu ? 'Действия' : 'Actions'}
+                        {pickLocalized(lang, {
+                          fr: 'Actions',
+                          ru: 'Действия',
+                          hy: 'Գործողություններ',
+                          ka: 'მოქმედებები',
+                        })}
                       </th>
                     </tr>
                   </thead>
@@ -1290,7 +1432,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                                   onClick={() => handleDeletePurchase(p.id)}
                                   className="px-2 py-1 rounded-md text-[11px] font-bold bg-rose-600 text-white hover:bg-rose-700 cursor-pointer"
                                 >
-                                  {isRu ? 'Удалить' : 'Suppr.'}
+                                  {pickLocalized(lang, {
+                                    fr: 'Suppr.',
+                                    ru: 'Удалить',
+                                    hy: 'Ջնջել',
+                                    ka: 'წაშლა',
+                                  })}
                                 </button>
                                 <button
                                   type="button"
@@ -1305,8 +1452,18 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => openEditPurchaseModal(p)}
-                                  aria-label={`${isRu ? 'Изменить' : 'Modifier'} ${p.description}`}
-                                  title={isRu ? 'Изменить' : 'Modifier'}
+                                  aria-label={`${pickLocalized(lang, {
+                                    fr: 'Modifier',
+                                    ru: 'Изменить',
+                                    hy: 'Փոփոխել',
+                                    ka: 'შეცვლა',
+                                  })} ${p.description}`}
+                                  title={pickLocalized(lang, {
+                                    fr: 'Modifier',
+                                    ru: 'Изменить',
+                                    hy: 'Փոփոխել',
+                                    ka: 'შეცვლა',
+                                  })}
                                   className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)] transition cursor-pointer"
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
@@ -1338,7 +1495,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       {activeTab === 'suppliers' && (
         <div
           data-testid="suppliers-directory-section"
-          className="grid grid-cols-1 lg:grid-cols-12 gap-5"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-4"
         >
           {/* Left: Suppliers List */}
           <div className="lg:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-3 sm:p-4 space-y-2.5 self-start">
@@ -1398,15 +1555,33 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                             {formatEuro(sum.totalSpent)}
                           </div>
                           <div className="text-[11px] text-[var(--muted-foreground)] tabular-nums">
-                            {sum.purchasesCount} {isRu ? 'сделок' : 'achats'}
+                            {sum.purchasesCount}{' '}
+                            {pickLocalized(lang, {
+                              fr: 'achats',
+                              ru: 'сделок',
+                              hy: 'գնում',
+                              ka: 'შესყიდვა',
+                            })}
                           </div>
                         </div>
                       </div>
                       {sum.soldVehiclesCount > 0 && (
                         <div className="mt-2 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[11px] tabular-nums">
                           <span className="text-[var(--muted-foreground)]">
-                            {isRu ? 'Реализованная прибыль' : 'Profit réalisé'} ({sum.soldVehiclesCount}{' '}
-                            {isRu ? 'продано' : 'vendus'})
+                            {pickLocalized(lang, {
+                              fr: 'Profit réalisé',
+                              ru: 'Реализованная прибыль',
+                              hy: 'Իրացված շահույթ',
+                              ka: 'რეალიზებული მოგება',
+                            })}{' '}
+                            ({sum.soldVehiclesCount}{' '}
+                            {pickLocalized(lang, {
+                              fr: 'vendus',
+                              ru: 'продано',
+                              hy: 'վաճառված',
+                              ka: 'გაყიდული',
+                            })}
+                            )
                           </span>
                           <span className="font-bold text-[var(--ag-profit-color)]">
                             {formatEuro(sum.realizedNetProfit)}
@@ -1424,7 +1599,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           {/* Right: Supplier Deal History Panel */}
           <div
             data-testid="supplier-deal-history-panel"
-            className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 sm:p-5 space-y-5"
+            className="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4"
           >
             {!selectedSupplierSummary ? (
               <div className="py-12 text-center space-y-2">
@@ -1499,7 +1674,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] hover:opacity-90 cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>{isRu ? 'Изменить' : 'Modifier'}</span>
+                      <span>
+                        {pickLocalized(lang, {
+                          fr: 'Modifier',
+                          ru: 'Изменить',
+                          hy: 'Փոփոխել',
+                          ka: 'შეცვლა',
+                        })}
+                      </span>
                     </button>
                     {confirmDeleteSupplierId === selectedSupplierSummary.supplier.id ? (
                       <div className="inline-flex items-center gap-1">
@@ -1510,7 +1692,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                           }
                           className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 text-white cursor-pointer"
                         >
-                          {isRu ? 'Удалить' : 'Confirmer'}
+                          {pickLocalized(lang, {
+                            fr: 'Confirmer',
+                            ru: 'Удалить',
+                            hy: 'Ջնջել',
+                            ka: 'წაშლა',
+                          })}
                         </button>
                         <button
                           type="button"
@@ -1547,7 +1734,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   </div>
                   <div className="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
                     <div className="text-[11px] text-[var(--muted-foreground)]">
-                      {isRu ? 'Всего сделок' : 'Transactions'}
+                      {pickLocalized(lang, {
+                        fr: 'Transactions',
+                        ru: 'Всего сделок',
+                        hy: 'Ընդամենը գործարք',
+                        ka: 'სულ გარიგებები',
+                      })}
                     </div>
                     <div className="mt-0.5 text-base font-extrabold text-[var(--foreground)] tabular-nums">
                       {selectedSupplierSummary.purchasesCount}
@@ -1651,7 +1843,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                                   onClick={() => openEditPurchaseModal(deal)}
                                   className="text-[11px] font-semibold text-[var(--primary)] hover:underline cursor-pointer"
                                 >
-                                  {isRu ? 'Изменить' : 'Modifier'}
+                                  {pickLocalized(lang, {
+                                    fr: 'Modifier',
+                                    ru: 'Изменить',
+                                    hy: 'Փոփոխել',
+                                    ka: 'შეცვლა',
+                                  })}
                                 </button>
                               </div>
                             </div>
@@ -1710,12 +1907,29 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   style={{ backgroundColor: 'var(--ag-table-header-bg)' }}
                   className="border-b border-[var(--border)] text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]"
                 >
-                  <th className="py-3 px-4">{isRu ? 'Канал закупки' : 'Canal d’approvisionnement'}</th>
-                  <th className="py-3 px-4 text-right whitespace-nowrap">
-                    {isRu ? 'Поставщиков' : 'Fournisseurs'}
+                  <th className="py-3 px-4">
+                    {pickLocalized(lang, {
+                      fr: 'Canal d’approvisionnement',
+                      ru: 'Канал закупки',
+                      hy: 'Գնման ալիք',
+                      ka: 'შესყიდვის არხი',
+                    })}
                   </th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">
-                    {isRu ? 'Сделок' : 'Achats'}
+                    {pickLocalized(lang, {
+                      fr: 'Fournisseurs',
+                      ru: 'Поставщиков',
+                      hy: 'Մատակարարներ',
+                      ka: 'მომწოდებლები',
+                    })}
+                  </th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">
+                    {pickLocalized(lang, {
+                      fr: 'Achats',
+                      ru: 'Сделок',
+                      hy: 'Գործարքներ',
+                      ka: 'გარიგებები',
+                    })}
                   </th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">
                     {t('channelVehiclesSourced')}
@@ -1740,7 +1954,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                           <span className="text-[var(--primary)]">
                             {getSupplierTypeIcon(ch.type)}
                           </span>
-                          <span>{isRu ? ch.labelRu : ch.labelFr}</span>
+                          <span>
+                            {pickLocalized(lang, {
+                              fr: ch.labelFr,
+                              ru: ch.labelRu,
+                              hy: ch.labelHy,
+                              ka: ch.labelKa,
+                            })}
+                          </span>
                           {isBest && (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--ag-profit-color)]">
                               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1807,7 +2028,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           aria-label={editingSupplier ? t('supplierModalEditTitle') : t('supplierModalAddTitle')}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         >
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--ag-modal-bg)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl p-5 space-y-4">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[var(--ag-modal-bg)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl p-4 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
               <h3 className="text-base font-extrabold text-[var(--foreground)]">
                 {editingSupplier ? t('supplierModalEditTitle') : t('supplierModalAddTitle')}
@@ -1843,7 +2064,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     data-testid="supplier-name-input"
                     value={supName}
                     onChange={(e) => setSupName(e.target.value)}
-                    placeholder={isRu ? 'Напр. BCA Auto Enchères или Иван Петров' : 'Ex. BCA Enchères ou Auto Distribution'}
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Ex. BCA Enchères ou Auto Distribution',
+                      ru: 'Напр. BCA Auto Enchères или Иван Петров',
+                      hy: 'Օրինակ՝ BCA Enchères կամ մատակարար',
+                      ka: 'მაგ. BCA Enchères ან მომწოდებელი',
+                    })}
                     className="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   />
                 </div>
@@ -1859,7 +2085,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     onChange={(val) => setSupType(val as SupplierType)}
                     options={SUPPLIER_TYPES.map((st) => ({
                       value: st.id,
-                      label: isRu ? st.labelRu : st.labelFr,
+                      label: getSupplierTypeLabel(st.id, lang),
                     }))}
                     triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
                   />
@@ -1964,7 +2190,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   disabled={isSavingSupplier}
                   className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm cursor-pointer disabled:opacity-60"
                 >
-                  {isSavingSupplier ? (isRu ? 'Сохранение...' : 'Enregistrement...') : t('saveSupplierBtn')}
+                  {isSavingSupplier
+                    ? pickLocalized(lang, {
+                        fr: 'Enregistrement...',
+                        ru: 'Сохранение...',
+                        hy: 'Պահպանում...',
+                        ka: 'შენახვა...',
+                      })
+                    : t('saveSupplierBtn')}
                 </button>
               </div>
             </form>
@@ -1981,7 +2214,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           aria-label={editingPurchase ? t('purchaseModalEditTitle') : t('purchaseModalAddTitle')}
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         >
-          <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-[var(--ag-modal-bg)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl p-5 space-y-4">
+          <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-[var(--ag-modal-bg)] text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl p-4 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
               <h3 className="text-base font-extrabold text-[var(--foreground)]">
                 {editingPurchase ? t('purchaseModalEditTitle') : t('purchaseModalAddTitle')}
@@ -2045,7 +2278,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     />
                   ) : (
                     <div className="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)] flex items-center justify-between">
-                      <span>{isRu ? 'Сначала добавьте поставщика' : 'Ajoutez d’abord un fournisseur'}</span>
+                      <span>
+                        {pickLocalized(lang, {
+                          fr: 'Ajoutez d’abord un fournisseur',
+                          ru: 'Сначала добавьте поставщика',
+                          hy: 'Նախ ավելացրեք մատակարար',
+                          ka: 'ჯერ დაამატეთ მომწოდებელი',
+                        })}
+                      </span>
                       <button
                         type="button"
                         onClick={openNewSupplierModal}
@@ -2068,7 +2308,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     onChange={(val) => setPurCategory(val as PurchaseCategory)}
                     options={PURCHASE_CATEGORIES.map((c) => ({
                       value: c.id,
-                      label: isRu ? c.labelRu : c.labelFr,
+                      label: getPurchaseCategoryLabel(c.id, lang),
                     }))}
                     triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
                   />
@@ -2116,11 +2356,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     data-testid="purchase-desc-input"
                     value={purDescription}
                     onChange={(e) => setPurDescription(e.target.value)}
-                    placeholder={
-                      isRu
-                        ? 'Напр. BMW 320d Touring — лот №112 или комплект тормозов'
-                        : 'Ex. BMW 320d Touring — Lot #112 ou Kit freinage'
-                    }
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Ex. BMW 320d Touring — Lot #112 ou Kit freinage',
+                      ru: 'Напр. BMW 320d Touring — лот №112 или комплект тормозов',
+                      hy: 'Օրինակ՝ BMW 320d Touring կամ արգելակման հավաքածու',
+                      ka: 'მაგ. BMW 320d Touring — ლოტი #112 ან სამუხრუჭე კომპლექტი',
+                    })}
                     className="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   />
                 </div>
@@ -2165,7 +2406,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     onChange={(val) => setPurPayment(val as PurchasePaymentMethod)}
                     options={PAYMENT_METHODS.map((pm) => ({
                       value: pm.id,
-                      label: isRu ? pm.labelRu : pm.labelFr,
+                      label: getPaymentMethodLabel(pm.id, lang),
                     }))}
                     triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
                   />
@@ -2206,7 +2447,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     type="text"
                     value={purInvoiceProofName}
                     onChange={(e) => setPurInvoiceProofName(e.target.value)}
-                    placeholder={isRu ? 'Или название файла / чека...' : 'Ou nom du justificatif...'}
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Ou nom du justificatif...',
+                      ru: 'Или название файла / чека...',
+                      hy: 'Կամ անդորրագրի / ֆայլի անվանումը...',
+                      ka: 'ან ქვითრის / ფაილის სახელი...',
+                    })}
                     className="flex-1 min-w-[180px] px-3 py-1.5 rounded-lg bg-[var(--card)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   />
                   {purInvoiceProofName && (
@@ -2297,7 +2543,12 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[var(--secondary-foreground)] mb-1">
-                  {isRu ? 'Заметки' : 'Notes'}
+                  {pickLocalized(lang, {
+                    fr: 'Notes',
+                    ru: 'Заметки',
+                    hy: 'Նշումներ',
+                    ka: 'შენიშვნები',
+                  })}
                 </label>
                 <textarea
                   rows={2}
@@ -2321,7 +2572,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   disabled={isSavingPurchase}
                   className="px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm cursor-pointer disabled:opacity-60"
                 >
-                  {isSavingPurchase ? (isRu ? 'Сохранение...' : 'Enregistrement...') : t('savePurchaseBtn')}
+                  {isSavingPurchase
+                    ? pickLocalized(lang, {
+                        fr: 'Enregistrement...',
+                        ru: 'Сохранение...',
+                        hy: 'Պահպանում...',
+                        ka: 'შენახვა...',
+                      })
+                    : t('savePurchaseBtn')}
                 </button>
               </div>
             </form>
@@ -2350,7 +2608,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)]"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Скачать' : 'Télécharger'}</span>
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Télécharger',
+                      ru: 'Скачать',
+                      hy: 'Ներբեռնել',
+                      ka: 'ჩამოტვირთვა',
+                    })}
+                  </span>
                 </a>
                 <button
                   type="button"

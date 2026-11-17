@@ -73,7 +73,8 @@ import {
 } from '../utils/pdfGenerator';
 import { Cerfa15776Modal } from './Cerfa15776Modal';
 import { useI18n } from '../i18n/I18nContext';
-import { pickLocalized } from '../utils/i18nUtils';
+import { getIntlLocale, pickLocalized } from '../utils/i18nUtils';
+import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 
 interface VehicleDetailProps {
@@ -224,6 +225,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     return () => window.removeEventListener('autogarage_settings_updated', onSettingsUpdated);
   }, [vehicle.garageId]);
 
+  const activeProfileType = resolveUserProfileType(garageSettings);
+  const isParticulier = activeProfileType === 'particulier';
   const isSold = vehicle.status === 'sold';
   const realizedSalePrice = getRealizedSalePrice(vehicle);
   const hasRealizedSale = canDisplaySaleFinancialReport(vehicle);
@@ -245,6 +248,24 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         taxSnapshot: vehicle.buyerInfo?.taxSnapshot,
       })
     : null;
+  const showParticulierSimplifiedReport = Boolean(
+    saleReport &&
+      (saleReport.taxRegime === 'none' || (isParticulier && !saleReport.isHistoricalSnapshot))
+  );
+  const cardNetProfit =
+    hasRealizedSale && saleReport ? saleReport.netProfitAfterTax : fin.netProfit;
+  const cardMarginPercentage =
+    hasRealizedSale && saleReport
+      ? saleReport.salePrice > 0
+        ? Math.round(((cardNetProfit / saleReport.salePrice) * 100 + Number.EPSILON) * 100) / 100
+        : 0
+      : fin.marginPercentage;
+  const cardRoiPercentage =
+    hasRealizedSale && saleReport
+      ? fin.totalInvested > 0
+        ? Math.round(((cardNetProfit / fin.totalInvested) * 100 + Number.EPSILON) * 100) / 100
+        : 0
+      : fin.roiPercentage;
 
   // Lifecycle status switcher
   const handleStatusChange = async (newStatus: VehicleStatus) => {
@@ -281,7 +302,14 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
   // Preset selection helper
   const handleSelectPreset = (preset: (typeof TASK_PRESETS)[0]) => {
-    setTaskTitle(lang === 'ru' ? preset.labelRu : preset.labelFr);
+    setTaskTitle(
+      pickLocalized(lang, {
+        fr: preset.labelFr,
+        ru: preset.labelRu,
+        hy: preset.labelHy,
+        ka: preset.labelKa,
+      })
+    );
     setTaskPartsCost(preset.estimatedParts || 0);
     setTaskLaborCost(preset.estimatedLabor || 0);
     setTaskPresetKey(preset.id);
@@ -330,7 +358,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       {/* Top Breadcrumb & Actions Bar */}
       <div
         data-testid="vehicle-detail-header"
-        className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] py-4 px-5 shadow-sm"
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] py-3 px-4 shadow-sm"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <button
@@ -358,7 +386,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <span>·</span>
                 </>
               )}
-              <span>{vehicle.mileage.toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km</span>
+              <span>{vehicle.mileage.toLocaleString(getIntlLocale(lang))} km</span>
             </p>
           </div>
         </div>
@@ -543,7 +571,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               }`}
               style={
                 hasRealizedSale
-                  ? fin.netProfit >= 0
+                  ? cardNetProfit >= 0
                     ? {
                         backgroundColor: 'color-mix(in srgb, var(--ag-profit-color) 12%, var(--ag-metric-bg))',
                         borderColor: 'color-mix(in srgb, var(--ag-profit-color) 40%, var(--border))',
@@ -566,11 +594,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               {hasRealizedSale ? (
                 <>
                   <div className="text-base sm:text-lg font-black tabular-nums">
-                    {fin.netProfit >= 0 ? '+' : ''}
-                    {formatEuro(fin.netProfit)}
+                    {cardNetProfit >= 0 ? '+' : ''}
+                    {formatEuro(cardNetProfit)}
                   </div>
                   <span className="text-[10px] font-mono font-bold block tabular-nums">
-                    {t('marginPercent', { val: fin.marginPercentage.toFixed(1) })} | {t('roiPercent', { val: fin.roiPercentage.toFixed(1) })}
+                    {t('marginPercent', { val: cardMarginPercentage.toFixed(1) })} | {t('roiPercent', { val: cardRoiPercentage.toFixed(1) })}
                   </span>
                 </>
               ) : (
@@ -610,9 +638,18 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     </span>
                   )}
                 </div>
-                <span className="text-[11px] text-[var(--muted-foreground)]">
-                  {t('saleReportRegime', { regime: saleReport.taxLabel })}
-                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {!showParticulierSimplifiedReport && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 font-sans">
+                      {t('taxEstimateBadge')}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    {showParticulierSimplifiedReport
+                      ? t('profileBadgeParticulier')
+                      : t('saleReportRegime', { regime: saleReport.taxLabel })}
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-1.5 tabular-nums">
@@ -641,100 +678,147 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-2 mt-2 border-t border-dashed border-[var(--border)] text-[var(--foreground)]">
-                  <span className="font-semibold">
-                    = {t('saleReportGrossMargin')}
-                  </span>
-                  <span
-                    className="font-bold"
-                    style={{
-                      color:
-                        saleReport.grossMargin >= 0
-                          ? 'var(--warning)'
-                          : 'var(--ag-expense-color)',
-                    }}
-                  >
-                    {formatEuro(saleReport.grossMargin)}
-                  </span>
-                </div>
-
-                {/* Separated VAT (TVA) breakdown */}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)] bg-[var(--surface-muted)]/60 rounded-lg px-2.5 py-1.5 border border-[var(--border)]">
-                  <span>
-                    TVA ({saleReport.vatRegime === 'tva_marge'
-                      ? lang === 'ru' ? 'На маржу (Art. 297 A CGI)' : 'Sur la marge (Art. 297 A)'
-                      : saleReport.vatRegime === 'tva_total'
-                      ? lang === 'ru' ? `На общую цену (${saleReport.vatRatePercent}%)` : `Sur prix total (${saleReport.vatRatePercent}%)`
-                      : saleReport.vatRegime === 'franchise_base'
-                      ? lang === 'ru' ? 'Franchise en base (0%)' : 'Franchise en base (Art. 293 B)'
-                      : `${saleReport.vatRatePercent}%`}
-                    ) · HT {formatEuro(saleReport.htAmount)}
-                  </span>
-                  <span className="font-semibold text-blue-400">
-                    {formatEuro(saleReport.vatAmount)}
-                  </span>
-                </div>
-
-                {saleReport.taxRegime === 'micro' ? (
+                {!showParticulierSimplifiedReport && (
                   <>
-                    <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
-                      <span>
-                        - {lang === 'ru' ? 'Взносы URSSAF (с оборота CA)' : 'Cotisations URSSAF (sur CA)'}
+                    <div className="flex items-center justify-between pt-2 mt-2 border-t border-dashed border-[var(--border)] text-[var(--foreground)]">
+                      <span className="font-semibold">
+                        = {t('saleReportGrossMargin')}
                       </span>
-                      <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
-                        -{formatEuro(saleReport.urssafAmount)}
+                      <span
+                        className="font-bold"
+                        style={{
+                          color:
+                            saleReport.grossMargin >= 0
+                              ? 'var(--warning)'
+                              : 'var(--ag-expense-color)',
+                        }}
+                      >
+                        {formatEuro(saleReport.grossMargin)}
                       </span>
                     </div>
-                    {saleReport.versementLiberatoireEnabled ? (
-                      <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+
+                    {/* Separated VAT (TVA) breakdown (archived corporate/VAT snapshots only) */}
+                    {saleReport.isHistoricalSnapshot &&
+                      (saleReport.taxRegime === 'sarl' ||
+                        saleReport.taxRegime === 'sas' ||
+                        saleReport.vatAmount > 0) && (
+                        <div
+                          data-testid="sale-report-vat-row"
+                          className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)] bg-[var(--surface-muted)]/60 rounded-lg px-2.5 py-1.5 border border-[var(--border)]"
+                        >
+                          <span>
+                            TVA (
+                            {saleReport.vatRegime === 'tva_marge'
+                              ? pickLocalized(lang, {
+                                  fr: 'Sur la marge (Art. 297 A)',
+                                  ru: 'На маржу (Art. 297 A CGI)',
+                                  hy: 'Մարժայի վրա (Art. 297 A)',
+                                  ka: 'მარჟაზე (Art. 297 A)',
+                                })
+                              : saleReport.vatRegime === 'tva_total'
+                              ? pickLocalized(lang, {
+                                  fr: `Sur prix total (${saleReport.vatRatePercent}%)`,
+                                  ru: `На общую цену (${saleReport.vatRatePercent}%)`,
+                                  hy: `Ընդհանուր գնից (${saleReport.vatRatePercent}%)`,
+                                  ka: `სრულ ფასზე (${saleReport.vatRatePercent}%)`,
+                                })
+                              : saleReport.vatRegime === 'franchise_base'
+                              ? pickLocalized(lang, {
+                                  fr: 'Franchise en base (Art. 293 B)',
+                                  ru: 'Franchise en base (0%)',
+                                  hy: 'Franchise en base (0%)',
+                                  ka: 'Franchise en base (0%)',
+                                })
+                              : `${saleReport.vatRatePercent}%`}
+                            ) · HT {formatEuro(saleReport.htAmount)}
+                          </span>
+                          <span className="font-semibold text-blue-400">
+                            {formatEuro(saleReport.vatAmount)}
+                          </span>
+                        </div>
+                      )}
+
+                    {saleReport.taxRegime === 'micro' ? (
+                      <>
+                        <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                          <span>
+                            -{' '}
+                            {pickLocalized(lang, {
+                              fr: 'Cotisations URSSAF (sur CA)',
+                              ru: 'Взносы URSSAF (с оборота CA)',
+                              hy: 'URSSAF վճարներ (շրջանառությունից)',
+                              ka: 'URSSAF შენატანები (ბრუნვიდან CA)',
+                            })}
+                          </span>
+                          <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                            -{formatEuro(saleReport.urssafAmount)}
+                          </span>
+                        </div>
+                        {saleReport.versementLiberatoireEnabled ? (
+                          <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
+                            <span>
+                              -{' '}
+                              {pickLocalized(lang, {
+                                fr: 'Versement libératoire (sur CA)',
+                                ru: 'Versement libératoire (с оборота CA)',
+                                hy: 'Versement libératoire (շրջանառությունից)',
+                                ka: 'Versement libératoire (ბრუნვიდან CA)',
+                              })}
+                            </span>
+                            <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
+                              -{formatEuro(saleReport.versementLiberatoireAmount)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                            <span>
+                              ℹ{' '}
+                              {pickLocalized(lang, {
+                                fr: 'IR Micro-BIC estimé séparément (abattement 71%, hors URSSAF)',
+                                ru: 'Подоходный IR Micro-BIC отдельно (вычет 71%, не включён в URSSAF)',
+                                hy: 'IR Micro-BIC առանձին գնահատական (71% նվազեցում, URSSAF-ից դուրս)',
+                                ka: 'IR Micro-BIC ცალკე შეფასება (71% გამოქვითვა, URSSAF-ის გარეთ)',
+                              })}
+                            </span>
+                            <span className="font-semibold text-amber-400">
+                              {formatEuro(saleReport.microBicEstimatedTax)}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    ) : saleReport.isHistoricalSnapshot && (saleReport.taxRegime === 'sarl' || saleReport.taxRegime === 'sas') ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)]">
                         <span>
-                          - {lang === 'ru' ? 'Versement libératoire (с оборота CA)' : 'Versement libératoire (sur CA)'}
+                          - {t('saleReportTax', { regime: saleReport.taxLabel })}
                         </span>
-                        <span className="font-semibold" style={{ color: 'var(--ag-expense-color)' }}>
-                          -{formatEuro(saleReport.versementLiberatoireAmount)}
+                        <span className="text-[11px] font-semibold text-amber-400">
+                          {pickLocalized(lang, {
+                            fr: 'Archive fiscale société (calcul IS annuel)',
+                            ru: 'Архивный расчёт по прошлому режиму компании',
+                            hy: 'Պատմական կորպորատիվ հարկային գրառում',
+                            ka: 'ისტორიული კორპორატიული საგადასახადო ჩანაწერი',
+                          })}
                         </span>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                      <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
                         <span>
-                          ℹ {lang === 'ru'
-                            ? 'Подоходный IR Micro-BIC отдельно (вычет 71%, не включён в URSSAF)'
-                            : 'IR Micro-BIC estimé séparément (abattement 71%, hors URSSAF)'}
+                          - {t('saleReportTax', { regime: saleReport.taxLabel })}
                         </span>
-                        <span className="font-semibold text-amber-400">
-                          {formatEuro(saleReport.microBicEstimatedTax)}
+                        <span
+                          className="font-semibold"
+                          style={{
+                            color:
+                              saleReport.taxAmount > 0
+                                ? 'var(--ag-expense-color)'
+                                : 'var(--muted-foreground)',
+                          }}
+                        >
+                          {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
                         </span>
                       </div>
                     )}
                   </>
-                ) : saleReport.taxRegime === 'sarl' || saleReport.taxRegime === 'sas' ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-[var(--muted-foreground)]">
-                    <span>
-                      - {t('saleReportTax', { regime: saleReport.taxLabel })}
-                    </span>
-                    <span className="text-[11px] font-semibold text-amber-400">
-                      {lang === 'ru'
-                        ? 'IS рассчитывается на годовую прибыль компании (см. Аналитику)'
-                        : 'IS calculé sur le bénéfice annuel société (voir Analytique)'}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between text-[var(--secondary-foreground)]">
-                    <span>
-                      - {t('saleReportTax', { regime: saleReport.taxLabel })}
-                    </span>
-                    <span
-                      className="font-semibold"
-                      style={{
-                        color:
-                          saleReport.taxAmount > 0
-                            ? 'var(--ag-expense-color)'
-                            : 'var(--muted-foreground)',
-                      }}
-                    >
-                      {saleReport.taxAmount > 0 ? `-${formatEuro(saleReport.taxAmount)}` : formatEuro(0)}
-                    </span>
-                  </div>
                 )}
 
                 <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--border)] text-sm">
@@ -757,9 +841,11 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </span>
                 </div>
 
-                <p className="pt-2 text-[10px] font-sans leading-relaxed text-[var(--muted-foreground)] border-t border-[var(--border)]/60">
-                  {t('taxAccountantDisclaimer')}
-                </p>
+                {!showParticulierSimplifiedReport && (
+                  <p className="pt-2 text-[10px] font-sans leading-relaxed text-[var(--muted-foreground)] border-t border-[var(--border)]/60">
+                    {t('taxAccountantDisclaimer')}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
@@ -859,7 +945,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           { label: t('year'), value: String(vehicle.year || '—'), tabular: true },
           {
             label: t('mileage'),
-            value: `${(vehicle.mileage ?? 0).toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR')} km`,
+            value: `${(vehicle.mileage ?? 0).toLocaleString(getIntlLocale(lang))} km`,
             tabular: true,
           },
           { label: t('fuelTypeLabel'), value: vehicle.fuelType || '—' },
@@ -918,9 +1004,9 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         ];
 
         return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left Column: Compact Photo Gallery & Two-Column Spec Table */}
-          <div className="lg:col-span-2 space-y-5">
+          <div className="lg:col-span-2 space-y-4">
             {/* Compact Photo Gallery (240px-256px) & Horizontal Thumbnail Strip */}
             <div
               data-testid="vehicle-photo-gallery"
@@ -999,12 +1085,18 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <Edit className="w-3.5 h-3.5" />
                   <span>
                     {isEditingSpecs
-                      ? lang === 'ru'
-                        ? 'Закрыть редактор'
-                        : 'Fermer l’édition'
-                      : lang === 'ru'
-                      ? 'Дополнить данные (Cerfa / ПТС)'
-                      : 'Compléter Carte Grise (Cerfa)'}
+                      ? pickLocalized(lang, {
+                          fr: 'Fermer l’édition',
+                          ru: 'Закрыть редактор',
+                          hy: 'Փակել խմբագրիչը',
+                          ka: 'რედაქტორის დახურვა',
+                        })
+                      : pickLocalized(lang, {
+                          fr: 'Compléter Carte Grise (Cerfa)',
+                          ru: 'Дополнить данные (Cerfa / ПТС)',
+                          hy: 'Լրացնել Carte Grise (Cerfa)',
+                          ka: 'Carte Grise-ის შევსება (Cerfa)',
+                        })}
                   </span>
                 </button>
               </div>
@@ -1017,9 +1109,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     const cleanedVin = specVin.replace(/\s+/g, '').toUpperCase();
                     if (cleanedVin.length > 0 && !/^[A-HJ-NPR-Z0-9]{17}$/.test(cleanedVin)) {
                       setSpecError(
-                        lang === 'ru'
-                          ? 'VIN должен содержать ровно 17 символов (без I, O, Q).'
-                          : 'Le VIN doit contenir exactement 17 caractères (hors I, O, Q).'
+                        pickLocalized(lang, {
+                          fr: 'Le VIN doit contenir exactement 17 caractères (hors I, O, Q).',
+                          ru: 'VIN должен содержать ровно 17 символов (без I, O, Q).',
+                          hy: 'VIN կոդը պետք է ունենա ուղիղ 17 նիշ (առանց I, O, Q)։',
+                          ka: 'VIN კოდი უნდა შეიცავდეს ზუსტად 17 სიმბოლოს (I, O, Q-ის გარეშე).',
+                        })
                       );
                       return;
                     }
@@ -1205,7 +1300,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               ) : (
                 <div
                   data-testid="vehicle-specs-two-column"
-                  className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6"
+                  className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4"
                 >
                   {/* Left Group: Основные характеристики */}
                   <div>
@@ -1274,7 +1369,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           </div>
 
           {/* Right Column: Buyer Info & Quick Checklist Status */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             {/* Buyer Card if Sold or Prompt to Sell */}
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
               <h3 className="text-base font-bold text-[var(--foreground)] flex items-center justify-between gap-2">
@@ -1332,7 +1427,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="bg-[var(--surface-muted)] p-5 rounded-xl border border-[var(--border)] text-center space-y-3">
+                <div className="bg-[var(--surface-muted)] p-4 rounded-xl border border-[var(--border)] text-center space-y-3">
                   <p className="text-xs text-[var(--muted-foreground)]">
                     {t('inStockNotice', { status: statusBadge.label })}
                   </p>
@@ -1349,7 +1444,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
             {/* Quick Repairs Checklist Progress */}
             {featureFlags.repairChecklist && (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 shadow-sm space-y-3">
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
                   <ListCheck className="w-4 h-4 text-[var(--primary)]" />
@@ -1415,7 +1510,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
       {/* TAB 2: REPAIR WORKS & TASKS MODULE (TO-DO CHECKLIST) */}
       {featureFlags.repairChecklist && activeTab === 'repairs' && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Header & Add Task CTA */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
             <div>
@@ -1476,7 +1571,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                           : 'bg-[var(--background)] border-[var(--border)] text-[var(--secondary-foreground)] hover:bg-[var(--surface-muted)]'
                       }`}
                     >
-                      {lang === 'ru' ? preset.labelRu : preset.labelFr}
+                      {pickLocalized(lang, {
+                        fr: preset.labelFr,
+                        ru: preset.labelRu,
+                        hy: preset.labelHy,
+                        ka: preset.labelKa,
+                      })}
                     </button>
                   ))}
                 </div>
@@ -1724,7 +1824,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
       {/* TAB 3: GENERAL EXPENSES MODULE (NON-REPAIR FINANCIAL EXPENSES) */}
       {activeTab === 'expenses' && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Header & Add CTA */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)]">
             <div>
@@ -1786,7 +1886,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     }}
                     options={dynamicCategories.map((cat) => ({
                       value: cat.id,
-                      label: lang === 'ru' ? cat.labelRu : cat.labelFr,
+                      label: pickLocalized(lang, {
+                        fr: cat.labelFr,
+                        ru: cat.labelRu,
+                        hy: cat.labelHy || cat.labelFr,
+                        ka: cat.labelKa || cat.labelFr,
+                      }),
                     }))}
                     triggerClassName="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)]"
                   />
@@ -1887,7 +1992,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     {expenses.map((expense) => {
                       const catInfo = dynamicCategories.find((c) => c.id === expense.category);
                       const catLabel = catInfo
-                        ? (lang === 'ru' ? catInfo.labelRu : catInfo.labelFr)
+                        ? pickLocalized(lang, {
+                            fr: catInfo.labelFr,
+                            ru: catInfo.labelRu,
+                            hy: catInfo.labelHy || catInfo.labelFr,
+                            ka: catInfo.labelKa || catInfo.labelFr,
+                          })
                         : expense.category;
                       return (
                         <tr key={expense.id} className="hover:bg-[var(--surface-muted)] transition">
@@ -1958,8 +2068,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
       {/* TAB 4: SALES & DOCUMENT GENERATION MODULE */}
       {activeTab === 'documents' && (
-        <div className="space-y-6">
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-6">
+        <div className="space-y-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
                 <FileText className="w-5 h-5 text-[var(--primary)]" />
@@ -1971,9 +2081,9 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             </div>
 
             {/* Document Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Doc 1: Facture de Vente Véhicule d'Occasion */}
-              <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-[var(--primary)] rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
+              <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-[var(--primary)] rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4 shadow-sm transition">
                 <div className="space-y-2">
                   <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-[var(--primary)] flex items-center justify-center border border-amber-500/20">
                     <FileText className="w-5 h-5" />
@@ -1996,7 +2106,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Doc 2: Certificat de Cession Cerfa 15776*02 */}
               {featureFlags.cerfaGenerator && (
-                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-blue-500/50 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
+                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-blue-500/50 rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4 shadow-sm transition">
                   <div className="space-y-2">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center border border-blue-500/20">
                       <FileCheck className="w-5 h-5" />
@@ -2020,7 +2130,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
               {/* Doc 3: Fiche Bilan Financier P&L Détaillé */}
               {featureFlags.pnlCalculator && (
-                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-emerald-500/50 rounded-[var(--ag-card-radius)] p-5 flex flex-col justify-between space-y-4 shadow-sm transition">
+                <div className="bg-[var(--surface-muted)] border border-[var(--border)] hover:border-emerald-500/50 rounded-[var(--ag-card-radius)] p-4 flex flex-col justify-between space-y-4 shadow-sm transition">
                   <div className="space-y-2">
                     <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-[var(--success)] flex items-center justify-center border border-emerald-500/20">
                       <TrendingUp className="w-5 h-5" />

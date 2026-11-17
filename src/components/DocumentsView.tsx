@@ -50,6 +50,7 @@ import {
   updateGarageDocument,
 } from '../services/documentService';
 import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
+import { getIntlLocale, pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
 import { PdfCanvasPreview } from './PdfCanvasPreview';
@@ -187,7 +188,6 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
   onOpenCerfaGenerator,
 }) => {
   const { lang, t } = useI18n();
-  const isRu = lang === 'ru';
 
   const [activeTab, setActiveTab] = useState<DocumentsTab>('library');
   const [searchQuery, setSearchQuery] = useState('');
@@ -552,15 +552,40 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
   const getValidationText = (code: string): string => {
     switch (code) {
       case 'title_required':
-        return isRu ? 'Укажите название документа.' : 'Veuillez saisir un titre de document.';
+        return pickLocalized(lang, {
+          fr: 'Veuillez saisir un titre de document.',
+          ru: 'Укажите название документа.',
+          hy: 'Նշեք փաստաթղթի անվանումը։',
+          ka: 'მიუთითეთ დოკუმენტის დასახელება.',
+        });
       case 'vehicle_required':
-        return isRu ? 'Выберите связанный автомобиль.' : 'Veuillez sélectionner un véhicule associé.';
+        return pickLocalized(lang, {
+          fr: 'Veuillez sélectionner un véhicule associé.',
+          ru: 'Выберите связанный автомобиль.',
+          hy: 'Ընտրեք կապակցված ավտոմեքենան։',
+          ka: 'აირჩიეთ დაკავშირებული ავტომობილი.',
+        });
       case 'client_required':
-        return isRu ? 'Укажите имя клиента.' : 'Veuillez renseigner le nom du client.';
+        return pickLocalized(lang, {
+          fr: 'Veuillez renseigner le nom du client.',
+          ru: 'Укажите имя клиента.',
+          hy: 'Նշեք հաճախորդի անունը։',
+          ka: 'მიუთითეთ კლიენტის სახელი.',
+        });
       case 'file_required':
-        return isRu ? 'Загрузите файл PDF или изображение.' : 'Veuillez joindre un fichier PDF ou une image.';
+        return pickLocalized(lang, {
+          fr: 'Veuillez joindre un fichier PDF ou une image.',
+          ru: 'Загрузите файл PDF или изображение.',
+          hy: 'Կցեք PDF ֆայլ կամ պատկեր։',
+          ka: 'ატვირთეთ PDF ფაილი ან სურათი.',
+        });
       case 'date_required':
-        return isRu ? 'Укажите дату документа.' : 'Veuillez préciser la date du document.';
+        return pickLocalized(lang, {
+          fr: 'Veuillez préciser la date du document.',
+          ru: 'Укажите дату документа.',
+          hy: 'Նշեք փաստաթղթի ամսաթիվը։',
+          ka: 'მიუთითეთ დოკუმენტის თარიღი.',
+        });
       default:
         return code;
     }
@@ -710,7 +735,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                   {missingReminders[0].vehicleLabel}
                 </span>{' '}
                 — {getDocumentCategoryLabel(missingReminders[0].category, lang)}:{' '}
-                {isRu ? missingReminders[0].reasonRu : missingReminders[0].reasonFr}
+                {pickLocalized(lang, {
+                  fr: missingReminders[0].reasonFr,
+                  ru: missingReminders[0].reasonRu,
+                  hy: missingReminders[0].reasonHy,
+                  ka: missingReminders[0].reasonKa,
+                })}
               </div>
             </div>
           </div>
@@ -729,7 +759,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               onClick={() => setActiveTab('missing')}
               className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] hover:border-[var(--primary)]/50 transition"
             >
-              {isRu ? `Показать все (${missingReminders.length})` : `Tout voir (${missingReminders.length})`}
+              {pickLocalized(lang, {
+                fr: `Tout voir (${missingReminders.length})`,
+                ru: `Показать все (${missingReminders.length})`,
+                hy: `Տեսնել բոլորը (${missingReminders.length})`,
+                ka: `ყველას ნახვა (${missingReminders.length})`,
+              })}
             </button>
           </div>
         </div>
@@ -896,7 +931,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                       : 'bg-[var(--surface-muted)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
                   }`}
                 >
-                  {lang === 'ru' ? cat.labelRu : cat.labelFr}{' '}
+                  {getDocumentCategoryLabel(cat.id, lang)}{' '}
                   <span className="opacity-75 tabular-nums">({categoryCounts[cat.id] || 0})</span>
                 </button>
               ))}
@@ -997,7 +1032,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                           <div className="flex items-center justify-between gap-2">
                             <span className="inline-flex items-center gap-1.5 text-[var(--muted-foreground)] shrink-0">
                               <Car className="w-3.5 h-3.5 text-sky-400" />
-                              <span>{isRu ? 'Авто' : 'Véhicule'}:</span>
+                              <span>
+                                {pickLocalized(lang, {
+                                  fr: 'Véhicule',
+                                  ru: 'Авто',
+                                  hy: 'Մեքենա',
+                                  ka: 'ავტომობილი',
+                                })}
+                                :
+                              </span>
                             </span>
                             {boundVeh ? (
                               <button
@@ -1019,7 +1062,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                           <div className="flex items-center justify-between gap-2">
                             <span className="inline-flex items-center gap-1.5 text-[var(--muted-foreground)] shrink-0">
                               <User className="w-3.5 h-3.5 text-violet-400" />
-                              <span>{isRu ? 'Клиент' : 'Client'}:</span>
+                              <span>
+                                {pickLocalized(lang, {
+                                  fr: 'Client',
+                                  ru: 'Клиент',
+                                  hy: 'Հաճախորդ',
+                                  ka: 'კლიენტი',
+                                })}
+                                :
+                              </span>
                             </span>
                             <span className="font-semibold text-[var(--foreground)] truncate text-right">
                               {doc.clientName}
@@ -1180,7 +1231,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-[var(--muted-foreground)]">
-                          {isRu ? rem.reasonRu : rem.reasonFr}
+                          {pickLocalized(lang, {
+                            fr: rem.reasonFr,
+                            ru: rem.reasonRu,
+                            hy: rem.reasonHy,
+                            ka: rem.reasonKa,
+                          })}
                         </p>
                       </div>
                     </div>
@@ -1248,11 +1304,46 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-[var(--border)] bg-[var(--surface-muted)]/60 text-[var(--muted-foreground)] uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5 px-4">{isRu ? 'Дата и время' : 'Date & Heure'}</th>
-                    <th className="py-2.5 px-4">{isRu ? 'Действие' : 'Action'}</th>
-                    <th className="py-2.5 px-4">{isRu ? 'Документ' : 'Document'}</th>
-                    <th className="py-2.5 px-4">{isRu ? 'Привязка' : 'Liaison'}</th>
-                    <th className="py-2.5 px-4">{isRu ? 'Файл / Пользователь' : 'Fichier / Utilisateur'}</th>
+                    <th className="py-2.5 px-4">
+                      {pickLocalized(lang, {
+                        fr: 'Date & Heure',
+                        ru: 'Дата и время',
+                        hy: 'Ամսաթիվ և ժամ',
+                        ka: 'თარიღი და დრო',
+                      })}
+                    </th>
+                    <th className="py-2.5 px-4">
+                      {pickLocalized(lang, {
+                        fr: 'Action',
+                        ru: 'Действие',
+                        hy: 'Գործողություն',
+                        ka: 'ქმედება',
+                      })}
+                    </th>
+                    <th className="py-2.5 px-4">
+                      {pickLocalized(lang, {
+                        fr: 'Document',
+                        ru: 'Документ',
+                        hy: 'Փաստաթուղթ',
+                        ka: 'დოკუმენტი',
+                      })}
+                    </th>
+                    <th className="py-2.5 px-4">
+                      {pickLocalized(lang, {
+                        fr: 'Liaison',
+                        ru: 'Привязка',
+                        hy: 'Կապակցում',
+                        ka: 'ბმა',
+                      })}
+                    </th>
+                    <th className="py-2.5 px-4">
+                      {pickLocalized(lang, {
+                        fr: 'Fichier / Utilisateur',
+                        ru: 'Файл / Пользователь',
+                        hy: 'Ֆայլ / Օգտատեր',
+                        ka: 'ფაილი / მომხმარებელი',
+                      })}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
@@ -1263,7 +1354,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                       className="hover:bg-[var(--surface-muted)]/40 transition"
                     >
                       <td className="py-2.5 px-4 whitespace-nowrap text-[var(--muted-foreground)] tabular-nums">
-                        {new Date(ev.timestamp).toLocaleString(lang === 'ru' ? 'ru-RU' : 'fr-FR', {
+                        {new Date(ev.timestamp).toLocaleString(getIntlLocale(lang), {
                           dateStyle: 'short',
                           timeStyle: 'short',
                         })}
@@ -1321,7 +1412,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
         >
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-[var(--border)]">
               <h3 className="text-base font-extrabold text-[var(--foreground)] flex items-center gap-2">
                 <FilePlus2 className="w-4 h-4 text-[var(--primary)]" />
                 <span>{editingDoc ? t('docsModalEditTitle') : t('docsModalAddTitle')}</span>
@@ -1336,7 +1427,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveDocument} className="overflow-y-auto p-5 space-y-4">
+            <form onSubmit={handleSaveDocument} className="overflow-y-auto p-4 space-y-4">
               {formErrors.length > 0 && (
                 <div className="bg-rose-500/10 border border-rose-500/40 rounded-xl p-3 space-y-1">
                   {formErrors.map((err) => (
@@ -1402,7 +1493,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                     data-testid="document-title-input"
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder={isRu ? 'Например: Carte grise Peugeot 208' : 'Ex : Carte grise Peugeot 208'}
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Ex : Carte grise Peugeot 208',
+                      ru: 'Например: Carte grise Peugeot 208',
+                      hy: 'Օրինակ՝ Carte grise Peugeot 208',
+                      ka: 'მაგ.: Carte grise Peugeot 208',
+                    })}
                     className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
                   />
                 </div>
@@ -1418,7 +1514,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                     onChange={(v) => setFormCategory(v as GarageDocumentCategory)}
                     options={DOCUMENT_CATEGORIES.map((c) => ({
                       value: c.id,
-                      label: lang === 'ru' ? c.labelRu : c.labelFr,
+                      label: getDocumentCategoryLabel(c.id, lang),
                     }))}
                     triggerClassName="w-full bg-[var(--background)] text-xs font-semibold text-[var(--foreground)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-3 py-2"
                   />
@@ -1471,7 +1567,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                       value={formVehicleId}
                       onChange={handleVehicleSelectInModal}
                       options={[
-                        { value: '', label: isRu ? '— Не выбран —' : '— Aucun —' },
+                        {
+                          value: '',
+                          label: pickLocalized(lang, {
+                            fr: '— Aucun —',
+                            ru: '— Не выбран —',
+                            hy: '— Ընտրված չէ —',
+                            ka: '— არჩეული არ არის —',
+                          }),
+                        },
                         ...vehicles.map((v) => ({
                           value: v.id,
                           label: formatVehicleSummaryLabel(v),
@@ -1491,7 +1595,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                       list="autogarage-clients-datalist"
                       value={formClientName}
                       onChange={(e) => handleClientSelectInModal(e.target.value)}
-                      placeholder={isRu ? 'Имя покупателя / клиента' : 'Nom du client'}
+                      placeholder={pickLocalized(lang, {
+                        fr: 'Nom du client',
+                        ru: 'Имя покупателя / клиента',
+                        hy: 'Հաճախորդի անունը',
+                        ka: 'კლიენტის სახელი',
+                      })}
                       className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] border border-[var(--border)] text-xs text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
                     />
                     <datalist id="autogarage-clients-datalist">
@@ -1563,7 +1672,12 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                     type="text"
                     value={formNotes}
                     onChange={(e) => setFormNotes(e.target.value)}
-                    placeholder={isRu ? 'Комментарий или номер бланка' : 'Observation ou n° de référence'}
+                    placeholder={pickLocalized(lang, {
+                      fr: 'Observation ou n° de référence',
+                      ru: 'Комментарий или номер бланка',
+                      hy: 'Մեկնաբանություն կամ համար',
+                      ka: 'კომენტარი ან ბლანკის ნომერი',
+                    })}
                     className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)]"
                   />
                 </div>
@@ -1670,24 +1784,53 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
               <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-4 space-y-4 bg-[var(--card)]">
                 <div className="space-y-2 text-xs">
                   <div className="font-bold uppercase tracking-wider text-[10px] text-[var(--muted-foreground)]">
-                    {isRu ? 'Информация и привязка' : 'Métadonnées & Liaison'}
+                    {pickLocalized(lang, {
+                      fr: 'Métadonnées & Liaison',
+                      ru: 'Информация и привязка',
+                      hy: 'Տվյալներ և կապակցում',
+                      ka: 'მონაცემები და ბმა',
+                    })}
                   </div>
                   <div className="space-y-1.5 bg-[var(--background)] border border-[var(--border)] rounded-xl p-3">
                     <div>
-                      <span className="text-[var(--muted-foreground)]">{isRu ? 'Файл' : 'Fichier'}: </span>
+                      <span className="text-[var(--muted-foreground)]">
+                        {pickLocalized(lang, {
+                          fr: 'Fichier',
+                          ru: 'Файл',
+                          hy: 'Ֆայլ',
+                          ka: 'ფაილი',
+                        })}
+                        :{' '}
+                      </span>
                       <span className="font-semibold text-[var(--foreground)] break-all">
                         {previewDoc.fileName}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[var(--muted-foreground)]">{isRu ? 'Дата' : 'Date'}: </span>
+                      <span className="text-[var(--muted-foreground)]">
+                        {pickLocalized(lang, {
+                          fr: 'Date',
+                          ru: 'Дата',
+                          hy: 'Ամսաթիվ',
+                          ka: 'თარიღი',
+                        })}
+                        :{' '}
+                      </span>
                       <span className="font-semibold text-[var(--foreground)] tabular-nums">
                         {previewDoc.documentDate}
                       </span>
                     </div>
                     {previewDoc.vehicleLabel && (
                       <div>
-                        <span className="text-[var(--muted-foreground)]">{isRu ? 'Авто' : 'Véhicule'}: </span>
+                        <span className="text-[var(--muted-foreground)]">
+                          {pickLocalized(lang, {
+                            fr: 'Véhicule',
+                            ru: 'Авто',
+                            hy: 'Մեքենա',
+                            ka: 'ავტომობილი',
+                          })}
+                          :{' '}
+                        </span>
                         <span className="font-semibold text-[var(--primary)]">
                           {previewDoc.vehicleLabel}
                         </span>
@@ -1695,7 +1838,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                     )}
                     {previewDoc.clientName && (
                       <div>
-                        <span className="text-[var(--muted-foreground)]">{isRu ? 'Клиент' : 'Client'}: </span>
+                        <span className="text-[var(--muted-foreground)]">
+                          {pickLocalized(lang, {
+                            fr: 'Client',
+                            ru: 'Клиент',
+                            hy: 'Հաճախորդ',
+                            ka: 'კლიენტი',
+                          })}
+                          :{' '}
+                        </span>
                         <span className="font-semibold text-[var(--foreground)]">
                           {previewDoc.clientName}
                         </span>
@@ -1703,7 +1854,15 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                     )}
                     {previewDoc.notes && (
                       <div>
-                        <span className="text-[var(--muted-foreground)]">{isRu ? 'Заметки' : 'Notes'}: </span>
+                        <span className="text-[var(--muted-foreground)]">
+                          {pickLocalized(lang, {
+                            fr: 'Notes',
+                            ru: 'Заметки',
+                            hy: 'Նշումներ',
+                            ka: 'შენიშვნები',
+                          })}
+                          :{' '}
+                        </span>
                         <span className="text-[var(--foreground)]">{previewDoc.notes}</span>
                       </div>
                     )}
@@ -1731,7 +1890,7 @@ export const DocumentsView: React.FC<DocumentsViewProps> = ({
                           </span>
                           <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
                             {new Date(ev.timestamp).toLocaleDateString(
-                              lang === 'ru' ? 'ru-RU' : 'fr-FR'
+                              getIntlLocale(lang)
                             )}
                           </span>
                         </div>

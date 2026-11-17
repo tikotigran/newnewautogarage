@@ -262,13 +262,15 @@ export function calculateSaleTaxReport(params: {
 }): SaleFinancialReport {
   if (params.taxSnapshot?.isHistoricalSnapshot) {
     const snap = params.taxSnapshot;
+    const isParticulierSnap = snap.taxRegime === 'none' || snap.legalStatus === 'particulier';
     const totalExpenses = roundToTwo(snap.repairCostTotal + snap.generalExpensesTotal);
-    const rate =
-      snap.taxRegime === 'micro'
-        ? roundToTwo(
-            snap.urssafRate + (snap.versementLiberatoireEnabled ? snap.versementLiberatoireRate : 0)
-          )
-        : 0;
+    const rate = isParticulierSnap
+      ? 0
+      : snap.taxRegime === 'micro'
+      ? roundToTwo(
+          snap.urssafRate + (snap.versementLiberatoireEnabled ? snap.versementLiberatoireRate : 0)
+        )
+      : 0;
     return {
       salePrice: snap.salePrice,
       purchasePrice: snap.purchasePrice,
@@ -276,24 +278,26 @@ export function calculateSaleTaxReport(params: {
       generalExpensesTotal: snap.generalExpensesTotal,
       totalExpenses,
       grossMargin: snap.profitBeforeTaxes,
-      taxRegime: snap.taxRegime,
+      taxRegime: isParticulierSnap ? 'none' : snap.taxRegime,
       taxRatePercent: rate,
       taxLabel: snap.taxLabel,
-      taxAmount: snap.totalTaxAmount,
-      netProfitAfterTax: snap.netProfitAfterTax,
-      urssafAmount: snap.urssafAmount,
-      versementLiberatoireEnabled: snap.versementLiberatoireEnabled,
-      versementLiberatoireAmount: snap.versementLiberatoireAmount,
-      microBicEstimatedTax: snap.microBicEstimatedTax,
-      corporateIsContextNote: snap.corporateIsContextNote,
-      vatRegime: snap.vatRegime,
-      vatRatePercent: snap.vatRatePercent,
-      vatAmount: snap.vatAmount,
-      htAmount: snap.htAmount,
+      taxAmount: isParticulierSnap ? 0 : snap.totalTaxAmount,
+      netProfitAfterTax: isParticulierSnap ? snap.profitBeforeTaxes : snap.netProfitAfterTax,
+      urssafAmount: isParticulierSnap ? 0 : snap.urssafAmount,
+      versementLiberatoireEnabled: isParticulierSnap ? false : snap.versementLiberatoireEnabled,
+      versementLiberatoireAmount: isParticulierSnap ? 0 : snap.versementLiberatoireAmount,
+      microBicEstimatedTax: isParticulierSnap ? 0 : snap.microBicEstimatedTax,
+      corporateIsContextNote: isParticulierSnap ? '' : snap.corporateIsContextNote,
+      vatRegime: isParticulierSnap ? 'franchise_base' : snap.vatRegime,
+      vatRatePercent: isParticulierSnap ? 0 : snap.vatRatePercent,
+      vatAmount: isParticulierSnap ? 0 : snap.vatAmount,
+      htAmount: isParticulierSnap ? snap.salePrice : snap.htAmount,
       ttcAmount: snap.ttcAmount,
-      vatLegalMention: snap.vatLegalMention,
+      vatLegalMention: isParticulierSnap ? '' : snap.vatLegalMention,
       isHistoricalSnapshot: true,
-      disclaimerNote: snap.disclaimerNote || FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
+      disclaimerNote: isParticulierSnap
+        ? ''
+        : snap.disclaimerNote ?? FRENCH_TAX_DEFAULTS.DISCLAIMER_FR,
     };
   }
 

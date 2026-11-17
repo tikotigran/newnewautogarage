@@ -40,7 +40,6 @@ import {
   FeatureFlagsConfig,
   FrenchTaxConfiguration,
   GlobalTextOverrides,
-  IsRateMode,
   LayoutMode,
   LegalStatus,
   SectionGapSize,
@@ -109,9 +108,9 @@ import {
 import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 import {
   createDefaultFrenchTaxConfig,
-  FRENCH_TAX_DEFAULTS,
 } from '../utils/frenchTaxEngine';
 import { formatEuro } from '../utils/finance';
+import { pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { translations } from '../i18n/translations';
 
@@ -148,7 +147,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenAlignerMode,
   onGlobalLayoutChanged,
 }) => {
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
   const isRu = lang === 'ru';
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -656,11 +655,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleResetTaxDefaults = async () => {
-    const fresh = createDefaultFrenchTaxConfig('sarl');
+    const fresh = createDefaultFrenchTaxConfig('micro_entreprise');
     setTaxDefaultsDraft(fresh);
     await saveSuperAdminTaxDefaults(fresh, currentUserUid);
     showSavedFeedback(
-      isRu ? 'Сброшено к стандартам Франции (12.3% / 1% / 15%-25%)' : 'Réinitialisé aux barèmes français'
+      pickLocalized(lang, {
+        fr: 'Réinitialisé aux barèmes français (Micro 12,3% + 1% · Franchise en base)',
+        ru: 'Сброшено к стандартам Франции (Micro 12.3% + 1% · Franchise en base)',
+        hy: 'Վերականգնված է ֆրանսիական ստանդարտներով (Micro 12.3% + 1% · Franchise en base)',
+        ka: 'აღდგენილია ფრანგული სტანდარტებით (Micro 12.3% + 1% · Franchise en base)',
+      })
     );
   };
 
@@ -1395,7 +1399,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           textOverrides
                         ).replace('{vehicle}', 'Peugeot 207')}
                       </button>
-                      <span style={{ color: palette.mutedForeground }}>SARL 15%</span>
+                      <span style={{ color: palette.mutedForeground }}>Micro 13.3%</span>
                     </div>
                     <div className="flex justify-between tabular-nums">
                       <span style={{ color: palette.secondaryForeground }}>+ {translations[lang].saleReportSalePrice}</span>
@@ -3064,19 +3068,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {/* GLOBAL FRENCH TAX ENGINE DEFAULTS (/settings/tax_defaults) */}
             <div
               data-testid="admin-french-tax-defaults"
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
                   <h2 className="text-base font-bold text-white">
-                    {isRu
-                      ? 'Налоговые настройки Франции по умолчанию (Micro-entreprise / SARL / SAS / TVA)'
-                      : 'Barèmes fiscaux France par défaut (Micro-entreprise / SARL / SAS / TVA)'}
+                    {pickLocalized(lang, {
+                      fr: 'Barèmes fiscaux France par défaut (Particulier / Micro-entrepreneur)',
+                      ru: 'Налоговые настройки Франции по умолчанию (Particulier / Micro-entrepreneur)',
+                      hy: 'Ֆրանսիայի հարկային լռելյայն չափանիշներ (Particulier / Micro-entrepreneur)',
+                      ka: 'საფრანგეთის ნაგულისხმევი საგადასახადო განაკვეთები (Particulier / Micro-entrepreneur)',
+                    })}
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    {isRu
-                      ? 'Глобальные значения по умолчанию для новых автосалонов и расчётных моделей (/settings/tax_defaults)'
-                      : 'Valeurs par défaut globales pour les nouveaux garages et le moteur fiscal (/settings/tax_defaults)'}
+                    {pickLocalized(lang, {
+                      fr: 'Valeurs par défaut globales pour les nouveaux espaces et l’estimation fiscale (/settings/tax_defaults)',
+                      ru: 'Глобальные значения по умолчанию для новых профилей и оценочного расчёта (/settings/tax_defaults)',
+                      hy: 'Գլոբալ լռելյայն արժեքներ նոր պրոֆիլների և հաշվարկային մոդելի համար (/settings/tax_defaults)',
+                      ka: 'გლობალური ნაგულისხმევი პარამეტრები ახალი პროფილებისა და შეფასებითი მოდელისთვის (/settings/tax_defaults)',
+                    })}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -3086,7 +3096,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Сброс' : 'Réinitialiser'}</span>
+                    <span>
+                      {pickLocalized(lang, {
+                        fr: 'Réinitialiser',
+                        ru: 'Сброс',
+                        hy: 'Վերականգնել',
+                        ka: 'განულება',
+                      })}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -3095,7 +3112,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Сохранить тарифы' : 'Enregistrer barèmes'}</span>
+                    <span>
+                      {pickLocalized(lang, {
+                        fr: 'Enregistrer barèmes',
+                        ru: 'Сохранить тарифы',
+                        hy: 'Պահպանել դրույքները',
+                        ka: 'განაკვეთების შენახვა',
+                      })}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -3103,255 +3127,294 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Статус по умолчанию' : 'Statut juridique par défaut'}
+                    {pickLocalized(lang, {
+                      fr: 'Profil par défaut',
+                      ru: 'Профиль по умолчанию',
+                      hy: 'Լռելյայն պրոֆիլ',
+                      ka: 'ნაგულისხმევი პროფილი',
+                    })}
                   </label>
                   <ThemedSelect<LegalStatus>
                     testId="admin-tax-legal-status"
-                    ariaLabel="Statut juridique par défaut"
-                    value={taxDefaultsDraft.legalStatus}
+                    ariaLabel={pickLocalized(lang, {
+                      fr: 'Profil par défaut',
+                      ru: 'Профиль по умолчанию',
+                      hy: 'Լռելյայն պրոֆիլ',
+                      ka: 'ნაგულისხმევი პროფილი',
+                    })}
+                    value={taxDefaultsDraft.legalStatus === 'particulier' ? 'particulier' : 'micro_entreprise'}
                     onChange={(val) => {
-                      const businessTaxRegime =
-                        val === 'micro_entreprise'
-                          ? 'micro'
-                          : val === 'sas' || val === 'sasu'
-                          ? 'sas'
-                          : val === 'sarl' || val === 'eurl'
-                          ? 'sarl'
-                          : 'custom';
+                      const isPart = val === 'particulier';
+                      const fresh = createDefaultFrenchTaxConfig(isPart ? 'particulier' : 'micro_entreprise');
                       setTaxDefaultsDraft((prev) => ({
                         ...prev,
-                        legalStatus: val,
-                        businessTaxRegime,
+                        legalStatus: isPart ? 'particulier' : 'micro_entreprise',
+                        businessTaxRegime: isPart ? 'none' : 'micro',
+                        socialContributionRate: isPart
+                          ? 0
+                          : prev.socialContributionRate > 0
+                          ? prev.socialContributionRate
+                          : fresh.socialContributionRate,
+                        versementLiberatoireEnabled: isPart ? false : true,
+                        versementLiberatoireRate: isPart
+                          ? 0
+                          : prev.versementLiberatoireRate > 0
+                          ? prev.versementLiberatoireRate
+                          : fresh.versementLiberatoireRate,
+                        microBicAbattementPercent: isPart
+                          ? 0
+                          : prev.microBicAbattementPercent > 0
+                          ? prev.microBicAbattementPercent
+                          : fresh.microBicAbattementPercent,
+                        microBicIncomeTaxRate: isPart
+                          ? 0
+                          : prev.microBicIncomeTaxRate > 0
+                          ? prev.microBicIncomeTaxRate
+                          : fresh.microBicIncomeTaxRate,
+                        vatRegime: 'franchise_base',
+                        vatRatePercent: 0,
                       }));
                     }}
                     options={[
-                      { value: 'sarl', label: 'SARL / EURL (IS)' },
-                      { value: 'sas', label: 'SAS / SASU (IS)' },
-                      { value: 'micro_entreprise', label: 'Micro-entreprise (Achat / Revente)' },
-                      { value: 'other', label: isRu ? 'Другой статус' : 'Autre statut' },
+                      {
+                        value: 'micro_entreprise',
+                        label: 'Micro-entrepreneur (Achat / Revente)',
+                      },
+                      {
+                        value: 'particulier',
+                        label: pickLocalized(lang, {
+                          fr: 'Particulier (Vente privée)',
+                          ru: 'Particulier (Частное лицо)',
+                          hy: 'Particulier (Անհատ)',
+                          ka: 'Particulier (ფიზიკური პირი)',
+                        }),
+                      },
                     ]}
                     triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'URSSAF Micro (%)' : 'URSSAF Micro (%)'}
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="0.1"
-                    value={taxDefaultsDraft.socialContributionRate}
-                    onChange={(e) =>
-                      setTaxDefaultsDraft((prev) => ({
-                        ...prev,
-                        socialContributionRate: Math.max(0, Number(e.target.value) || 0),
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                  />
-                </div>
+                {taxDefaultsDraft.legalStatus !== 'particulier' && (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-400">
+                        URSSAF Micro (%)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={taxDefaultsDraft.socialContributionRate}
+                        onChange={(e) =>
+                          setTaxDefaultsDraft((prev) => ({
+                            ...prev,
+                            socialContributionRate: Math.max(0, Number(e.target.value) || 0),
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Versement libératoire (%)' : 'Versement libératoire (%)'}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-400">
+                        Versement libératoire (%)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTaxDefaultsDraft((prev) => ({
+                              ...prev,
+                              versementLiberatoireEnabled: !prev.versementLiberatoireEnabled,
+                            }))
+                          }
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                            taxDefaultsDraft.versementLiberatoireEnabled
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-slate-950 text-slate-400 border-slate-700'
+                          }`}
+                        >
+                          {taxDefaultsDraft.versementLiberatoireEnabled ? 'YES' : 'NO'}
+                        </button>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.1"
+                          value={taxDefaultsDraft.versementLiberatoireRate}
+                          onChange={(e) =>
+                            setTaxDefaultsDraft((prev) => ({
+                              ...prev,
+                              versementLiberatoireRate: Math.max(0, Number(e.target.value) || 0),
+                            }))
+                          }
+                          className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {taxDefaultsDraft.legalStatus !== 'micro_entreprise' &&
+                taxDefaultsDraft.legalStatus !== 'particulier' ? (
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-semibold text-slate-400">
+                      {pickLocalized(lang, {
+                        fr: 'Régime TVA par défaut',
+                        ru: 'Режим НДС (TVA) по умолчанию',
+                        hy: 'ԱԱՀ (TVA) լռելյայն ռեժիմ',
+                        ka: 'დღგ-ს (TVA) ნაგულისხმევი რეჟიმი',
+                      })}
+                    </label>
+                    <ThemedSelect<VatRegime>
+                      testId="admin-tax-vat-regime"
+                      ariaLabel={pickLocalized(lang, {
+                        fr: 'Régime TVA par défaut',
+                        ru: 'Режим НДС (TVA) по умолчанию',
+                        hy: 'ԱԱՀ (TVA) լռելյայն ռեժիմ',
+                        ka: 'დღგ-ს (TVA) ნაგულისხმევი რეჟიმი',
+                      })}
+                      value={taxDefaultsDraft.vatRegime}
+                      onChange={(val) =>
                         setTaxDefaultsDraft((prev) => ({
                           ...prev,
-                          versementLiberatoireEnabled: !prev.versementLiberatoireEnabled,
+                          vatRegime: val,
                         }))
                       }
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                        taxDefaultsDraft.versementLiberatoireEnabled
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                          : 'bg-slate-950 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {taxDefaultsDraft.versementLiberatoireEnabled ? 'YES' : 'NO'}
-                    </button>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={taxDefaultsDraft.versementLiberatoireRate}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          versementLiberatoireRate: Math.max(0, Number(e.target.value) || 0),
-                        }))
-                      }
-                      className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                      options={[
+                        { value: 'tva_marge', label: 'TVA sur la marge (Art. 297 A)' },
+                        { value: 'tva_total', label: 'TVA sur le prix total (20%)' },
+                        { value: 'franchise_base', label: 'Franchise en base (0%)' },
+                        {
+                          value: 'custom',
+                          label: pickLocalized(lang, {
+                            fr: 'Taux personnalisé (%)',
+                            ru: 'Своя ставка (%)',
+                            hy: 'Հատուկ դրույք (%)',
+                            ka: 'საკუთარი განაკვეთი (%)',
+                          }),
+                        },
+                      ]}
+                      triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
                     />
                   </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'НДС (TVA) по умолчанию' : 'Régime TVA par défaut'}
-                  </label>
-                  <ThemedSelect<VatRegime>
-                    testId="admin-tax-vat-regime"
-                    ariaLabel="Régime TVA par défaut"
-                    value={taxDefaultsDraft.vatRegime}
-                    onChange={(val) =>
-                      setTaxDefaultsDraft((prev) => ({
-                        ...prev,
-                        vatRegime: val,
-                      }))
-                    }
-                    options={[
-                      { value: 'tva_marge', label: 'TVA sur la marge (Art. 297 A)' },
-                      { value: 'tva_total', label: 'TVA sur le prix total (20%)' },
-                      { value: 'franchise_base', label: 'Franchise en base (0%)' },
-                      { value: 'custom', label: isRu ? 'Своя ставка (%)' : 'Taux personnalisé (%)' },
-                    ]}
-                    triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                  />
-                </div>
+                ) : taxDefaultsDraft.legalStatus === 'micro_entreprise' ? (
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-semibold text-slate-400">
+                      {pickLocalized(lang, {
+                        fr: 'TVA par défaut',
+                        ru: 'НДС (TVA) по умолчанию',
+                        hy: 'ԱԱՀ (TVA) լռելյայն',
+                        ka: 'დღგ (TVA) ნაგულისხმევი',
+                      })}
+                    </label>
+                    <div className="w-full px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-semibold text-slate-300">
+                      Franchise en base (0% · Art. 293 B)
+                    </div>
+                  </div>
+                ) : (
+                  <div className="md:col-span-3 flex items-center rounded-xl bg-blue-500/10 border border-blue-500/25 px-3.5 py-2.5 text-xs text-blue-200">
+                    {pickLocalized(lang, {
+                      fr: 'Profil Particulier : aucune cotisation URSSAF, aucun Versement libératoire et aucune TVA ne sont appliqués (0 € de taxes).',
+                      ru: 'Профиль Particulier: взносы URSSAF, Versement libératoire и НДС полностью отключены (налоги 0 €).',
+                      hy: 'Particulier պրոֆիլ․ URSSAF, Versement libératoire և TVA հաշվարկները անջատված են (հարկը՝ 0 €)։',
+                      ka: 'Particulier პროფილი: URSSAF, Versement libératoire და TVA სრულად გამორთულია (გადასახადი 0 €).',
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Режим IS (SARL / SAS)' : 'Mode IS (SARL / SAS)'}
-                  </label>
-                  <ThemedSelect<IsRateMode>
-                    testId="admin-tax-is-mode"
-                    ariaLabel="Mode IS par défaut"
-                    value={taxDefaultsDraft.isRateMode}
-                    onChange={(val) =>
-                      setTaxDefaultsDraft((prev) => ({
-                        ...prev,
-                        isRateMode: val,
-                      }))
-                    }
-                    options={[
-                      { value: 'progressive_15_25', label: 'IS progressif 15% ≤ 42 500 € / 25%' },
-                      { value: 'standard_25', label: 'IS standard 25%' },
-                      { value: 'custom', label: isRu ? 'Своя ставка IS (%)' : 'Taux IS personnalisé' },
-                    ]}
-                    triggerClassName="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
-                  />
-                </div>
+              {taxDefaultsDraft.legalStatus !== 'particulier' && (
+                <>
+                  <div className={`grid grid-cols-1 ${
+                    taxDefaultsDraft.legalStatus !== 'micro_entreprise'
+                      ? 'md:grid-cols-3'
+                      : 'md:grid-cols-2'
+                  } gap-4`}>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-400">
+                        {pickLocalized(lang, {
+                          fr: 'Abattement Micro-BIC (%)',
+                          ru: 'Вычет Micro-BIC (%)',
+                          hy: 'Micro-BIC նվազեցում (%)',
+                          ka: 'Micro-BIC გამოქვითვა (%)',
+                        })}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="1"
+                        value={taxDefaultsDraft.microBicAbattementPercent}
+                        onChange={(e) =>
+                          setTaxDefaultsDraft((prev) => ({
+                            ...prev,
+                            microBicAbattementPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Льготная IS (%) / Порог (€)' : 'IS réduit (%) / Plafond (€)'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.5"
-                      value={taxDefaultsDraft.corporateTaxRateReduced}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          corporateTaxRateReduced: Math.max(0, Number(e.target.value) || 0),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step="500"
-                      value={taxDefaultsDraft.reducedIsThreshold}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          reducedIsThreshold: Math.max(0, Number(e.target.value) || 0),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-400">
+                        {pickLocalized(lang, {
+                          fr: 'Taux IR Micro-BIC estimé (%)',
+                          ru: 'Оценочный IR Micro-BIC (%)',
+                          hy: 'Գնահատված IR Micro-BIC (%)',
+                          ka: 'შეფასებითი IR Micro-BIC (%)',
+                        })}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        value={taxDefaultsDraft.microBicIncomeTaxRate}
+                        onChange={(e) =>
+                          setTaxDefaultsDraft((prev) => ({
+                            ...prev,
+                            microBicIncomeTaxRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                      />
+                    </div>
+
+                    {taxDefaultsDraft.legalStatus !== 'micro_entreprise' && (
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-semibold text-slate-400">
+                            {pickLocalized(lang, {
+                              fr: 'Taux TVA (%)',
+                              ru: 'Ставка НДС / TVA (%)',
+                              hy: 'ԱԱՀ / TVA դրույք (%)',
+                              ka: 'დღგ / TVA განაკვეთი (%)',
+                            })}
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.5"
+                            value={taxDefaultsDraft.vatRatePercent}
+                            onChange={(e) =>
+                              setTaxDefaultsDraft((prev) => ({
+                                ...prev,
+                                vatRatePercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                              }))
+                            }
+                            className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
+                          />
+                        </div>
+                      )}
                   </div>
-                </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Стандарт IS (%) / Налогообл. база' : 'IS normal (%) / Abattement BIC (%)'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.5"
-                      value={taxDefaultsDraft.corporateTaxRateStandard}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          corporateTaxRateStandard: Math.max(0, Number(e.target.value) || 0),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="1"
-                      value={taxDefaultsDraft.microBicAbattementPercent}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          microBicAbattementPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Ставка НДС (%) / IR Micro-BIC (%)' : 'Taux TVA (%) / IR Micro-BIC (%)'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.5"
-                      value={taxDefaultsDraft.vatRatePercent}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          vatRatePercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.5"
-                      value={taxDefaultsDraft.microBicIncomeTaxRate}
-                      onChange={(e) =>
-                        setTaxDefaultsDraft((prev) => ({
-                          ...prev,
-                          microBicIncomeTaxRate: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                        }))
-                      }
-                      className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl px-3.5 py-2.5">
-                {isRu ? FRENCH_TAX_DEFAULTS.DISCLAIMER_RU : FRENCH_TAX_DEFAULTS.DISCLAIMER_FR}
-              </p>
+                  <p className="text-[11px] text-slate-400 bg-slate-950/70 border border-slate-800 rounded-xl px-3.5 py-2.5">
+                    {t('taxAccountantDisclaimer')}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

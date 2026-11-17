@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildProfileSettingsPatch,
   buildTransactionTaxSnapshot,
   calculateCorporateIS,
   calculateFrenchVat,
@@ -8,6 +9,7 @@ import {
   calculateVehicleProfitBeforeTaxes,
   createDefaultFrenchTaxConfig,
   getResolvedVehicleSaleSnapshot,
+  resolveUserProfileType,
 } from './frenchTaxEngine';
 import { GarageSettings, Vehicle } from '../types/garage';
 
@@ -173,6 +175,8 @@ describe('French Tax Engine — French VAT (TVA) Regimes & Historical Snapshot I
 
     assert.equal(snapshotAtSale.totalTaxAmount, 665);
     assert.equal(snapshotAtSale.profitBeforeTaxes, -2000);
+    assert.equal(snapshotAtSale.vatRegime, 'franchise_base');
+    assert.equal(snapshotAtSale.vatAmount, 0);
 
     const soldVehicle: Vehicle = {
       id: 'veh-immutable-1',
@@ -204,7 +208,7 @@ describe('French Tax Engine — French VAT (TVA) Regimes & Historical Snapshot I
         email: 'jean@test.fr',
         salePrice: 5000,
         saleDate: '2026-02-15',
-        vatRegime: 'tva_marge',
+        vatRegime: 'franchise_base',
         taxSnapshot: snapshotAtSale,
       },
     };
@@ -226,7 +230,174 @@ describe('French Tax Engine — French VAT (TVA) Regimes & Historical Snapshot I
 
     assert.equal(resolved.taxRegime, 'micro');
     assert.equal(resolved.totalTaxAmount, 665);
-    assert.equal(resolved.vatRegime, 'tva_marge');
+    assert.equal(resolved.vatRegime, 'franchise_base');
+    assert.equal(resolved.vatAmount, 0);
     assert.equal(resolved.isHistoricalSnapshot, true);
+
+    // Corporate historical snapshot (SARL TVA sur marge) also remains frozen when switching to Micro-entrepreneur
+    const sarlSettings: GarageSettings = {
+      ...initialSettings,
+      taxRegime: 'sarl',
+      frenchTaxConfig: createDefaultFrenchTaxConfig('sarl', { vatRegime: 'tva_marge', vatRatePercent: 20 }),
+    };
+    const sarlSnap = buildTransactionTaxSnapshot({
+      salePrice: 12000,
+      purchasePrice: 9000,
+      repairCostTotal: 0,
+      generalExpensesTotal: 0,
+      settings: sarlSettings,
+    });
+    assert.equal(sarlSnap.vatRegime, 'tva_marge');
+    assert.equal(sarlSnap.vatAmount, 500);
+
+    const resolvedSarlOnMicro = getResolvedVehicleSaleSnapshot({
+      vehicle: {
+        ...soldVehicle,
+        buyerInfo: { ...soldVehicle.buyerInfo!, salePrice: 12000, vatRegime: 'tva_marge', taxSnapshot: sarlSnap },
+      },
+      garageSettings: initialSettings,
+    });
+    assert.equal(resolvedSarlOnMicro.vatRegime, 'tva_marge');
+    assert.equal(resolvedSarlOnMicro.vatAmount, 500);
+    assert.equal(resolvedSarlOnMicro.isHistoricalSnapshot, true);
+  });
+
+  it('enforces Franchise en base de TVA (0%) on Micro-entrepreneur transactions even if VAT overrides are supplied', () => {
+    const snap = buildTransactionTaxSnapshot({
+      salePrice: 10000,
+      purchasePrice: 7000,
+      repairCostTotal: 500,
+      generalExpensesTotal: 0,
+      settings: {
+        profileType: 'micro_entrepreneur',
+        taxRegime: 'micro',
+        frenchTaxConfig: createDefaultFrenchTaxConfig('micro_entreprise'),
+      },
+      vatRegimeOverride: 'tva_marge',
+      vatRateOverride: 20,
+    });
+    assert.equal(snap.vatRegime, 'franchise_base');
+    assert.equal(snap.vatRatePercent, 0);
+    assert.equal(snap.vatAmount, 0);
+    assert.equal(snap.htAmount, 10000);
+    assert.equal(snap.urssafAmount, 1230);
+    assert.equal(snap.versementLiberatoireAmount, 100);
+    assert.equal(snap.totalTaxAmount, 1330);
+    assert.match(snap.vatLegalMention, /293 B/);
   });
 });
+
+describe('Two-Profile Architecture — Particulier vs Micro-entrepreneur', () => {
+  it('resolves profileType strictly to particulier or micro_entrepreneur', () => {
+    assert.equal(resolveUserProfileType(undefined), 'micro_entrepreneur');
+    assert.equal(resolveUserProfileType({ profileType: 'particulier' }), 'particulier');
+    assert.equal(resolveUserProfileType({ legalStatus: 'particulier' }), 'particulier');
+    assert.equal(resolveUserProfileType({ taxRegime: 'none' }), 'particulier');
+    assert.equal(resolveUserProfileType({ profileType: 'micro_entrepreneur' }), 'micro_entrepreneur');
+    assert.equal(resolveUserProfileType({ taxRegime: 'micro' }), 'micro_entrepreneur');
+  });
+
+  it('builds non-destructive settings patches for Particulier and Micro-entrepreneur', () => {
+    const partPatch = buildProfileSettingsPatch('particulier', {
+      name: 'Jean Dupont',
+      siret: '89412345600012',
+    });
+    assert.equal(partPatch.profileType, 'particulier');
+    assert.equal(partPatch.legalStatus, 'particulier');
+    assert.equal(partPatch.taxRegime, 'none');
+    assert.equal(partPatch.taxRatePercent, 0);
+    assert.equal(partPatch.frenchTaxConfig?.vatRatePercent, 0);
+
+    const partSnap = buildTransactionTaxSnapshot({
+      salePrice: 14000,
+      purchasePrice: 10000,
+      repairCostTotal: 500,
+      generalExpensesTotal: 200,
+      settings: partPatch,
+    });
+    assert.equal(partSnap.totalTaxAmount, 0);
+    assert.equal(partSnap.vatAmount, 0);
+    assert.equal(partSnap.profitBeforeTaxes, 3300);
+    assert.equal(partSnap.netProfitAfterTax, 3300);
+
+    const microPatch = buildProfileSettingsPatch('micro_entrepreneur', partPatch);
+    assert.equal(microPatch.profileType, 'micro_entrepreneur');
+    assert.equal(microPatch.legalStatus, 'micro_entreprise');
+    assert.equal(microPatch.taxRegime, 'micro');
+    assert.equal(microPatch.taxRatePercent, 13.3);
+    assert.equal(microPatch.frenchTaxConfig?.socialContributionRate, 12.3);
+    assert.equal(microPatch.frenchTaxConfig?.versementLiberatoireEnabled, true);
+    assert.equal(microPatch.frenchTaxConfig?.vatRegime, 'franchise_base');
+    assert.equal(microPatch.frenchTaxConfig?.vatRatePercent, 0);
+    assert.match(microPatch.tvaMention || '', /293 B/);
+  });
+
+  it('forces 0€ taxes, 0% URSSAF/VL/VAT, and empty disclaimer for Particulier even with stale Micro frenchTaxConfig', () => {
+    const staleMicroSettings: Partial<GarageSettings> = {
+      profileType: 'particulier',
+      legalStatus: 'particulier',
+      taxRegime: 'none',
+      frenchTaxConfig: {
+        ...createDefaultFrenchTaxConfig('micro_entreprise'),
+        socialContributionRate: 12.3,
+        versementLiberatoireEnabled: true,
+        versementLiberatoireRate: 1,
+        vatRegime: 'tva_marge',
+        vatRatePercent: 20,
+      },
+    };
+
+    const partPatch = buildProfileSettingsPatch('particulier', {
+      frenchTaxConfig: createDefaultFrenchTaxConfig('micro_entreprise'),
+    });
+    assert.equal(partPatch.frenchTaxConfig?.socialContributionRate, 0);
+    assert.equal(partPatch.frenchTaxConfig?.versementLiberatoireEnabled, false);
+    assert.equal(partPatch.frenchTaxConfig?.versementLiberatoireRate, 0);
+    assert.equal(partPatch.frenchTaxConfig?.microBicIncomeTaxRate, 0);
+
+    const partSnap = buildTransactionTaxSnapshot({
+      salePrice: 13990,
+      purchasePrice: 10400,
+      repairCostTotal: 310,
+      generalExpensesTotal: 180,
+      settings: staleMicroSettings,
+    });
+    assert.equal(partSnap.taxRegime, 'none');
+    assert.equal(partSnap.legalStatus, 'particulier');
+    assert.equal(partSnap.urssafAmount, 0);
+    assert.equal(partSnap.versementLiberatoireEnabled, false);
+    assert.equal(partSnap.versementLiberatoireAmount, 0);
+    assert.equal(partSnap.microBicEstimatedTax, 0);
+    assert.equal(partSnap.vatAmount, 0);
+    assert.equal(partSnap.totalTaxAmount, 0);
+    assert.equal(partSnap.profitBeforeTaxes, 3100);
+    assert.equal(partSnap.netProfitAfterTax, 3100);
+    assert.equal(partSnap.disclaimerNote, '');
+  });
+
+  it('reconciles Micro-entrepreneur Gross Margin, Turnover URSSAF/VL, and Net Profit without double-counting purchase price', () => {
+    const microSettings: Partial<GarageSettings> = buildProfileSettingsPatch('micro_entrepreneur');
+    // Buy 10,400 + Repairs 310 + Expenses 180 = 10,890 invested; Sale 13,990
+    // Gross Margin = 13,990 - 10,890 = 3,100
+    // URSSAF = 13,990 * 12.3% = 1,720.77
+    // VL = 13,990 * 1% = 139.90
+    // Total Taxes = 1,860.67
+    // Net Profit = 3,100 - 1,860.67 = 1,239.33
+    const snap = buildTransactionTaxSnapshot({
+      salePrice: 13990,
+      purchasePrice: 10400,
+      repairCostTotal: 310,
+      generalExpensesTotal: 180,
+      settings: microSettings,
+    });
+    assert.equal(snap.profitBeforeTaxes, 3100);
+    assert.equal(snap.urssafAmount, 1720.77);
+    assert.equal(snap.versementLiberatoireAmount, 139.9);
+    assert.equal(snap.totalTaxAmount, 1860.67);
+    assert.equal(snap.netProfitAfterTax, 1239.33);
+    assert.equal(snap.vatRegime, 'franchise_base');
+    assert.equal(snap.vatAmount, 0);
+  });
+});
+
+

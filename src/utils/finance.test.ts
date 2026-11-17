@@ -172,3 +172,53 @@ test('canDisplaySaleFinancialReport and getRealizedSalePrice strictly require st
     5000
   );
 });
+
+test('calculateSaleTaxReport guarantees 0€ taxes and empty disclaimer on historical Particulier snapshots', () => {
+  const report = calculateSaleTaxReport({
+    salePrice: 13990,
+    purchasePrice: 10400,
+    repairCostTotal: 310,
+    generalExpensesTotal: 180,
+    taxSnapshot: {
+      legalStatus: 'particulier',
+      taxRegime: 'none',
+      taxLabel: 'Particulier (Sans fiscalité professionnelle)',
+      vatRegime: 'franchise_base',
+      vatRatePercent: 0,
+      vatBaseAmount: 0,
+      vatAmount: 0,
+      htAmount: 13990,
+      ttcAmount: 13990,
+      vatLegalMention: '',
+      salePrice: 13990,
+      purchasePrice: 10400,
+      repairCostTotal: 310,
+      generalExpensesTotal: 180,
+      profitBeforeTaxes: 3100,
+      urssafRate: 12.3,
+      urssafAmount: 999,
+      versementLiberatoireEnabled: true,
+      versementLiberatoireRate: 1,
+      versementLiberatoireAmount: 99,
+      microBicEstimatedTax: 50,
+      corporateIsContextNote: '',
+      corporateTaxEstimatedAmount: 0,
+      totalTaxAmount: 1098,
+      netProfitAfterTax: 2002,
+      effectiveDate: '2026-10-01',
+      capturedAt: '2026-10-01T10:00:00Z',
+      isHistoricalSnapshot: true,
+      disclaimerNote: 'stale',
+    },
+  });
+
+  assert.equal(report.taxRegime, 'none');
+  assert.equal(report.taxAmount, 0);
+  assert.equal(report.urssafAmount, 0);
+  assert.equal(report.versementLiberatoireAmount, 0);
+  assert.equal(report.vatAmount, 0);
+  assert.equal(report.grossMargin, 3100);
+  assert.equal(report.netProfitAfterTax, 3100);
+  assert.equal(report.disclaimerNote, '');
+});
+

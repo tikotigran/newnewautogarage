@@ -70,6 +70,7 @@ service cloud.firestore {
       return data.uid is string &&
              data.uid == userId &&
              data.email is string && data.email.size() <= 160 &&
+             (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              data.role in ['user', 'superadmin'] &&
              data.planId in ['starter', 'pro', 'enterprise'] &&
              data.vehicleLimit is number && data.vehicleLimit >= 0 &&
@@ -110,6 +111,7 @@ service cloud.firestore {
              data.userId == request.auth.uid &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
              data.entityType in ['morale', 'physique'] &&
+             (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
              (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
@@ -117,6 +119,7 @@ service cloud.firestore {
     function isValidGarageSettings(data) {
       return data.name is string && data.name.size() <= 120 &&
              (!('entityType' in data) || data.entityType in ['morale', 'physique']) &&
+             (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
              (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
     }
@@ -290,7 +293,7 @@ service cloud.firestore {
                        incoming().planId == existing().planId &&
                        incoming().vehicleLimit == existing().vehicleLimit &&
                        incoming().subscriptionStatus == existing().subscriptionStatus &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'garageName', 'activeVehiclesCount', 'updatedAt']))
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'garageName', 'profileType', 'activeVehiclesCount', 'updatedAt']))
                     );
       allow delete: if isSuperAdmin();
     }
