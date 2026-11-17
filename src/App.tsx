@@ -25,6 +25,8 @@ import {
   subscribeGarages,
   subscribeAllFleetExpensesAndRepairs,
   createGarage,
+  updateGarage,
+  deleteGarage,
   getGarageSettings,
   setActiveGarageId as persistActiveGarageId,
   fetchGarageSettingsFromCloud,
@@ -33,7 +35,7 @@ import {
   deleteVehicle,
   seedDemoGarageData,
 } from './services/garageService';
-import { buildTransactionTaxSnapshot, resolveUserProfileType } from './utils/frenchTaxEngine';
+import { buildProfileSettingsPatch, buildTransactionTaxSnapshot, resolveUserProfileType } from './utils/frenchTaxEngine';
 import {
   ensureAndGetUserProfile,
   subscribeCerfaTemplatesCalibration,
@@ -52,8 +54,15 @@ import {
   USER_LAYOUT_MODE_STORAGE_KEY,
 } from './utils/adminUtils';
 import {
+  buildGarageUpdatePayload,
+  canDeleteGarage,
   DEFAULT_GARAGE_ID,
   filterVehiclesByGarage,
+  hasOpenGarageWorkspace,
+  removeGarageFromList,
+  removeVehiclesForGarage,
+  resolveNextActiveGarageId,
+  upsertGarageInList,
 } from './utils/garageUtils';
 import {
   subscribeSuppliers,
@@ -347,6 +356,9 @@ export default function App() {
         })
         .catch(() => {});
     }
+    if (garageId === null && activeView !== 'desktop' && activeView !== 'settings') {
+      handleSetActiveView('desktop');
+    }
     if (garageId && activeView === 'admin') {
       handleSetActiveView('desktop');
     }
@@ -363,7 +375,83 @@ export default function App() {
     taxRatePercent?: number;
   }) => {
     const created = await createGarage(effectiveUserId, input);
-    handleSelectGarage(created.id);
+    setGarages((prev) => upsertGarageInList(prev, created));
+    if (!featureFlags.multiGarage) {
+      handleSelectGarage(created.id);
+    }
+  };
+
+  const handleUpdateGarage = async (
+    garageId: string,
+    input: {
+      name: string;
+      profileType: AppUserProfileType;
+      city?: string;
+      siret?: string;
+    }
+  ) => {
+    const existing = garages.find((g) => g.id === garageId);
+    if (existing) {
+      const optimistic = buildGarageUpdatePayload(existing, input);
+      setGarages((prev) => upsertGarageInList(prev, optimistic));
+    }
+    try {
+      const updated = await updateGarage(effectiveUserId, garageId, input, existing);
+      setGarages((prev) => upsertGarageInList(prev, updated));
+      setSettingsVersion((n) => n + 1);
+    } catch (err) {
+      if (existing) {
+        setGarages((prev) => upsertGarageInList(prev, existing));
+      }
+      throw err;
+    }
+  };
+
+  const handleDeleteGarage = async (garageId: string) => {
+    const check = canDeleteGarage(garages, garageId);
+    if (!check.allowed) return;
+
+    const prevGarages = garages;
+    const prevVehicles = vehicles;
+    const prevActiveGarageId = activeGarageId;
+    const prevSelectedVehicle = selectedVehicle;
+
+    const remaining = removeGarageFromList(garages, garageId);
+    const nextActiveId = resolveNextActiveGarageId(
+      remaining,
+      garageId,
+      activeGarageId,
+      featureFlags.multiGarage
+    );
+
+    setGarages(remaining);
+    setVehicles((prev) => removeVehiclesForGarage(prev, garageId));
+    if (prevSelectedVehicle) {
+      const belongsToDeleted = prevSelectedVehicle.garageId
+        ? prevSelectedVehicle.garageId === garageId
+        : garageId === DEFAULT_GARAGE_ID;
+      if (belongsToDeleted) {
+        setSelectedVehicle(null);
+      }
+    }
+    if (nextActiveId !== activeGarageId) {
+      handleSelectGarage(nextActiveId);
+    }
+
+    try {
+      await deleteGarage(effectiveUserId, garageId);
+      setGarages((prev) => removeGarageFromList(prev, garageId));
+      setVehicles((prev) => removeVehiclesForGarage(prev, garageId));
+      setSettingsVersion((n) => n + 1);
+    } catch (err) {
+      setGarages(prevGarages);
+      setVehicles(prevVehicles);
+      if (nextActiveId !== prevActiveGarageId) {
+        handleSelectGarage(prevActiveGarageId);
+      }
+      setSelectedVehicle(prevSelectedVehicle);
+      throw err;
+    }
   };
 
   const activeProfileType: AppUserProfileType = useMemo(() => {
@@ -573,29 +661,49 @@ export default function App() {
     if (!targetVehicle) return;
 
     const settingsForGarage = getGarageSettings(targetVehicle.garageId || activeGarageId || undefined);
-    const sellerProfile = resolveUserProfileType(settingsForGarage);
+    const sellerProfile: AppUserProfileType =
+      buyerInfo.sellerProfileType === 'particulier' || buyerInfo.sellerProfileType === 'micro_entrepreneur'
+        ? buyerInfo.sellerProfileType
+        : activeProfileType === 'particulier'
+        ? 'particulier'
+        : resolveUserProfileType(settingsForGarage);
+    const effectiveSaleSettings = {
+      ...settingsForGarage,
+      ...buildProfileSettingsPatch(sellerProfile, settingsForGarage),
+    };
     const isVatExemptSeller =
       sellerProfile === 'particulier' ||
       sellerProfile === 'micro_entrepreneur' ||
-      settingsForGarage.taxRegime === 'micro' ||
-      settingsForGarage.taxRegime === 'none';
+      effectiveSaleSettings.taxRegime === 'micro' ||
+      effectiveSaleSettings.taxRegime === 'none';
 
-    const enrichedBuyerInfo: BuyerInfo = buyerInfo.taxSnapshot?.isHistoricalSnapshot
-      ? buyerInfo
+    const submittedSnap = buyerInfo.taxSnapshot;
+    const submittedSnapMatchesSeller =
+      Boolean(submittedSnap?.isHistoricalSnapshot) &&
+      (sellerProfile === 'particulier'
+        ? submittedSnap?.taxRegime === 'none' || submittedSnap?.legalStatus === 'particulier'
+        : submittedSnap?.taxRegime === 'micro' || submittedSnap?.legalStatus === 'micro_entreprise');
+
+    const enrichedBuyerInfo: BuyerInfo = submittedSnapMatchesSeller
+      ? {
+          ...buyerInfo,
+          sellerProfileType: sellerProfile,
+        }
       : {
           ...buyerInfo,
+          sellerProfileType: sellerProfile,
           vatRegime: isVatExemptSeller
             ? 'franchise_base'
-            : buyerInfo.vatRegime || settingsForGarage.frenchTaxConfig?.vatRegime || 'tva_marge',
+            : buyerInfo.vatRegime || effectiveSaleSettings.frenchTaxConfig?.vatRegime || 'tva_marge',
           vatRatePercent: isVatExemptSeller
             ? 0
-            : buyerInfo.vatRatePercent ?? settingsForGarage.frenchTaxConfig?.vatRatePercent ?? 20,
+            : buyerInfo.vatRatePercent ?? effectiveSaleSettings.frenchTaxConfig?.vatRatePercent ?? 20,
           taxSnapshot: buildTransactionTaxSnapshot({
             salePrice: Number(buyerInfo.salePrice) || 0,
             purchasePrice: Number(targetVehicle.purchasePrice) || 0,
             repairCostTotal: Number(targetVehicle.repairCostTotal) || 0,
             generalExpensesTotal: Number(targetVehicle.generalExpensesTotal) || 0,
-            settings: settingsForGarage,
+            settings: effectiveSaleSettings,
             vatRegimeOverride: isVatExemptSeller ? 'franchise_base' : buyerInfo.vatRegime,
             vatRateOverride: isVatExemptSeller ? 0 : buyerInfo.vatRatePercent,
           }),
@@ -911,16 +1019,21 @@ export default function App() {
             </div>
           )}
 
-          {activeView === 'analytics' && featureFlags.expenseAnalytics ? (
+          {hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
+          activeView === 'analytics' &&
+          featureFlags.expenseAnalytics ? (
             <AnalyticsView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               featureFlags={featureFlags}
+              activeGarageId={activeGarageId}
+              profileType={activeProfileType}
               onSelectVehicle={(v) => {
                 setSelectedVehicle(v);
                 handleSetActiveView('desktop');
               }}
             />
-          ) : activeView === 'suppliers' ? (
+          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
+            activeView === 'suppliers' ? (
             <SuppliersView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               suppliers={garageSuppliers}
@@ -933,7 +1046,8 @@ export default function App() {
               }}
               onSeedSuppliers={handleSeedSuppliers}
             />
-          ) : activeView === 'documents' ? (
+          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
+            activeView === 'documents' ? (
             documentsAlignerMode && featureFlags.cerfaGenerator ? (
               <Cerfa15776Modal
                 variant="page"
@@ -979,7 +1093,8 @@ export default function App() {
                 }
               />
             )
-          ) : activeView === 'exports' ? (
+          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
+            activeView === 'exports' ? (
             <ExportsBackupView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               suppliers={garageSuppliers}
@@ -992,6 +1107,7 @@ export default function App() {
               userId={effectiveUserId}
               userEmail={userProfile?.email || user?.email || null}
               activeGarageId={activeGarageId}
+              profileType={activeProfileType}
               onNavigateSettings={() => handleSetActiveView('settings')}
             />
           ) : activeView === 'settings' ? (
@@ -1003,6 +1119,7 @@ export default function App() {
               onTabChange={setActiveSettingsTab}
               onClose={() => handleSetActiveView(previousViewBeforeSettings)}
               userId={effectiveUserId}
+              activeGarageId={activeGarageId}
               vehicles={garageVehicles}
               theme={theme}
               onThemeChange={setTheme}
@@ -1034,6 +1151,8 @@ export default function App() {
               allVehicles={vehicles}
               onSelectGarage={handleSelectGarage}
               onCreateGarage={handleCreateGarage}
+              onUpdateGarage={handleUpdateGarage}
+              onDeleteGarage={handleDeleteGarage}
             />
           ) : selectedVehicle ? (
             <VehicleDetail
@@ -1047,6 +1166,7 @@ export default function App() {
               onDeleteVehicle={handleDeleteVehicle}
               userId={effectiveUserId}
               featureFlags={featureFlags}
+              profileType={activeProfileType}
             />
           ) : (
             <VehicleList
@@ -1095,6 +1215,7 @@ export default function App() {
         }}
         vehicle={sellingVehicle}
         garageSettings={getGarageSettings(sellingVehicle?.garageId || activeGarageId || undefined)}
+        profileType={activeProfileType}
         onConfirmSale={handleConfirmSale}
       />
 

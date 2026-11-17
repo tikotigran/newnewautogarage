@@ -187,7 +187,18 @@ export function buildInitialCerfaData(
       absenceReason: '',
     },
     seller: (() => {
-      const sellerEntityType = garageSettings.entityType === 'physique' ? 'physique' : 'morale';
+      const explicitDealProfile = buyer?.sellerProfileType;
+      const cleanSiret = (garageSettings.siret || '').replace(/\s+/g, '');
+      const sellerEntityType: 'physique' | 'morale' =
+        explicitDealProfile === 'particulier'
+          ? 'physique'
+          : explicitDealProfile === 'micro_entrepreneur'
+          ? cleanSiret.length > 0 || garageSettings.entityType !== 'physique'
+            ? 'morale'
+            : 'physique'
+          : garageSettings.entityType === 'physique'
+          ? 'physique'
+          : 'morale';
       const formattedPhysiqueName = [garageSettings.lastName, garageSettings.firstName]
         .filter(Boolean)
         .join(' ')
@@ -199,8 +210,8 @@ export function buildInitialCerfaData(
         nameOrCompany:
           sellerEntityType === 'physique'
             ? formattedPhysiqueName || (garageSettings.name || '').toUpperCase()
-            : garageSettings.name || '',
-        siret: sellerEntityType === 'morale' ? (garageSettings.siret || '').replace(/\s+/g, '') : '',
+            : garageSettings.name || formattedPhysiqueName || '',
+        siret: sellerEntityType === 'morale' ? cleanSiret : '',
         streetNumber: garageSettings.streetNumber || '',
         streetExtension: garageSettings.streetExtension || '',
         streetType: sellerStreet.streetType,

@@ -30,6 +30,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import {
+  AppUserProfileType,
   Vehicle,
   VehicleStatus,
   RepairTask,
@@ -74,7 +75,11 @@ import {
 import { Cerfa15776Modal } from './Cerfa15776Modal';
 import { useI18n } from '../i18n/I18nContext';
 import { getIntlLocale, pickLocalized } from '../utils/i18nUtils';
-import { resolveUserProfileType } from '../utils/frenchTaxEngine';
+import {
+  resolveDealSellerProfileType,
+  resolveEffectiveSettingsForDeal,
+  resolveUserProfileType,
+} from '../utils/frenchTaxEngine';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
 
 interface VehicleDetailProps {
@@ -85,6 +90,7 @@ interface VehicleDetailProps {
   onDeleteVehicle: (vehicleId: string) => void;
   userId: string;
   featureFlags?: FeatureFlagsConfig;
+  profileType?: AppUserProfileType;
 }
 
 export const VehicleDetail: React.FC<VehicleDetailProps> = ({
@@ -95,6 +101,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   onDeleteVehicle,
   userId,
   featureFlags = DEFAULT_FEATURE_FLAGS,
+  profileType: propProfileType,
 }) => {
   const { t, lang, getTextStyle } = useI18n();
   const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>('overview');
@@ -225,8 +232,21 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     return () => window.removeEventListener('autogarage_settings_updated', onSettingsUpdated);
   }, [vehicle.garageId]);
 
-  const activeProfileType = resolveUserProfileType(garageSettings);
-  const isParticulier = activeProfileType === 'particulier';
+  const activeProfileType: AppUserProfileType =
+    propProfileType === 'particulier'
+      ? 'particulier'
+      : resolveUserProfileType(garageSettings);
+  const dealProfileType: AppUserProfileType = resolveDealSellerProfileType(
+    vehicle,
+    garageSettings,
+    activeProfileType
+  );
+  const isParticulier = dealProfileType === 'particulier';
+  const dealEffectiveSettings = resolveEffectiveSettingsForDeal({
+    vehicle,
+    garageSettings,
+    fallbackProfileType: activeProfileType,
+  });
   const isSold = vehicle.status === 'sold';
   const realizedSalePrice = getRealizedSalePrice(vehicle);
   const hasRealizedSale = canDisplaySaleFinancialReport(vehicle);
@@ -234,23 +254,56 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     ? realizedSalePrice
     : Number(vehicle.targetSalePrice) || 0;
   const hasDisplaySalePrice = displaySalePrice > 0;
-  const saleReport = hasRealizedSale
+
+  const existingSnap = vehicle.buyerInfo?.taxSnapshot;
+  const snapMatchesDeal =
+    Boolean(existingSnap?.isHistoricalSnapshot) &&
+    (!vehicle.buyerInfo?.sellerProfileType ||
+      (isParticulier
+        ? existingSnap?.taxRegime === 'none' || existingSnap?.legalStatus === 'particulier'
+        : existingSnap?.taxRegime === 'micro' || existingSnap?.legalStatus === 'micro_entreprise')) &&
+    Math.round(((existingSnap?.repairCostTotal || 0) + Number.EPSILON) * 100) / 100 === fin.repairCostTotal &&
+    Math.round(((existingSnap?.generalExpensesTotal || 0) + Number.EPSILON) * 100) / 100 === fin.generalExpensesTotal;
+
+  const rawSaleReport = hasRealizedSale
     ? calculateSaleTaxReport({
         salePrice: realizedSalePrice,
         purchasePrice: vehicle.purchasePrice,
         repairCostTotal: fin.repairCostTotal,
         generalExpensesTotal: fin.generalExpensesTotal,
-        taxRegime: garageSettings.taxRegime,
-        taxRatePercent: garageSettings.taxRatePercent,
-        frenchTaxConfig: garageSettings.frenchTaxConfig,
+        taxRegime: isParticulier ? 'none' : dealEffectiveSettings.taxRegime,
+        taxRatePercent: isParticulier ? 0 : dealEffectiveSettings.taxRatePercent,
+        frenchTaxConfig: dealEffectiveSettings.frenchTaxConfig,
         vatRegime: vehicle.buyerInfo?.vatRegime,
         vatRatePercent: vehicle.buyerInfo?.vatRatePercent,
-        taxSnapshot: vehicle.buyerInfo?.taxSnapshot,
+        taxSnapshot: isParticulier ? undefined : snapMatchesDeal ? existingSnap : undefined,
       })
     : null;
+  const saleReport =
+    rawSaleReport && isParticulier
+      ? {
+          ...rawSaleReport,
+          taxRegime: 'none' as const,
+          taxRatePercent: 0,
+          taxLabel: 'Particulier (Sans fiscalité professionnelle)',
+          taxAmount: 0,
+          netProfitAfterTax: rawSaleReport.grossMargin,
+          urssafAmount: 0,
+          versementLiberatoireEnabled: false,
+          versementLiberatoireAmount: 0,
+          microBicEstimatedTax: 0,
+          corporateIsContextNote: '',
+          vatRegime: 'franchise_base' as const,
+          vatRatePercent: 0,
+          vatAmount: 0,
+          htAmount: rawSaleReport.salePrice,
+          vatLegalMention: '',
+          isHistoricalSnapshot: false,
+          disclaimerNote: '',
+        }
+      : rawSaleReport;
   const showParticulierSimplifiedReport = Boolean(
-    saleReport &&
-      (saleReport.taxRegime === 'none' || (isParticulier && !saleReport.isHistoricalSnapshot))
+    saleReport && (isParticulier || saleReport.taxRegime === 'none')
   );
   const cardNetProfit =
     hasRealizedSale && saleReport ? saleReport.netProfitAfterTax : fin.netProfit;
@@ -2171,7 +2224,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 <div className="bg-[var(--background)] p-4 rounded-2xl border border-[var(--border)] text-xs grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
                     <span className="text-[var(--muted-foreground)] block">{t('buyer')}</span>
-                    <span className="text-[var(--foreground)] font-bold">{vehicle.buyerInfo.fullName}</span>
+                    <span className="text-[var(--foreground)] font-bold block">{vehicle.buyerInfo.fullName}</span>
+                    <span
+                      data-testid="buyer-recap-seller-regime"
+                      className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold border ${
+                        isParticulier
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      }`}
+                    >
+                      {isParticulier ? 'Particulier (0 €)' : 'Micro-entrepreneur'}
+                    </span>
                   </div>
                   <div>
                     <span className="text-[var(--muted-foreground)] block">{t('phone')} & {t('email')}</span>

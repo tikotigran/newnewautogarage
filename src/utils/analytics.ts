@@ -11,9 +11,11 @@ import {
   getRealizedSalePrice,
   resolveTaxRatePercent,
   roundToTwo,
+  SaleFinancialReport,
   TaxRegime,
 } from './finance';
 import {
+  buildProfileSettingsPatch,
   calculateCorporateIS,
   CorporateIsResult,
   normalizeFrenchTaxConfig,
@@ -187,6 +189,8 @@ export interface SalesPerformanceMetrics {
   corporateIsAmount: number;
   vatAmount: number;
   corporateIsBreakdown?: CorporateIsResult;
+  particulierDealsCount?: number;
+  taxedDealsCount?: number;
 }
 
 export interface MonthlySnapshotMetrics {
@@ -640,26 +644,94 @@ export function computeDealershipAnalytics(params: {
   let versementLiberatoireAmount = 0;
   let microBicEstimatedIrAmount = 0;
   let vatAmount = 0;
+  let particulierDealsCount = 0;
+  let taxedDealsCount = 0;
   const daysToSellSamples: number[] = [];
   const mostProfitableVehicles: ProfitableVehicleRow[] = [];
+
+  const isParticulierMode = normalizedTaxConfig.businessTaxRegime === 'none';
 
   for (const v of soldInPeriod) {
     const salePrice = getRealizedSalePrice(v);
     const { purchasePrice, repairsTotal, generalExpensesTotal, totalExpenses, totalInvested } =
       getVehicleLifetimeCosts(v);
 
-    const report = calculateSaleTaxReport({
-      salePrice,
-      purchasePrice,
-      repairCostTotal: repairsTotal,
-      generalExpensesTotal,
-      taxRegime: normalizedTaxConfig.businessTaxRegime,
-      taxRatePercent,
-      frenchTaxConfig: normalizedTaxConfig,
-      vatRegime: v.buyerInfo?.vatRegime,
-      vatRatePercent: v.buyerInfo?.vatRatePercent,
-      taxSnapshot: v.buyerInfo?.taxSnapshot,
-    });
+    const explicitDealProfile = v.buyerInfo?.sellerProfileType;
+    const isDealParticulier =
+      explicitDealProfile === 'particulier' ||
+      (!explicitDealProfile && isParticulierMode);
+
+    let report: SaleFinancialReport;
+    if (isDealParticulier) {
+      const rawReport = calculateSaleTaxReport({
+        salePrice,
+        purchasePrice,
+        repairCostTotal: repairsTotal,
+        generalExpensesTotal,
+        taxRegime: 'none',
+        taxRatePercent: 0,
+      });
+      report = {
+        ...rawReport,
+        taxRegime: 'none' as const,
+        taxAmount: 0,
+        urssafAmount: 0,
+        versementLiberatoireEnabled: false,
+        versementLiberatoireAmount: 0,
+        microBicEstimatedTax: 0,
+        vatAmount: 0,
+        netProfitAfterTax: rawReport.grossMargin,
+      };
+    } else if (explicitDealProfile === 'micro_entrepreneur') {
+      const microPatch = buildProfileSettingsPatch('micro_entrepreneur', {
+        taxRegime: normalizedTaxConfig.businessTaxRegime,
+        frenchTaxConfig: normalizedTaxConfig,
+      });
+      const snap = v.buyerInfo?.taxSnapshot;
+      const useMicroSnap =
+        Boolean(snap?.isHistoricalSnapshot) &&
+        (snap?.taxRegime === 'micro' || snap?.legalStatus === 'micro_entreprise') &&
+        roundToTwo(snap?.repairCostTotal ?? 0) === repairsTotal &&
+        roundToTwo(snap?.generalExpensesTotal ?? 0) === generalExpensesTotal;
+      report = calculateSaleTaxReport({
+        salePrice,
+        purchasePrice,
+        repairCostTotal: repairsTotal,
+        generalExpensesTotal,
+        taxRegime: 'micro',
+        taxRatePercent: microPatch.taxRatePercent,
+        frenchTaxConfig: microPatch.frenchTaxConfig,
+        vatRegime: 'franchise_base',
+        vatRatePercent: 0,
+        taxSnapshot: useMicroSnap ? snap : undefined,
+      });
+    } else {
+      report = calculateSaleTaxReport({
+        salePrice,
+        purchasePrice,
+        repairCostTotal: repairsTotal,
+        generalExpensesTotal,
+        taxRegime: normalizedTaxConfig.businessTaxRegime,
+        taxRatePercent,
+        frenchTaxConfig: normalizedTaxConfig,
+        vatRegime: v.buyerInfo?.vatRegime,
+        vatRatePercent: v.buyerInfo?.vatRatePercent,
+        taxSnapshot: v.buyerInfo?.taxSnapshot,
+      });
+    }
+
+    if (isDealParticulier) {
+      particulierDealsCount += 1;
+    } else if (
+      explicitDealProfile === 'micro_entrepreneur' ||
+      report.taxAmount > 0 ||
+      report.urssafAmount > 0 ||
+      report.versementLiberatoireAmount > 0 ||
+      report.vatAmount > 0 ||
+      report.taxRegime !== 'none'
+    ) {
+      taxedDealsCount += 1;
+    }
 
     revenue = roundToTwo(revenue + report.salePrice);
     grossProfit = roundToTwo(grossProfit + report.grossMargin);
@@ -707,11 +779,15 @@ export function computeDealershipAnalytics(params: {
   let corporateIsAmount = 0;
   let corporateIsBreakdown: CorporateIsResult | undefined;
   if (
-    normalizedTaxConfig.businessTaxRegime === 'sarl' ||
-    normalizedTaxConfig.businessTaxRegime === 'sas'
+    !isParticulierMode &&
+    (normalizedTaxConfig.businessTaxRegime === 'sarl' ||
+      normalizedTaxConfig.businessTaxRegime === 'sas')
   ) {
-    // Only apply IS to profit from vehicles that don't already have an immutable non-corporate snapshot
+    // Only apply IS to profit from vehicles that don't already have an explicit non-corporate profile/snapshot
     const corporateProfitBase = soldInPeriod.reduce((sum, v) => {
+      if (v.buyerInfo?.sellerProfileType) {
+        return sum;
+      }
       const snap = v.buyerInfo?.taxSnapshot;
       if (snap?.isHistoricalSnapshot && snap.taxRegime !== 'sarl' && snap.taxRegime !== 'sas') {
         return sum;
@@ -889,6 +965,8 @@ export function computeDealershipAnalytics(params: {
       corporateIsAmount,
       vatAmount,
       corporateIsBreakdown,
+      particulierDealsCount,
+      taxedDealsCount,
     },
     monthlySnapshot: {
       monthlyRevenue,

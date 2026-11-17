@@ -166,6 +166,7 @@ export interface GarageSettings {
 export interface BuyerInfo {
   fullName: string;
   isCompany?: boolean;
+  sellerProfileType?: AppUserProfileType;
   siret?: string;
   birthDate?: string;      // Né(e) le ... for Cerfa 15776
   birthPlace?: string;     // à ... for Cerfa 15776

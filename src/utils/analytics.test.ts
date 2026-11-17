@@ -547,3 +547,147 @@ test('computeDealershipAnalytics computes progressive SARL/SAS IS on €60,000 p
   assert.ok(microVlNo.salesPerformance.microBicEstimatedIrAmount > 0);
 });
 
+test('computeDealershipAnalytics enforces 0€ URSSAF, VL, and taxes in Particulier mode even with prior micro taxSnapshot', () => {
+  const clioWithPriorMicroSnap: Vehicle = {
+    ...mockVehicles[1],
+    id: 'v_clio_particulier',
+    purchasePrice: 8900,
+    targetSalePrice: 12200,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 8900,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Particulier Buyer',
+      address: 'Paris',
+      phone: '0600000000',
+      email: 'buyer@test.fr',
+      salePrice: 12200,
+      saleDate: '2026-11-05',
+      vatRegime: 'franchise_base',
+      taxSnapshot: {
+        legalStatus: 'micro_entreprise',
+        taxRegime: 'micro',
+        taxLabel: 'Micro-entreprise',
+        vatRegime: 'franchise_base',
+        vatRatePercent: 0,
+        vatBaseAmount: 0,
+        vatAmount: 0,
+        htAmount: 12200,
+        ttcAmount: 12200,
+        vatLegalMention: '',
+        salePrice: 12200,
+        purchasePrice: 8900,
+        repairCostTotal: 0,
+        generalExpensesTotal: 0,
+        profitBeforeTaxes: 3300,
+        urssafRate: 12.3,
+        urssafAmount: 1500.6,
+        versementLiberatoireEnabled: true,
+        versementLiberatoireRate: 1,
+        versementLiberatoireAmount: 122,
+        microBicEstimatedTax: 0,
+        corporateIsContextNote: '',
+        corporateTaxEstimatedAmount: 0,
+        totalTaxAmount: 1622.6,
+        netProfitAfterTax: 1677.4,
+        effectiveDate: '2026-01-01',
+        capturedAt: '2026-11-05T10:00:00Z',
+        isHistoricalSnapshot: true,
+        disclaimerNote: '',
+      },
+    },
+  };
+
+  const partReport = computeDealershipAnalytics({
+    vehicles: [clioWithPriorMicroSnap],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'none',
+    taxRatePercent: 0,
+    now: fixedNow,
+  });
+
+  assert.equal(partReport.salesPerformance.revenue, 12200);
+  assert.equal(partReport.salesPerformance.grossProfit, 3300);
+  assert.equal(partReport.salesPerformance.urssafAmount, 0);
+  assert.equal(partReport.salesPerformance.versementLiberatoireAmount, 0);
+  assert.equal(partReport.salesPerformance.microBicEstimatedIrAmount, 0);
+  assert.equal(partReport.salesPerformance.vatAmount, 0);
+  assert.equal(partReport.salesPerformance.taxAmount, 0);
+  assert.equal(partReport.salesPerformance.netProfit, 3300);
+  assert.equal(partReport.mostProfitableVehicles[0].taxAmount, 0);
+  assert.equal(partReport.mostProfitableVehicles[0].netProfit, 3300);
+});
+
+test('computeDealershipAnalytics handles mixed fleet where Car 1 is Particulier (0 € tax) and Car 2 is Micro-entrepreneur', () => {
+  const car1Particulier: Vehicle = {
+    ...mockVehicles[1],
+    id: 'v_mixed_part',
+    purchasePrice: 8000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 8000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Buyer 1',
+      sellerProfileType: 'particulier',
+      address: 'Paris',
+      phone: '0600000001',
+      email: 'b1@test.fr',
+      salePrice: 10000,
+      saleDate: '2026-11-05',
+      vatRegime: 'franchise_base',
+    },
+  };
+
+  const car2Micro: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_mixed_micro',
+    purchasePrice: 8000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 8000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Buyer 2',
+      sellerProfileType: 'micro_entrepreneur',
+      address: 'Lyon',
+      phone: '0600000002',
+      email: 'b2@test.fr',
+      salePrice: 10000,
+      saleDate: '2026-11-06',
+      vatRegime: 'franchise_base',
+    },
+  };
+
+  // Even when global setting is 'none' (Particulier), Car 2 pays 12.3% URSSAF (1230) + 1% VL (100) = 1330, while Car 1 pays 0 €
+  const mixedUnderParticulierGlobal = computeDealershipAnalytics({
+    vehicles: [car1Particulier, car2Micro],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'none',
+    taxRatePercent: 0,
+    now: fixedNow,
+  });
+
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.revenue, 20000);
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.grossProfit, 4000);
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.urssafAmount, 1230);
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.versementLiberatoireAmount, 100);
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.taxAmount, 1330);
+  assert.equal(mixedUnderParticulierGlobal.salesPerformance.netProfit, 2670);
+
+  const partRow = mixedUnderParticulierGlobal.mostProfitableVehicles.find((r) => r.vehicleId === 'v_mixed_part')!;
+  const microRow = mixedUnderParticulierGlobal.mostProfitableVehicles.find((r) => r.vehicleId === 'v_mixed_micro')!;
+  assert.equal(partRow.taxAmount, 0);
+  assert.equal(partRow.netProfit, 2000);
+  assert.equal(microRow.taxAmount, 1330);
+  assert.equal(microRow.netProfit, 670);
+});
+

@@ -26,9 +26,11 @@ import {
   createDefaultFrenchTaxConfig,
   mapTaxRegimeToLegalStatus,
   normalizeFrenchTaxConfig,
+  resolveDealSellerProfileType,
+  resolveEffectiveSettingsForDeal,
   resolveUserProfileType,
 } from '../utils/frenchTaxEngine';
-import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
+import { buildGarageUpdatePayload, DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 
 function stripUndefined<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -435,6 +437,8 @@ function setLocalStore<T>(key: string, data: T[]): void {
   }
 }
 
+const pendingDeletedGarageIds = new Set<string>();
+
 export function subscribeGarages(
   userId: string,
   onData: (garages: GarageWorkspace[]) => void
@@ -449,6 +453,18 @@ export function subscribeGarages(
       const rawPending = localStorage.getItem('autogarage_pending_profile_type');
       if (rawPending === 'particulier' || rawPending === 'micro_entrepreneur') {
         pendingProfile = rawPending;
+      }
+      if (!pendingProfile) {
+        const rawUserProfile = localStorage.getItem('autogarage_current_user_profile');
+        if (rawUserProfile) {
+          const parsedProfile = JSON.parse(rawUserProfile) as { profileType?: string };
+          if (
+            parsedProfile?.profileType === 'particulier' ||
+            parsedProfile?.profileType === 'micro_entrepreneur'
+          ) {
+            pendingProfile = parsedProfile.profileType;
+          }
+        }
       }
     } catch {
       // ignore
@@ -482,11 +498,22 @@ export function subscribeGarages(
       (snap) => {
         const list: GarageWorkspace[] = [];
         snap.forEach((docSnap) => {
-          list.push({ ...(docSnap.data() as GarageWorkspace), id: docSnap.id });
+          if (!pendingDeletedGarageIds.has(docSnap.id)) {
+            list.push({ ...(docSnap.data() as GarageWorkspace), id: docSnap.id });
+          }
         });
+        list.sort(
+          (a, b) =>
+            new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+        );
         if (list.length === 0) {
           onData(ensureDefault(getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY)));
         } else {
+          try {
+            localStorage.setItem(LOCAL_GARAGES_KEY, JSON.stringify(list));
+          } catch {
+            // ignore
+          }
           onData(list);
         }
       },
@@ -595,6 +622,189 @@ export async function createGarage(
   }
 
   return newGarage;
+}
+
+export async function updateGarage(
+  userId: string,
+  garageId: string,
+  input: {
+    name: string;
+    profileType: AppUserProfileType;
+    city?: string;
+    siret?: string;
+    taxRatePercent?: number;
+  },
+  currentWorkspace?: GarageWorkspace
+): Promise<GarageWorkspace> {
+  const existingLocalList = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY);
+  const existingMatch =
+    currentWorkspace ||
+    existingLocalList.find((g) => g.id === garageId) || {
+      id: garageId,
+      userId,
+      name: input.name.trim() || DEFAULT_GARAGE_SETTINGS.name,
+      profileType: input.profileType,
+      entityType: 'physique' as const,
+      legalStatus: (input.profileType === 'particulier' ? 'particulier' : 'micro_entreprise') as LegalStatus,
+      taxRegime: (input.profileType === 'particulier' ? 'none' : 'micro') as TaxRegime,
+      taxRatePercent: input.profileType === 'particulier' ? 0 : 13.3,
+      city: input.city?.trim() || '',
+      siret: input.profileType === 'particulier' ? '' : input.siret?.trim() || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+  const updatedGarage = stripUndefined(
+    buildGarageUpdatePayload({ ...existingMatch, userId }, input)
+  );
+  const isParticulier = updatedGarage.profileType === 'particulier';
+
+  const nextLocalList = existingLocalList.some((g) => g.id === garageId)
+    ? existingLocalList.map((g) => (g.id === garageId ? updatedGarage : g))
+    : [...existingLocalList, updatedGarage];
+  setLocalStore(LOCAL_GARAGES_KEY, nextLocalList);
+
+  const currentSettings = getGarageSettings(garageId);
+  const nameParts = updatedGarage.name.split(/\s+/).filter(Boolean);
+  const derivedFirstName = nameParts[0] || updatedGarage.name;
+  const derivedLastName = nameParts.slice(1).join(' ') || nameParts[0] || updatedGarage.name;
+
+  const frenchTaxConfig = createDefaultFrenchTaxConfig(
+    updatedGarage.legalStatus || (isParticulier ? 'particulier' : 'micro_entreprise'),
+    {
+      ...(currentSettings.frenchTaxConfig || {}),
+      businessTaxRegime: updatedGarage.taxRegime || (isParticulier ? 'none' : 'micro'),
+    }
+  );
+
+  await saveGarageSettings(
+    {
+      ...currentSettings,
+      garageId,
+      profileType: updatedGarage.profileType,
+      entityType: 'physique',
+      legalStatus: updatedGarage.legalStatus || (isParticulier ? 'particulier' : 'micro_entreprise'),
+      legalForm: isParticulier ? '' : 'Micro-entrepreneur',
+      tvaMention: isParticulier
+        ? ''
+        : currentSettings.tvaMention || DEFAULT_GARAGE_SETTINGS.tvaMention,
+      name: updatedGarage.name,
+      city: updatedGarage.city || '',
+      siret: isParticulier ? '' : updatedGarage.siret || '',
+      lastName: derivedLastName,
+      firstName: derivedFirstName,
+      taxRegime: updatedGarage.taxRegime || (isParticulier ? 'none' : 'micro'),
+      taxRatePercent: updatedGarage.taxRatePercent ?? (isParticulier ? 0 : 13.3),
+      frenchTaxConfig,
+    },
+    userId,
+    garageId
+  );
+
+  if (auth.currentUser) {
+    try {
+      await setDoc(doc(db, 'garages', garageId), updatedGarage, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `garages/${garageId}`);
+    }
+  }
+
+  return updatedGarage;
+}
+
+export async function deleteGarage(userId: string, garageId: string): Promise<void> {
+  pendingDeletedGarageIds.add(garageId);
+
+  // 1. Immediately purge local caches synchronously so no subsequent local fallback or listener can resurrect it
+  const remainingLocalGarages = getLocalStore<GarageWorkspace>(LOCAL_GARAGES_KEY).filter(
+    (g) => g.id !== garageId
+  );
+  setLocalStore(LOCAL_GARAGES_KEY, remainingLocalGarages);
+
+  const allLocalVehicles = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
+  const deletedLocalVehicleIds = new Set<string>();
+  const remainingLocalVehicles = allLocalVehicles.filter((v) => {
+    const belongsToGarage = v.garageId
+      ? v.garageId === garageId
+      : garageId === DEFAULT_GARAGE_ID;
+    if (belongsToGarage) {
+      deletedLocalVehicleIds.add(v.id);
+      return false;
+    }
+    return true;
+  });
+  if (deletedLocalVehicleIds.size > 0) {
+    setLocalStore(LOCAL_STORAGE_KEY, remainingLocalVehicles);
+    setLocalStore(
+      LOCAL_REPAIRS_KEY,
+      getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY).filter((r) => !deletedLocalVehicleIds.has(r.vehicleId))
+    );
+    setLocalStore(
+      LOCAL_EXPENSES_KEY,
+      getLocalStore<GeneralExpense>(LOCAL_EXPENSES_KEY).filter((e) => !deletedLocalVehicleIds.has(e.vehicleId))
+    );
+  }
+
+  try {
+    localStorage.removeItem(`${LOCAL_SETTINGS_KEY}_${garageId}`);
+    if (garageId === DEFAULT_GARAGE_ID) {
+      localStorage.removeItem(LOCAL_SETTINGS_KEY);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (getActiveGarageId() === garageId) {
+    setActiveGarageId(null);
+  }
+  window.dispatchEvent(new Event('autogarage_settings_updated'));
+
+  // 2. Delete vehicles, scoped settings, and garage document in Firestore (in parallel)
+  if (auth.currentUser) {
+    try {
+      const vehCleanupPromise = (async () => {
+        const vehSnap = await getDocs(
+          query(collection(db, 'vehicles'), where('userId', '==', userId))
+        );
+        const matchingIds: string[] = [];
+        vehSnap.forEach((vDoc) => {
+          const vData = vDoc.data() as Vehicle;
+          const belongsToGarage = vData.garageId
+            ? vData.garageId === garageId
+            : garageId === DEFAULT_GARAGE_ID;
+          if (belongsToGarage) {
+            matchingIds.push(vDoc.id);
+          }
+        });
+        if (matchingIds.length > 0) {
+          await Promise.all(matchingIds.map((vid) => deleteVehicle(vid)));
+        }
+      })();
+
+      const settingsCleanupPromise = userId
+        ? deleteDoc(doc(db, 'settings', `${userId}_${garageId}`)).catch(() => undefined)
+        : Promise.resolve();
+
+      const garageDocCleanupPromise = (async () => {
+        const garagesSnap = await getDocs(
+          query(collection(db, 'garages'), where('userId', '==', userId))
+        );
+        if (garagesSnap.docs.some((d) => d.id === garageId)) {
+          await deleteDoc(doc(db, 'garages', garageId));
+        }
+      })();
+
+      await Promise.all([vehCleanupPromise, settingsCleanupPromise, garageDocCleanupPromise]);
+      setTimeout(() => {
+        pendingDeletedGarageIds.delete(garageId);
+      }, 15000);
+    } catch (err) {
+      pendingDeletedGarageIds.delete(garageId);
+      handleFirestoreError(err, OperationType.DELETE, `garages/${garageId}`);
+    }
+  } else {
+    pendingDeletedGarageIds.delete(garageId);
+  }
 }
 
 function normalizeVehicleRecord(raw: Vehicle, docId?: string): Vehicle {
@@ -1210,9 +1420,20 @@ export async function syncVehicleFinancials(
 
   if (vehicle.status === 'sold' && vehicle.buyerInfo?.salePrice && vehicle.buyerInfo.salePrice > 0) {
     const settingsForGarage = getGarageSettings(vehicle.garageId);
+    const dealProfile = resolveDealSellerProfileType(vehicle, settingsForGarage);
+    const dealSettings = resolveEffectiveSettingsForDeal({
+      vehicle,
+      garageSettings: settingsForGarage,
+    });
     const frozenSnap = vehicle.buyerInfo.taxSnapshot;
+    const snapMatchesProfile =
+      !vehicle.buyerInfo.sellerProfileType ||
+      (dealProfile === 'particulier'
+        ? frozenSnap?.taxRegime === 'none' || frozenSnap?.legalStatus === 'particulier'
+        : frozenSnap?.taxRegime === 'micro' || frozenSnap?.legalStatus === 'micro_entreprise');
     const snapMatchesCosts =
       frozenSnap?.isHistoricalSnapshot &&
+      snapMatchesProfile &&
       roundToTwo(frozenSnap.repairCostTotal) === fin.repairCostTotal &&
       roundToTwo(frozenSnap.generalExpensesTotal) === fin.generalExpensesTotal;
 
@@ -1221,18 +1442,22 @@ export async function syncVehicleFinancials(
       purchasePrice: vehicle.purchasePrice,
       repairCostTotal: fin.repairCostTotal,
       generalExpensesTotal: fin.generalExpensesTotal,
-      taxRegime: frozenSnap?.isHistoricalSnapshot ? frozenSnap.taxRegime : settingsForGarage.taxRegime,
-      taxRatePercent: settingsForGarage.taxRatePercent,
-      frenchTaxConfig: frozenSnap?.isHistoricalSnapshot
-        ? createDefaultFrenchTaxConfig(frozenSnap.legalStatus, {
-            businessTaxRegime: frozenSnap.taxRegime,
-            socialContributionRate: frozenSnap.urssafRate,
-            versementLiberatoireEnabled: frozenSnap.versementLiberatoireEnabled,
-            versementLiberatoireRate: frozenSnap.versementLiberatoireRate,
-            vatRegime: frozenSnap.vatRegime,
-            vatRatePercent: frozenSnap.vatRatePercent,
-          })
-        : settingsForGarage.frenchTaxConfig,
+      taxRegime:
+        !vehicle.buyerInfo.sellerProfileType && frozenSnap?.isHistoricalSnapshot
+          ? frozenSnap.taxRegime
+          : dealSettings.taxRegime,
+      taxRatePercent: dealSettings.taxRatePercent,
+      frenchTaxConfig:
+        !vehicle.buyerInfo.sellerProfileType && frozenSnap?.isHistoricalSnapshot
+          ? createDefaultFrenchTaxConfig(frozenSnap.legalStatus, {
+              businessTaxRegime: frozenSnap.taxRegime,
+              socialContributionRate: frozenSnap.urssafRate,
+              versementLiberatoireEnabled: frozenSnap.versementLiberatoireEnabled,
+              versementLiberatoireRate: frozenSnap.versementLiberatoireRate,
+              vatRegime: frozenSnap.vatRegime,
+              vatRatePercent: frozenSnap.vatRatePercent,
+            })
+          : dealSettings.frenchTaxConfig,
       vatRegime: vehicle.buyerInfo.vatRegime,
       vatRatePercent: vehicle.buyerInfo.vatRatePercent,
       taxSnapshot: snapMatchesCosts ? frozenSnap : undefined,

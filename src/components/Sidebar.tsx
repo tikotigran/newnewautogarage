@@ -22,6 +22,7 @@ import type { User } from 'firebase/auth';
 import { AppUserProfileType, FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { resolveUserProfileType } from '../utils/frenchTaxEngine';
+import { hasOpenGarageWorkspace } from '../utils/garageUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
 import { pickLocalized } from '../utils/i18nUtils';
@@ -180,6 +181,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const displayName = user?.displayName || signedInEmail || t('signIn');
   const avatarInitial = (user?.displayName || signedInEmail || 'U').charAt(0).toUpperCase();
 
+  const hasOpenedGarage = hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId);
+
   const navItems: {
     id: SidebarNavTarget;
     label: string;
@@ -193,35 +196,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: t('navInventory'),
       icon: <Car className="w-4 h-4 shrink-0" />,
       active: activeView === 'desktop',
-      visible: true,
+      visible: hasOpenedGarage,
     },
     {
       id: 'analytics',
       label: t('navAnalyticsPnl'),
       icon: <BarChart3 className="w-4 h-4 shrink-0" />,
       active: activeView === 'analytics',
-      visible: featureFlags.expenseAnalytics,
+      visible: hasOpenedGarage && featureFlags.expenseAnalytics,
     },
     {
       id: 'suppliers',
       label: t('navSuppliers'),
       icon: <Handshake className="w-4 h-4 shrink-0" />,
       active: activeView === 'suppliers',
-      visible: true,
+      visible: hasOpenedGarage,
     },
     {
       id: 'documents',
       label: t('navDocuments'),
       icon: <FileText className="w-4 h-4 shrink-0" />,
       active: activeView === 'documents',
-      visible: true,
+      visible: hasOpenedGarage,
     },
     {
       id: 'exports',
       label: t('navExportsBackup'),
       icon: <DatabaseBackup className="w-4 h-4 shrink-0" />,
       active: activeView === 'exports',
-      visible: true,
+      visible: hasOpenedGarage,
     },
     {
       id: 'admin',
@@ -232,6 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       accentAdmin: true,
     },
   ];
+  const visibleNavItems = navItems.filter((item) => item.visible);
 
   const handleItemClick = (target: SidebarNavTarget, isMobileDrawer: boolean) => {
     onNavigate(target);
@@ -586,9 +590,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span>{t('activeGarageLabel')}</span>
                   </span>
                   {activeGarage && (
-                    <span className="text-[10px] font-semibold text-[var(--primary)] truncate max-w-[90px]">
-                      {activeGarage.city || 'FR'}
-                    </span>
+                    <button
+                      type="button"
+                      data-testid={
+                        isMobileDrawer ? 'sidebar-mobile-all-garages-btn' : 'sidebar-all-garages-btn'
+                      }
+                      onClick={() => {
+                        onSelectGarage(null);
+                        if (isMobileDrawer) onCloseMobile();
+                      }}
+                      title={t('allGarages')}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--primary)] hover:underline transition cursor-pointer shrink-0"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                      <span>{t('allGarages')}</span>
+                    </button>
                   )}
                 </div>
                 <ThemedSelect
@@ -705,15 +721,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               collapsed ? 'px-2 py-2 flex flex-col items-center gap-1' : 'px-3 py-2 space-y-0.5'
             }`}
           >
-            {!collapsed && (
+            {!collapsed && visibleNavItems.length > 0 && (
               <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
                 {t('navSectionLabel')}
               </div>
             )}
 
-            {navItems
-              .filter((item) => item.visible)
-              .map((item) => {
+            {visibleNavItems.map((item) => {
                 if (item.id === 'admin') {
                   const adminTabHref =
                     typeof window !== 'undefined'

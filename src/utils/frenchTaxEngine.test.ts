@@ -9,6 +9,8 @@ import {
   calculateVehicleProfitBeforeTaxes,
   createDefaultFrenchTaxConfig,
   getResolvedVehicleSaleSnapshot,
+  resolveDealSellerProfileType,
+  resolveEffectiveSettingsForDeal,
   resolveUserProfileType,
 } from './frenchTaxEngine';
 import { GarageSettings, Vehicle } from '../types/garage';
@@ -397,6 +399,105 @@ describe('Two-Profile Architecture — Particulier vs Micro-entrepreneur', () =>
     assert.equal(snap.netProfitAfterTax, 1239.33);
     assert.equal(snap.vatRegime, 'franchise_base');
     assert.equal(snap.vatAmount, 0);
+  });
+
+  it('overrides global profileType per vehicle transaction via buyerInfo.sellerProfileType', () => {
+    const globalParticulier = buildProfileSettingsPatch('particulier', {
+      name: 'Garage Test',
+      siret: '89412345600012',
+    });
+    const globalMicro = buildProfileSettingsPatch('micro_entrepreneur', {
+      name: 'Garage Test',
+      siret: '89412345600012',
+    });
+
+    const baseVehicle: Vehicle = {
+      id: 'veh-per-deal-1',
+      userId: 'u1',
+      make: 'Peugeot',
+      model: '208',
+      trim: 'GT',
+      year: 2021,
+      mileage: 45000,
+      vin: 'VF3TEST0000000002',
+      purchaseDate: '2026-01-10',
+      purchasePrice: 10000,
+      targetSalePrice: 13000,
+      status: 'sold',
+      photos: [],
+      documents: [],
+      repairCostTotal: 0,
+      generalExpensesTotal: 0,
+      totalExpenses: 0,
+      totalInvested: 10000,
+      netProfit: 3000,
+      marginPercentage: 23.08,
+      createdAt: '2026-01-10T10:00:00Z',
+      updatedAt: '2026-02-15T10:00:00Z',
+    };
+
+    // Deal sold as Micro-entrepreneur even though global settings are Particulier
+    const microDealVehicle: Vehicle = {
+      ...baseVehicle,
+      buyerInfo: {
+        fullName: 'Client A',
+        address: 'Paris',
+        phone: '0600000001',
+        email: 'a@test.fr',
+        salePrice: 10000,
+        saleDate: '2026-02-15',
+        sellerProfileType: 'micro_entrepreneur',
+      },
+    };
+    assert.equal(
+      resolveDealSellerProfileType(microDealVehicle, globalParticulier, 'particulier'),
+      'micro_entrepreneur'
+    );
+    const microDealSnap = getResolvedVehicleSaleSnapshot({
+      vehicle: microDealVehicle,
+      garageSettings: globalParticulier,
+      fallbackProfileType: 'particulier',
+    });
+    assert.equal(microDealSnap.taxRegime, 'micro');
+    assert.equal(microDealSnap.urssafAmount, 1230);
+    assert.equal(microDealSnap.versementLiberatoireAmount, 100);
+    assert.equal(microDealSnap.totalTaxAmount, 1330);
+
+    // Deal sold as Particulier even though global settings are Micro-entrepreneur (and even if an old micro snapshot existed)
+    const particulierDealVehicle: Vehicle = {
+      ...baseVehicle,
+      buyerInfo: {
+        fullName: 'Client B',
+        address: 'Lyon',
+        phone: '0600000002',
+        email: 'b@test.fr',
+        salePrice: 12000,
+        saleDate: '2026-02-16',
+        sellerProfileType: 'particulier',
+        taxSnapshot: microDealSnap,
+      },
+    };
+    assert.equal(
+      resolveDealSellerProfileType(particulierDealVehicle, globalMicro, 'micro_entrepreneur'),
+      'particulier'
+    );
+    const partDealSettings = resolveEffectiveSettingsForDeal({
+      vehicle: particulierDealVehicle,
+      garageSettings: globalMicro,
+      fallbackProfileType: 'micro_entrepreneur',
+    });
+    assert.equal(partDealSettings.taxRegime, 'none');
+
+    const partDealSnap = getResolvedVehicleSaleSnapshot({
+      vehicle: particulierDealVehicle,
+      garageSettings: globalMicro,
+      fallbackProfileType: 'micro_entrepreneur',
+    });
+    assert.equal(partDealSnap.taxRegime, 'none');
+    assert.equal(partDealSnap.urssafAmount, 0);
+    assert.equal(partDealSnap.versementLiberatoireAmount, 0);
+    assert.equal(partDealSnap.totalTaxAmount, 0);
+    assert.equal(partDealSnap.netProfitAfterTax, 2000);
   });
 });
 

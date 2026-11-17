@@ -53,7 +53,7 @@ import { getFirestore, collection, query, where, onSnapshot } from 'firebase/fir
 
 const firebaseConfig = {
   projectId: "gen-lang-client-0991582754",
-  apiKey: "AIzaSyDkBJ_8rMi7jpz9iMAM3NonhZQKJmES8RQ",
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "YOUR_FIREBASE_API_KEY",
   firestoreDatabaseId: "ai-studio-032a65ec-8c40-4191-badb-5e3c9b87e4c5"
 };
 

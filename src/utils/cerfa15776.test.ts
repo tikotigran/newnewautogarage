@@ -131,6 +131,29 @@ test('buildInitialCerfaData pre-fills all 3 steps from vehicle, garage, and buye
   );
   assert.equal(withPlate.vehicle.registrationNumber, 'AB-123-CD');
   assert.equal(withPlate.vehicle.vin, 'WVWZZZAUZKP512984');
+
+  // Per-deal Particulier overrides commercial garage settings (forces physique + empty SIRET)
+  const perDealParticulier = buildInitialCerfaData(
+    {
+      ...mockVehicle,
+      buyerInfo: { ...mockVehicle.buyerInfo!, sellerProfileType: 'particulier' },
+    },
+    { ...mockGarage, entityType: 'morale', lastName: 'Martin', firstName: 'Luc', sex: 'M' }
+  );
+  assert.equal(perDealParticulier.seller.entityType, 'physique');
+  assert.equal(perDealParticulier.seller.siret, '');
+  assert.equal(perDealParticulier.seller.nameOrCompany, 'MARTIN LUC');
+
+  // Per-deal Micro-entrepreneur keeps SIRET and morale entity for business Cerfa when SIRET is configured
+  const perDealMicro = buildInitialCerfaData(
+    {
+      ...mockVehicle,
+      buyerInfo: { ...mockVehicle.buyerInfo!, sellerProfileType: 'micro_entrepreneur' },
+    },
+    { ...mockGarage, entityType: 'physique', lastName: 'Martin', firstName: 'Luc' }
+  );
+  assert.equal(perDealMicro.seller.entityType, 'morale');
+  assert.equal(perDealMicro.seller.siret, '89412345600012');
 });
 
 test('validateCerfaStep catches missing required fields per step', () => {

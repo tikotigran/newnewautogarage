@@ -3,7 +3,13 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { Vehicle, RepairTask, GeneralExpense, GarageSettings, VatRegime } from '../types/garage';
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
 import { calculateSaleTaxReport, formatEuro } from './finance';
-import { calculateFrenchVat, FRENCH_TAX_DEFAULTS, normalizeFrenchTaxConfig } from './frenchTaxEngine';
+import {
+  calculateFrenchVat,
+  FRENCH_TAX_DEFAULTS,
+  normalizeFrenchTaxConfig,
+  resolveDealSellerProfileType,
+  resolveEffectiveSettingsForDeal,
+} from './frenchTaxEngine';
 import { DealershipAnalyticsReport } from './analytics';
 import {
   buildFacturXInvoiceNumber,
@@ -122,15 +128,36 @@ export function generateSalesInvoicePDF(
   doc.text(`Facture N° ${invoiceNumber}  |  Date de cession : ${buyer.saleDate}`, 14, 26);
 
   // Seller & Buyer 2-Column Boxes
-  const isParticulierSeller =
-    garageSettings.profileType === 'particulier' ||
-    garageSettings.legalStatus === 'particulier' ||
-    garageSettings.taxRegime === 'none';
+  const dealProfile = resolveDealSellerProfileType(vehicle, garageSettings);
+  const dealSettings = {
+    ...garageSettings,
+    ...resolveEffectiveSettingsForDeal({ vehicle, garageSettings }),
+  };
+  const isParticulierSeller = dealProfile === 'particulier';
+  const isMicroDealSeller =
+    dealProfile === 'micro_entrepreneur' &&
+    (vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur' ||
+      dealSettings.taxRegime === 'micro');
+  const formattedPhysiqueSellerName = [garageSettings.firstName, garageSettings.lastName]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const displaySellerName = isParticulierSeller
+    ? formattedPhysiqueSellerName || garageSettings.name
+    : garageSettings.name || formattedPhysiqueSellerName;
 
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10.5);
   doc.setFont('helvetica', 'bold');
-  doc.text(isParticulierSeller ? 'VENDEUR (PARTICULIER)' : 'VENDEUR (GARAGE)', 14, 42);
+  doc.text(
+    isParticulierSeller
+      ? 'VENDEUR (PARTICULIER)'
+      : isMicroDealSeller
+      ? 'VENDEUR (MICRO-ENTREPRENEUR)'
+      : 'VENDEUR (GARAGE)',
+    14,
+    42
+  );
   doc.text('ACHETEUR (CLIENT)', 112, 42);
 
   doc.setFillColor(248, 250, 252);
@@ -140,7 +167,7 @@ export function generateSalesInvoicePDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(garageSettings.name, 18, 52);
+  doc.text(displaySellerName, 18, 52);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
@@ -236,22 +263,27 @@ export function generateSalesInvoicePDF(
   doc.text('Contrôle technique valide remis et certificat de situation administrative vierge', 20, 166);
 
   const isCorporateVatSeller =
-    garageSettings.taxRegime === 'sarl' ||
-    garageSettings.taxRegime === 'sas' ||
-    garageSettings.taxRegime === 'custom';
-  const resolvedVatRegime: VatRegime = isCorporateVatSeller
+    !vehicle.buyerInfo?.sellerProfileType &&
+    (dealSettings.taxRegime === 'sarl' ||
+      dealSettings.taxRegime === 'sas' ||
+      dealSettings.taxRegime === 'custom');
+  const resolvedVatRegime: VatRegime = isParticulierSeller || isMicroDealSeller
+    ? 'franchise_base'
+    : isCorporateVatSeller
     ? vehicle.buyerInfo?.vatRegime ||
       vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-      garageSettings.frenchTaxConfig?.vatRegime ||
+      dealSettings.frenchTaxConfig?.vatRegime ||
       'tva_marge'
     : vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
       vehicle.buyerInfo.taxSnapshot.vatAmount > 0
     ? vehicle.buyerInfo.taxSnapshot.vatRegime
     : 'franchise_base';
-  const resolvedVatRate = isCorporateVatSeller
+  const resolvedVatRate = isParticulierSeller || isMicroDealSeller
+    ? 0
+    : isCorporateVatSeller
     ? vehicle.buyerInfo?.vatRatePercent ??
       vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-      garageSettings.frenchTaxConfig?.vatRatePercent ??
+      dealSettings.frenchTaxConfig?.vatRatePercent ??
       20
     : resolvedVatRegime === 'franchise_base'
     ? 0
@@ -265,7 +297,12 @@ export function generateSalesInvoicePDF(
 
   doc.setFontSize(8);
   doc.setTextColor(30, 41, 59);
-  doc.text(vatBreakdown.regimeShortLabel, 105, 163, { maxWidth: 50 });
+  doc.text(
+    isParticulierSeller ? 'Vente privée (Hors TVA)' : vatBreakdown.regimeShortLabel,
+    105,
+    163,
+    { maxWidth: 50 }
+  );
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
@@ -281,9 +318,11 @@ export function generateSalesInvoicePDF(
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text('Total Hors Taxe :', 116, 178);
+  doc.text(isParticulierSeller ? 'Prix de cession :' : 'Total Hors Taxe :', 116, 178);
   doc.text(
-    resolvedVatRegime === 'tva_marge'
+    isParticulierSeller
+      ? 'TVA (Non assujetti) :'
+      : resolvedVatRegime === 'tva_marge'
       ? 'TVA incluse (Marge) :'
       : resolvedVatRegime === 'franchise_base'
       ? 'TVA (Art. 293 B) :'
@@ -298,7 +337,9 @@ export function generateSalesInvoicePDF(
   doc.setFont('helvetica', 'normal');
   doc.text(formatEuro(vatBreakdown.htAmount), 162, 178);
   doc.text(
-    resolvedVatRegime === 'franchise_base'
+    isParticulierSeller
+      ? '0,00 € (Particulier)'
+      : resolvedVatRegime === 'franchise_base'
       ? '0,00 € (Exonéré)'
       : resolvedVatRegime === 'tva_marge'
       ? `${formatEuro(vatBreakdown.vatAmount)} (Marge)`
@@ -321,12 +362,20 @@ export function generateSalesInvoicePDF(
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  const mentionFiscal =
-    resolvedVatRegime === 'tva_marge' && garageSettings.tvaMention?.trim()
-      ? garageSettings.tvaMention
-      : vatBreakdown.legalMention;
+  const mentionFiscal = isParticulierSeller
+    ? 'Vente privée réalisée par un particulier non assujetti à la TVA (Art. 256 A du CGI).'
+    : resolvedVatRegime === 'tva_marge' && dealSettings.tvaMention?.trim()
+    ? dealSettings.tvaMention
+    : vatBreakdown.legalMention;
   doc.text(`1. Régime fiscal : ${mentionFiscal}`, 18, 209, { maxWidth: 174 });
-  doc.text('2. Garanties légales : Le véhicule bénéficie de la garantie légale de conformité (Art. L. 217-3 et suivants du Code de la consommation) et de la garantie des vices cachés (Art. 1641 et suivants du Code civil).', 18, 215, { maxWidth: 174 });
+  doc.text(
+    isParticulierSeller
+      ? '2. Garanties légales : Vente entre particuliers soumise à la garantie des vices cachés (Art. 1641 et suivants du Code civil).'
+      : '2. Garanties légales : Le véhicule bénéficie de la garantie légale de conformité (Art. L. 217-3 et suivants du Code de la consommation) et de la garantie des vices cachés (Art. 1641 et suivants du Code civil).',
+    18,
+    215,
+    { maxWidth: 174 }
+  );
   doc.text('3. Situation administrative : Le vendeur certifie que le véhicule n’est pas gagé et n’a subi aucune transformation susceptible de modifier le certificat d’immatriculation.', 18, 224, { maxWidth: 174 });
   doc.text('4. Paiement : Virement bancaire ou chèque de banque certifié encaissé avant remise définitive des clés et des titres.', 18, 231);
 
@@ -334,7 +383,7 @@ export function generateSalesInvoicePDF(
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`Pour le Vendeur (${garageSettings.name}) :`, 20, 241);
+  doc.text(`Pour le Vendeur (${displaySellerName}) :`, 20, 241);
   doc.text('Pour l’Acheteur (« Bon pour accord ») :', 115, 241);
 
   doc.setDrawColor(203, 213, 225);
@@ -344,7 +393,11 @@ export function generateSalesInvoicePDF(
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(148, 163, 184);
-  doc.text('Cachet commercial et signature autorisée', 22, 270);
+  doc.text(
+    isParticulierSeller ? 'Signature du vendeur (Particulier)' : 'Cachet commercial et signature autorisée',
+    22,
+    270
+  );
   doc.text('Signature de l’acquéreur précédée de la mention manuscrite', 117, 270);
 
   const cleanVin = vehicle.vin.replace(/[^a-zA-Z0-9]/g, '');
@@ -1061,21 +1114,48 @@ export function generateVehicleFinancialReportPDF(
   // Outcome & Separated French Fiscal Summary
   const isSold = vehicle.status === 'sold' && vehicle.buyerInfo;
   const outcomePrice = isSold ? vehicle.buyerInfo!.salePrice : vehicle.targetSalePrice;
-  const normalizedTaxConfig = normalizeFrenchTaxConfig(garageSettings);
-  const saleReport = calculateSaleTaxReport({
+  const dealProfile = resolveDealSellerProfileType(vehicle, garageSettings);
+  const dealEffectiveSettings = resolveEffectiveSettingsForDeal({
+    vehicle,
+    garageSettings,
+  });
+  const isParticulierSettings = dealProfile === 'particulier';
+  const normalizedTaxConfig = normalizeFrenchTaxConfig(dealEffectiveSettings);
+  const existingSnap = vehicle.buyerInfo?.taxSnapshot;
+  const snapMatchesDeal =
+    Boolean(existingSnap?.isHistoricalSnapshot) &&
+    (!vehicle.buyerInfo?.sellerProfileType ||
+      (isParticulierSettings
+        ? existingSnap?.taxRegime === 'none' || existingSnap?.legalStatus === 'particulier'
+        : existingSnap?.taxRegime === 'micro' || existingSnap?.legalStatus === 'micro_entreprise'));
+
+  const rawSaleReport = calculateSaleTaxReport({
     salePrice: outcomePrice,
     purchasePrice: vehicle.purchasePrice,
     repairCostTotal: vehicle.repairCostTotal,
     generalExpensesTotal: vehicle.generalExpensesTotal,
-    taxRegime: garageSettings.taxRegime,
-    taxRatePercent: garageSettings.taxRatePercent,
+    taxRegime: isParticulierSettings ? 'none' : dealEffectiveSettings.taxRegime,
+    taxRatePercent: isParticulierSettings ? 0 : dealEffectiveSettings.taxRatePercent,
     frenchTaxConfig: normalizedTaxConfig,
     vatRegime: vehicle.buyerInfo?.vatRegime,
     vatRatePercent: vehicle.buyerInfo?.vatRatePercent,
-    taxSnapshot: isSold ? vehicle.buyerInfo?.taxSnapshot : undefined,
+    taxSnapshot: isSold && !isParticulierSettings && snapMatchesDeal ? existingSnap : undefined,
   });
 
-  const isParticulierReport = saleReport.taxRegime === 'none';
+  const isParticulierReport = isParticulierSettings || rawSaleReport.taxRegime === 'none';
+  const saleReport = isParticulierReport
+    ? {
+        ...rawSaleReport,
+        taxRegime: 'none' as const,
+        taxAmount: 0,
+        urssafAmount: 0,
+        versementLiberatoireEnabled: false,
+        versementLiberatoireAmount: 0,
+        microBicEstimatedTax: 0,
+        vatAmount: 0,
+        netProfitAfterTax: rawSaleReport.grossMargin,
+      }
+    : rawSaleReport;
   const computedTotalInvested =
     Math.round(
       ((Number(vehicle.purchasePrice) || 0) +
@@ -1336,13 +1416,15 @@ export function generateDealershipFinancialReportPDF(params: {
     111
   );
 
+  const hasAnyDealTaxes =
+    analytics.salesPerformance.taxAmount > 0 ||
+    analytics.salesPerformance.urssafAmount > 0 ||
+    analytics.salesPerformance.corporateIsAmount > 0;
   const isParticulierDealership =
+    !hasAnyDealTaxes &&
     (garageSettings.profileType === 'particulier' ||
       garageSettings.legalStatus === 'particulier' ||
-      garageSettings.taxRegime === 'none') &&
-    analytics.salesPerformance.taxAmount === 0 &&
-    analytics.salesPerformance.urssafAmount === 0 &&
-    analytics.salesPerformance.vatAmount === 0;
+      garageSettings.taxRegime === 'none');
 
   // Cash Flow Block
   doc.setFont('helvetica', 'bold');
@@ -1464,16 +1546,26 @@ export async function generateFacturXHybridPdf(params: {
   vatRatePercent?: number;
 }): Promise<{ fileName: string; invoiceNumber: string; xml: string }> {
   const { vehicle, garageSettings, paymentMeansCode = '30', vatMode, vatRatePercent } = params;
+  const dealProfile = resolveDealSellerProfileType(vehicle, garageSettings);
+  const dealSettings = {
+    ...garageSettings,
+    ...resolveEffectiveSettingsForDeal({ vehicle, garageSettings }),
+  };
+  const isParticulierDeal = dealProfile === 'particulier';
   const isCorporateVatSeller =
-    garageSettings.taxRegime === 'sarl' ||
-    garageSettings.taxRegime === 'sas' ||
-    garageSettings.taxRegime === 'custom';
+    !vehicle.buyerInfo?.sellerProfileType &&
+    (dealSettings.taxRegime === 'sarl' ||
+      dealSettings.taxRegime === 'sas' ||
+      dealSettings.taxRegime === 'custom');
   const resolvedVatRegime: VatRegime = (() => {
+    if (isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur') {
+      return (vatMode === 'margin' ? 'tva_marge' : vatMode === 'standard_20' ? 'tva_total' : vatMode) || 'franchise_base';
+    }
     const raw = isCorporateVatSeller
       ? vatMode ||
         vehicle.buyerInfo?.vatRegime ||
         vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-        garageSettings.frenchTaxConfig?.vatRegime ||
+        dealSettings.frenchTaxConfig?.vatRegime ||
         'tva_marge'
       : vatMode ||
         (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
@@ -1484,11 +1576,13 @@ export async function generateFacturXHybridPdf(params: {
     if (raw === 'standard_20') return 'tva_total';
     return raw;
   })();
-  const resolvedVatRate = isCorporateVatSeller
+  const resolvedVatRate = isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+    ? vatRatePercent ?? 0
+    : isCorporateVatSeller
     ? vatRatePercent ??
       vehicle.buyerInfo?.vatRatePercent ??
       vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-      garageSettings.frenchTaxConfig?.vatRatePercent ??
+      dealSettings.frenchTaxConfig?.vatRatePercent ??
       20
     : vatRatePercent ??
       (resolvedVatRegime === 'franchise_base'
@@ -1554,20 +1648,37 @@ export async function generateFacturXHybridPdf(params: {
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text('VENDEUR (GARAGE)', 14, 42);
+  doc.text(
+    isParticulierDeal
+      ? 'VENDEUR (PARTICULIER)'
+      : dealProfile === 'micro_entrepreneur'
+      ? 'VENDEUR (MICRO-ENTREPRENEUR)'
+      : 'VENDEUR (GARAGE)',
+    14,
+    42
+  );
   doc.text('ACHETEUR (CLIENT)', 112, 42);
 
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(14, 46, 88, 36, 2, 2, 'F');
   doc.roundedRect(112, 46, 84, 36, 2, 2, 'F');
 
+  const facturxSellerName =
+    isParticulierDeal || garageSettings.entityType === 'physique'
+      ? `${garageSettings.firstName || ''} ${garageSettings.lastName || ''}`.trim() || garageSettings.name
+      : garageSettings.name;
+
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(garageSettings.name, 18, 52);
+  doc.text(facturxSellerName, 18, 52);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(`SIRET : ${garageSettings.siret || '-'}`, 18, 58);
+  doc.text(
+    isParticulierDeal ? 'Vendeur particulier (vente privée)' : `SIRET : ${garageSettings.siret || '-'}`,
+    18,
+    58
+  );
   doc.text(sellerAddress, 18, 64, { maxWidth: 80 });
   doc.text(`${garageSettings.phone} | ${garageSettings.email}`, 18, 75, { maxWidth: 80 });
 

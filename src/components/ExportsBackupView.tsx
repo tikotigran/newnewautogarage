@@ -19,6 +19,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  AppUserProfileType,
   BackupRestoreMode,
   BackupSnapshotRecord,
   ChangeLogEntry,
@@ -34,7 +35,11 @@ import {
   VatRegime,
   Vehicle,
 } from '../types/garage';
-import { resolveUserProfileType } from '../utils/frenchTaxEngine';
+import {
+  buildProfileSettingsPatch,
+  createDefaultFrenchTaxConfig,
+  resolveUserProfileType,
+} from '../utils/frenchTaxEngine';
 import {
   getGarageSettings,
   subscribeAllFleetExpensesAndRepairs,
@@ -86,6 +91,7 @@ interface ExportsBackupViewProps {
   userId: string;
   userEmail?: string | null;
   activeGarageId: string | null;
+  profileType?: AppUserProfileType;
   onNavigateSettings?: () => void;
 }
 
@@ -123,17 +129,30 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   userId,
   userEmail,
   activeGarageId,
+  profileType: propProfileType,
   onNavigateSettings,
 }) => {
   const { lang, t } = useI18n();
 
   const [activeTab, setActiveTab] = useState<ExportsBackupTab>('exports');
   const [periodRange, setPeriodRange] = useState<AnalyticsTimeRange>('all');
-  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() => getGarageSettings());
-  const activeProfileType = resolveUserProfileType(garageSettings);
+  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
+    getGarageSettings(activeGarageId || undefined)
+  );
+  const activeProfileType: AppUserProfileType =
+    propProfileType === 'particulier'
+      ? 'particulier'
+      : resolveUserProfileType(garageSettings);
   const isParticulier = activeProfileType === 'particulier';
+  const effectiveGarageSettings: GarageSettings = isParticulier
+    ? {
+        ...garageSettings,
+        ...buildProfileSettingsPatch('particulier', garageSettings),
+      }
+    : garageSettings;
   const isCorporateTaxRegime =
-    garageSettings.taxRegime === 'sarl' || garageSettings.taxRegime === 'sas';
+    !isParticulier &&
+    (effectiveGarageSettings.taxRegime === 'sarl' || effectiveGarageSettings.taxRegime === 'sas');
   const isVatExemptSeller = !isCorporateTaxRegime;
   const [fleetData, setFleetData] = useState<{
     repairs: RepairTask[];
@@ -181,11 +200,11 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   const restoreFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const syncSettings = () => setGarageSettings(getGarageSettings());
+    const syncSettings = () => setGarageSettings(getGarageSettings(activeGarageId || undefined));
     syncSettings();
     window.addEventListener('autogarage_settings_updated', syncSettings);
     return () => window.removeEventListener('autogarage_settings_updated', syncSettings);
-  }, []);
+  }, [activeGarageId]);
 
   useEffect(() => {
     const unsub = subscribeAllFleetExpensesAndRepairs(vehicles, setFleetData);
@@ -208,15 +227,18 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       repairs: fleetData.repairs,
       expenses: fleetData.expenses,
       timeRange: periodRange,
-      taxRegime: garageSettings.taxRegime,
-      taxRatePercent: garageSettings.taxRatePercent,
-      frenchTaxConfig: garageSettings.frenchTaxConfig,
+      taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
+      taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
+      frenchTaxConfig: isParticulier
+        ? createDefaultFrenchTaxConfig('particulier')
+        : garageSettings.frenchTaxConfig,
     });
   }, [
     vehicles,
     fleetData.repairs,
     fleetData.expenses,
     periodRange,
+    isParticulier,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
     garageSettings.frenchTaxConfig,
@@ -246,12 +268,17 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
   useEffect(() => {
     if (!facturxVehicle) return;
+    const explicitDealProfile = facturxVehicle.buyerInfo?.sellerProfileType;
+    const isDealVatExempt =
+      explicitDealProfile === 'particulier' ||
+      explicitDealProfile === 'micro_entrepreneur';
     const isFrozenCorporateVat =
+      !isDealVatExempt &&
       facturxVehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
       (facturxVehicle.buyerInfo.taxSnapshot.vatAmount > 0 ||
         facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sarl' ||
         facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sas');
-    if (isVatExemptSeller && !isFrozenCorporateVat) {
+    if (isDealVatExempt || (isVatExemptSeller && !isFrozenCorporateVat)) {
       setVatMode('franchise_base');
       setVatRatePercent(0);
       return;
@@ -963,11 +990,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
               </div>
             </div>
 
-            {(!isParticulier ||
-              analyticsReport.salesPerformance.taxAmount > 0 ||
-              analyticsReport.salesPerformance.vatAmount > 0 ||
-              analyticsReport.salesPerformance.urssafAmount > 0 ||
-              analyticsReport.salesPerformance.corporateIsAmount > 0) && (
+            {!isParticulier && (
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
                 <span className="tabular-nums">
                   {analyticsReport.salesPerformance.vatAmount > 0 &&

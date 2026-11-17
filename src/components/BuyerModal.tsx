@@ -17,9 +17,10 @@ import {
   Printer,
   ShieldCheck,
 } from 'lucide-react';
-import { Vehicle, BuyerInfo, GarageSettings } from '../types/garage';
+import { AppUserProfileType, Vehicle, BuyerInfo, GarageSettings } from '../types/garage';
 import { formatEuro } from '../utils/finance';
 import {
+  buildProfileSettingsPatch,
   buildTransactionTaxSnapshot,
   FRENCH_TAX_DEFAULTS,
   resolveUserProfileType,
@@ -33,6 +34,7 @@ interface BuyerModalProps {
   onClose: () => void;
   vehicle: Vehicle | null;
   garageSettings?: GarageSettings;
+  profileType?: AppUserProfileType;
   onConfirmSale: (vehicleId: string, buyerInfo: BuyerInfo) => Promise<void>;
 }
 
@@ -41,6 +43,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   onClose,
   vehicle,
   garageSettings: propGarageSettings,
+  profileType: propProfileType,
   onConfirmSale,
 }) => {
   const { t, lang } = useI18n();
@@ -58,8 +61,39 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   }, [isOpen, vehicle?.garageId]);
 
   const resolvedSettings = propGarageSettings || localSettings;
-  const sellerProfileType = resolveUserProfileType(resolvedSettings);
+
+  const resolveInitialSellerProfile = (
+    targetVehicle: Vehicle | null,
+    settings: GarageSettings
+  ): AppUserProfileType => {
+    if (
+      targetVehicle?.buyerInfo?.sellerProfileType === 'particulier' ||
+      targetVehicle?.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+    ) {
+      return targetVehicle.buyerInfo.sellerProfileType;
+    }
+    const snap = targetVehicle?.buyerInfo?.taxSnapshot;
+    if (snap?.isHistoricalSnapshot) {
+      if (snap.taxRegime === 'none' || snap.legalStatus === 'particulier') {
+        return 'particulier';
+      }
+      if (snap.taxRegime === 'micro' || snap.legalStatus === 'micro_entreprise') {
+        return 'micro_entrepreneur';
+      }
+    }
+    return propProfileType === 'particulier'
+      ? 'particulier'
+      : resolveUserProfileType(settings);
+  };
+
+  const [sellerProfileType, setSellerProfileType] = useState<AppUserProfileType>(() =>
+    resolveInitialSellerProfile(vehicle, resolvedSettings)
+  );
   const isParticulierSeller = sellerProfileType === 'particulier';
+  const effectiveSettings: GarageSettings = {
+    ...resolvedSettings,
+    ...buildProfileSettingsPatch(sellerProfileType, resolvedSettings),
+  };
 
   const [isCompany, setIsCompany] = useState(vehicle?.buyerInfo?.isCompany || false);
   const [fullName, setFullName] = useState(vehicle?.buyerInfo?.fullName || '');
@@ -84,6 +118,8 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
   useEffect(() => {
     if (vehicle && isOpen) {
+      const latestSettings = propGarageSettings || getGarageSettings(vehicle.garageId);
+      setSellerProfileType(resolveInitialSellerProfile(vehicle, latestSettings));
       setIsCompany(vehicle.buyerInfo?.isCompany || false);
       setFullName(vehicle.buyerInfo?.fullName || '');
       setSiret(vehicle.buyerInfo?.siret || '');
@@ -100,7 +136,9 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       setSaleTime(vehicle.buyerInfo?.saleTime || '14:00');
       setError(null);
     }
-  }, [vehicle, isOpen, propGarageSettings]);
+    // Reset only when modal opens for a vehicle, avoiding mid-edit resets on parent re-renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicle?.id, isOpen]);
 
   if (!isOpen || !vehicle) return null;
 
@@ -110,7 +148,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     purchasePrice: vehicle.purchasePrice,
     repairCostTotal: vehicle.repairCostTotal || 0,
     generalExpensesTotal: vehicle.generalExpensesTotal || 0,
-    settings: resolvedSettings,
+    settings: effectiveSettings,
     vatRegimeOverride: 'franchise_base',
     vatRateOverride: 0,
   });
@@ -146,24 +184,31 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       const fullFormattedAddress = `${streetNumber ? streetNumber + ' ' : ''}${streetName.trim()}, ${postalCode.trim()} ${city.trim()}`;
 
       const existingSnapshot = vehicle.buyerInfo?.taxSnapshot;
+      const existingSnapshotProfile: AppUserProfileType | null = existingSnapshot?.isHistoricalSnapshot
+        ? existingSnapshot.taxRegime === 'none' || existingSnapshot.legalStatus === 'particulier'
+          ? 'particulier'
+          : 'micro_entrepreneur'
+        : null;
       const shouldKeepExistingSnapshot =
-        existingSnapshot?.isHistoricalSnapshot &&
-        Number(existingSnapshot.salePrice) === Number(salePrice);
+        Boolean(existingSnapshot?.isHistoricalSnapshot) &&
+        existingSnapshotProfile === sellerProfileType &&
+        Number(existingSnapshot?.salePrice) === Number(salePrice);
 
-      const frozenSnapshot = shouldKeepExistingSnapshot
+      const frozenSnapshot = shouldKeepExistingSnapshot && existingSnapshot
         ? existingSnapshot
         : buildTransactionTaxSnapshot({
             salePrice: Number(salePrice),
             purchasePrice: vehicle.purchasePrice,
             repairCostTotal: vehicle.repairCostTotal || 0,
             generalExpensesTotal: vehicle.generalExpensesTotal || 0,
-            settings: resolvedSettings,
+            settings: effectiveSettings,
             vatRegimeOverride: 'franchise_base',
             vatRateOverride: 0,
           });
 
       const buyerData: BuyerInfo = {
         isCompany,
+        sellerProfileType,
         fullName: fullName.trim(),
         siret: siret.trim() || undefined,
         birthDate: isCompany ? undefined : birthDate,
@@ -235,6 +280,79 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
           )}
 
+          {/* Per-Transaction Seller Regime Selector (Micro-entrepreneur vs Particulier) */}
+          <div
+            data-testid="buyer-modal-seller-regime"
+            className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                {L(
+                  'Statut du vendeur pour cette transaction',
+                  'Статус продавца для этой сделки',
+                  'Վաճառողի կարգավիճակը այս գործարքի համար',
+                  'გამყიდველის სტატუსი ამ გარიგებისთვის'
+                )}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {isParticulierSeller
+                  ? L(
+                      'Vente privée (0 € taxes)',
+                      'Частная продажа (0 € налогов)',
+                      'Մասնավոր վաճառք (0 € հարկ)',
+                      'კერძო გაყიდვა (0 € გადასახადი)'
+                    )
+                  : L(
+                      'Fiscalité Micro-entrepreneur appliquée',
+                      'Применяются налоги Micro-entrepreneur',
+                      'Կիրառվում են Micro-entrepreneur հարկեր',
+                      'მოქმედებს Micro-entrepreneur გადასახადები'
+                    )}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label={L('Statut du vendeur', 'Статус продавца', 'Վաճառողի կարգավիճակ', 'გამყიდველის სტატუსი')}>
+              <button
+                type="button"
+                data-testid="buyer-modal-seller-micro"
+                aria-pressed={sellerProfileType === 'micro_entrepreneur'}
+                onClick={() => setSellerProfileType('micro_entrepreneur')}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition ${
+                  sellerProfileType === 'micro_entrepreneur'
+                    ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 shadow-sm'
+                    : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                <Building2 className={`w-4 h-4 shrink-0 ${sellerProfileType === 'micro_entrepreneur' ? 'text-amber-400' : 'text-slate-500'}`} />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold leading-tight">Micro-entrepreneur</div>
+                  <div className="text-[10px] opacity-75 truncate">
+                    {L('URSSAF + VL sur CA', 'URSSAF + VL с оборота', 'URSSAF + VL շրջանառությունից', 'URSSAF + VL ბრუნვიდან')}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                data-testid="buyer-modal-seller-particulier"
+                aria-pressed={sellerProfileType === 'particulier'}
+                onClick={() => setSellerProfileType('particulier')}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition ${
+                  sellerProfileType === 'particulier'
+                    ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-200 shadow-sm'
+                    : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+              >
+                <User className={`w-4 h-4 shrink-0 ${sellerProfileType === 'particulier' ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold leading-tight">Particulier</div>
+                  <div className="text-[10px] opacity-75 truncate">
+                    {L('0 € taxes · Vente privée', '0 € налогов · Физлицо', '0 € հարկ · Անհատ', '0 € გადასახადი · კერძო')}
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
           {/* Real-time P&L & French Tax / VAT Outcome Preview Box */}
           <div
             data-testid="buyer-modal-tax-preview"
@@ -283,7 +401,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
 
             {!isParticulierSeller && (
-              <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+              <div data-testid="buyer-modal-tax-breakdown" className="pt-2 border-t border-slate-800/80 space-y-1.5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] tabular-nums">
                   <div className="bg-slate-950/60 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
                     <span className="text-slate-400 block">
@@ -294,7 +412,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                         'URSSAF / VL (ბრუნვიდან)'
                       )}
                     </span>
-                    <span className="text-amber-300 font-bold">
+                    <span data-testid="buyer-modal-urssaf-vl" className="text-amber-300 font-bold">
                       {formatEuro(liveSnapshot.urssafAmount)} URSSAF
                       {liveSnapshot.versementLiberatoireEnabled
                         ? ` + ${formatEuro(liveSnapshot.versementLiberatoireAmount)} VL`

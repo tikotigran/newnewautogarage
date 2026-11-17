@@ -1,4 +1,10 @@
-import { Vehicle } from '../types/garage';
+import {
+  AppUserProfileType,
+  GarageWorkspace,
+  LegalStatus,
+  TaxRegime,
+  Vehicle,
+} from '../types/garage';
 import { hasDefinedSalePrice, roundToTwo } from './finance';
 
 export const DEFAULT_GARAGE_ID = 'garage_default';
@@ -97,3 +103,106 @@ export function computeHeaderAnalyticsMetrics(
     scope: activeGarageId ? 'garage' : 'all',
   };
 }
+
+export function canDeleteGarage(
+  garages: GarageWorkspace[],
+  garageId: string
+): { allowed: boolean; reason?: 'not_found' | 'last_garage' } {
+  if (!garages.some((g) => g.id === garageId)) {
+    return { allowed: false, reason: 'not_found' };
+  }
+  if (garages.length <= 1) {
+    return { allowed: false, reason: 'last_garage' };
+  }
+  return { allowed: true };
+}
+
+export function buildGarageUpdatePayload(
+  existing: GarageWorkspace,
+  input: {
+    name: string;
+    profileType: AppUserProfileType;
+    city?: string;
+    siret?: string;
+    taxRatePercent?: number;
+  },
+  nowIso: string = new Date().toISOString()
+): GarageWorkspace {
+  const isParticulier = input.profileType === 'particulier';
+  const legalStatus: LegalStatus = isParticulier ? 'particulier' : 'micro_entreprise';
+  const taxRegime: TaxRegime = isParticulier ? 'none' : 'micro';
+  const taxRatePercent = isParticulier
+    ? 0
+    : typeof input.taxRatePercent === 'number' && !Number.isNaN(input.taxRatePercent)
+    ? Math.max(0, input.taxRatePercent)
+    : existing.taxRegime === 'micro' && typeof existing.taxRatePercent === 'number'
+    ? existing.taxRatePercent
+    : 13.3;
+
+  return {
+    ...existing,
+    name: input.name.trim() || existing.name,
+    profileType: input.profileType,
+    entityType: 'physique',
+    legalStatus,
+    taxRegime,
+    taxRatePercent,
+    city: input.city !== undefined ? input.city.trim() : existing.city || '',
+    siret: isParticulier ? '' : input.siret !== undefined ? input.siret.trim() : existing.siret || '',
+    updatedAt: nowIso,
+  };
+}
+
+export function resolveNextActiveGarageId(
+  remainingGarages: GarageWorkspace[],
+  deletedGarageId: string,
+  currentActiveGarageId: string | null,
+  multiGarageEnabled: boolean = true
+): string | null {
+  if (currentActiveGarageId !== deletedGarageId) {
+    return currentActiveGarageId;
+  }
+  if (!multiGarageEnabled) {
+    return remainingGarages[0]?.id || DEFAULT_GARAGE_ID;
+  }
+  return null;
+}
+
+export function removeGarageFromList(
+  garages: GarageWorkspace[],
+  garageId: string
+): GarageWorkspace[] {
+  return garages.filter((g) => g.id !== garageId);
+}
+
+export function upsertGarageInList(
+  garages: GarageWorkspace[],
+  garage: GarageWorkspace
+): GarageWorkspace[] {
+  const exists = garages.some((g) => g.id === garage.id);
+  if (exists) {
+    return garages.map((g) => (g.id === garage.id ? garage : g));
+  }
+  return [...garages, garage];
+}
+
+export function removeVehiclesForGarage(
+  vehicles: Vehicle[],
+  garageId: string,
+  defaultGarageId: string = DEFAULT_GARAGE_ID
+): Vehicle[] {
+  return vehicles.filter((v) => {
+    const belongsToGarage = v.garageId ? v.garageId === garageId : garageId === defaultGarageId;
+    return !belongsToGarage;
+  });
+}
+
+export function hasOpenGarageWorkspace(
+  multiGarageEnabled: boolean,
+  activeGarageId: string | null | undefined
+): boolean {
+  if (!multiGarageEnabled) return true;
+  return Boolean(activeGarageId);
+}
+
+

@@ -18,6 +18,8 @@ import {
   calculateFrenchVat,
   FRENCH_TAX_DEFAULTS,
   normalizeFrenchTaxConfig,
+  resolveDealSellerProfileType,
+  resolveEffectiveSettingsForDeal,
 } from './frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
 
@@ -106,23 +108,36 @@ export function buildVehiclesExportRows(vehicles: Vehicle[]): VehicleExportRow[]
 
 export function buildFinancialLedgerRows(
   vehicles: Vehicle[],
-  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig'>
+  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig' | 'profileType' | 'legalStatus'>
 ): FinancialLedgerRow[] {
-  const normalizedTaxConfig = normalizeFrenchTaxConfig(garageSettings);
   return vehicles.map((v) => {
     const isSold = v.status === 'sold';
     const revenue = isSold ? getRealizedSalePrice(v) : getEffectiveSalePrice(v);
+    const dealProfile = resolveDealSellerProfileType(v, garageSettings);
+    const dealSettings = resolveEffectiveSettingsForDeal({
+      vehicle: v,
+      garageSettings,
+    });
+    const dealTaxConfig = normalizeFrenchTaxConfig(dealSettings);
+    const existingSnap = v.buyerInfo?.taxSnapshot;
+    const snapMatchesDeal =
+      Boolean(existingSnap?.isHistoricalSnapshot) &&
+      (!v.buyerInfo?.sellerProfileType ||
+        (dealProfile === 'particulier'
+          ? existingSnap?.taxRegime === 'none' || existingSnap?.legalStatus === 'particulier'
+          : existingSnap?.taxRegime === 'micro' || existingSnap?.legalStatus === 'micro_entreprise'));
+
     const taxReport = calculateSaleTaxReport({
       salePrice: revenue,
       purchasePrice: v.purchasePrice || 0,
       repairCostTotal: v.repairCostTotal || 0,
       generalExpensesTotal: v.generalExpensesTotal || 0,
-      taxRegime: garageSettings.taxRegime,
-      taxRatePercent: garageSettings.taxRatePercent,
-      frenchTaxConfig: normalizedTaxConfig,
+      taxRegime: dealSettings.taxRegime,
+      taxRatePercent: dealSettings.taxRatePercent,
+      frenchTaxConfig: dealTaxConfig,
       vatRegime: v.buyerInfo?.vatRegime,
       vatRatePercent: v.buyerInfo?.vatRatePercent,
-      taxSnapshot: isSold ? v.buyerInfo?.taxSnapshot : undefined,
+      taxSnapshot: isSold && snapMatchesDeal ? existingSnap : undefined,
     });
     const totalInvested = roundToTwo(
       taxReport.purchasePrice + taxReport.repairCostTotal + taxReport.generalExpensesTotal
@@ -173,7 +188,7 @@ function escapeCsvCell(val: unknown): string {
 
 export function financialLedgerToCsv(
   vehicles: Vehicle[],
-  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig'>
+  garageSettings: Pick<GarageSettings, 'taxRegime' | 'taxRatePercent' | 'frenchTaxConfig' | 'profileType' | 'legalStatus'>
 ): string {
   const rows = buildFinancialLedgerRows(vehicles, garageSettings);
   const headers = [
@@ -672,42 +687,55 @@ export function buildFacturXXml(
   const currency = settings.currency || 'EUR';
   const paymentMeansCode = options?.paymentMeansCode || '30'; // 30 = Credit transfer (SEPA)
 
+  const dealProfile = resolveDealSellerProfileType(vehicle, settings);
+  const dealSettings = {
+    ...settings,
+    ...resolveEffectiveSettingsForDeal({ vehicle, garageSettings: settings }),
+  };
+  const isParticulierDeal = dealProfile === 'particulier';
+
   const isCorporateVatSeller =
-    settings.taxRegime === 'sarl' ||
-    settings.taxRegime === 'sas' ||
-    settings.taxRegime === 'custom';
+    !vehicle.buyerInfo?.sellerProfileType &&
+    (dealSettings.taxRegime === 'sarl' ||
+      dealSettings.taxRegime === 'sas' ||
+      dealSettings.taxRegime === 'custom');
 
   const resolvedVatRegime: VatRegime = (() => {
-    const raw = isCorporateVatSeller
-      ? options?.vatMode ||
-        vehicle.buyerInfo?.vatRegime ||
-        vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
-        settings.frenchTaxConfig?.vatRegime ||
-        'tva_marge'
-      : options?.vatMode ||
-        (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
-        vehicle.buyerInfo.taxSnapshot.vatAmount > 0
-          ? vehicle.buyerInfo.taxSnapshot.vatRegime
-          : 'franchise_base');
+    const raw =
+      isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+        ? options?.vatMode || 'franchise_base'
+        : isCorporateVatSeller
+        ? options?.vatMode ||
+          vehicle.buyerInfo?.vatRegime ||
+          vehicle.buyerInfo?.taxSnapshot?.vatRegime ||
+          dealSettings.frenchTaxConfig?.vatRegime ||
+          'tva_marge'
+        : options?.vatMode ||
+          (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot &&
+          vehicle.buyerInfo.taxSnapshot.vatAmount > 0
+            ? vehicle.buyerInfo.taxSnapshot.vatRegime
+            : 'franchise_base');
     if (raw === 'margin') return 'tva_marge';
     if (raw === 'standard_20') return 'tva_total';
     return raw;
   })();
 
-  const resolvedVatRate = isCorporateVatSeller
+  const resolvedVatRate = isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+    ? options?.vatRatePercent ?? 0
+    : isCorporateVatSeller
     ? options?.vatRatePercent ??
       vehicle.buyerInfo?.vatRatePercent ??
       vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-      settings.frenchTaxConfig?.vatRatePercent ??
+      dealSettings.frenchTaxConfig?.vatRatePercent ??
       20
     : options?.vatRatePercent ??
       (resolvedVatRegime === 'franchise_base'
         ? 0
         : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0);
 
-  const cleanSiret = (settings.siret || '').replace(/\s+/g, '');
+  const cleanSiret = isParticulierDeal ? '' : (settings.siret || '').replace(/\s+/g, '');
   const sellerName =
-    settings.entityType === 'physique'
+    isParticulierDeal || settings.entityType === 'physique'
       ? `${settings.firstName || ''} ${settings.lastName || ''}`.trim() || settings.name
       : settings.name;
   const sellerStreet = [

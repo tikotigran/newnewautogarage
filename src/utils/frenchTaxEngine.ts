@@ -57,6 +57,78 @@ export function resolveUserProfileType(
   return 'micro_entrepreneur';
 }
 
+/**
+ * Resolves the effective seller profile for a specific vehicle transaction.
+ * An explicit per-deal `vehicle.buyerInfo.sellerProfileType` always overrides global settings.
+ * Legacy sold vehicles without `sellerProfileType` fall back to global settings / profileType.
+ */
+export function resolveDealSellerProfileType(
+  vehicle?: Pick<Vehicle, 'buyerInfo'> | null,
+  garageSettings?: Partial<GarageSettings> | null,
+  fallbackProfileType?: AppUserProfileType
+): AppUserProfileType {
+  const explicitDealProfile = vehicle?.buyerInfo?.sellerProfileType;
+  if (explicitDealProfile === 'particulier' || explicitDealProfile === 'micro_entrepreneur') {
+    return explicitDealProfile;
+  }
+
+  if (fallbackProfileType === 'particulier') {
+    return 'particulier';
+  }
+  if (garageSettings) {
+    return resolveUserProfileType(garageSettings);
+  }
+  if (fallbackProfileType) {
+    return fallbackProfileType;
+  }
+  const snap = vehicle?.buyerInfo?.taxSnapshot;
+  if (snap?.isHistoricalSnapshot) {
+    if (snap.taxRegime === 'none' || snap.legalStatus === 'particulier') {
+      return 'particulier';
+    }
+    return 'micro_entrepreneur';
+  }
+  return 'micro_entrepreneur';
+}
+
+/**
+ * Returns GarageSettings patched for a specific deal's seller regime.
+ * Ensures a deal marked as 'particulier' always yields 0 € taxes, while a deal marked
+ * as 'micro_entrepreneur' applies Micro URSSAF + VL even if global settings are Particulier.
+ */
+export function resolveEffectiveSettingsForDeal(params: {
+  vehicle?: Pick<Vehicle, 'buyerInfo'> | null;
+  garageSettings?: Partial<GarageSettings> | null;
+  fallbackProfileType?: AppUserProfileType;
+}): Partial<GarageSettings> {
+  const { vehicle, garageSettings, fallbackProfileType } = params;
+  const base = garageSettings || {};
+  const explicitDealProfile = vehicle?.buyerInfo?.sellerProfileType;
+
+  if (explicitDealProfile === 'particulier') {
+    return {
+      ...base,
+      ...buildProfileSettingsPatch('particulier', base),
+    };
+  }
+
+  if (explicitDealProfile === 'micro_entrepreneur') {
+    return {
+      ...base,
+      ...buildProfileSettingsPatch('micro_entrepreneur', base),
+    };
+  }
+
+  if (fallbackProfileType === 'particulier' || resolveUserProfileType(base) === 'particulier') {
+    return {
+      ...base,
+      ...buildProfileSettingsPatch('particulier', base),
+    };
+  }
+
+  return base;
+}
+
 export function mapLegalStatusToTaxRegime(legalStatus: LegalStatus): TaxRegime {
   switch (legalStatus) {
     case 'particulier':
@@ -841,11 +913,28 @@ export function getResolvedVehicleSaleSnapshot(params: {
   garageSettings?: Partial<GarageSettings> | null;
   repairs?: RepairTask[];
   expenses?: GeneralExpense[];
+  fallbackProfileType?: AppUserProfileType;
 }): TransactionTaxSnapshot {
-  const { vehicle, garageSettings, repairs, expenses } = params;
-  if (vehicle.buyerInfo?.taxSnapshot?.isHistoricalSnapshot) {
-    return vehicle.buyerInfo.taxSnapshot;
+  const { vehicle, garageSettings, repairs, expenses, fallbackProfileType } = params;
+  const explicitDealProfile = vehicle.buyerInfo?.sellerProfileType;
+  const existingSnap = vehicle.buyerInfo?.taxSnapshot;
+
+  if (existingSnap?.isHistoricalSnapshot) {
+    if (!explicitDealProfile) {
+      return existingSnap;
+    }
+    const snapMatchesExplicitProfile =
+      explicitDealProfile === 'particulier'
+        ? existingSnap.taxRegime === 'none' || existingSnap.legalStatus === 'particulier'
+        : existingSnap.taxRegime === 'micro' || existingSnap.legalStatus === 'micro_entreprise';
+    if (snapMatchesExplicitProfile) {
+      return existingSnap;
+    }
   }
+
+  const effectiveSettings = explicitDealProfile
+    ? resolveEffectiveSettingsForDeal({ vehicle, garageSettings, fallbackProfileType })
+    : garageSettings;
 
   const repairCostTotal = repairs
     ? repairs.reduce((sum, r) => sum + (Number(r.totalCost) || 0), 0)
@@ -860,7 +949,7 @@ export function getResolvedVehicleSaleSnapshot(params: {
     purchasePrice: Number(vehicle.purchasePrice) || 0,
     repairCostTotal,
     generalExpensesTotal,
-    settings: garageSettings,
+    settings: effectiveSettings,
     vatRegimeOverride: vehicle.buyerInfo?.vatRegime,
     vatRateOverride: vehicle.buyerInfo?.vatRatePercent,
     capturedAt: vehicle.buyerInfo?.saleDate || vehicle.updatedAt,

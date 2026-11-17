@@ -23,7 +23,7 @@ import {
   Scale,
   AlertCircle,
 } from 'lucide-react';
-import { Vehicle, RepairTask, GeneralExpense, FeatureFlagsConfig, GarageSettings } from '../types/garage';
+import { AppUserProfileType, Vehicle, RepairTask, GeneralExpense, FeatureFlagsConfig, GarageSettings } from '../types/garage';
 import { getGarageSettings, subscribeAllFleetExpensesAndRepairs } from '../services/garageService';
 import {
   AgingTier,
@@ -33,7 +33,7 @@ import {
 } from '../utils/analytics';
 import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { formatEuro } from '../utils/finance';
-import { resolveUserProfileType } from '../utils/frenchTaxEngine';
+import { createDefaultFrenchTaxConfig, resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 
@@ -41,6 +41,8 @@ interface AnalyticsViewProps {
   vehicles: Vehicle[];
   onSelectVehicle: (vehicle: Vehicle) => void;
   featureFlags?: FeatureFlagsConfig;
+  activeGarageId?: string | null;
+  profileType?: AppUserProfileType;
 }
 
 const CATEGORY_ICONS: Record<AnalyticsExpenseCategoryId, React.ReactNode> = {
@@ -79,6 +81,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   vehicles,
   onSelectVehicle,
   featureFlags = DEFAULT_FEATURE_FLAGS,
+  activeGarageId,
+  profileType: propProfileType,
 }) => {
   const { lang, t, getTextStyle } = useI18n();
   const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>('month');
@@ -86,18 +90,20 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [customStartDate, setCustomStartDate] = useState<string>(defaultDates.startDate);
   const [customEndDate, setCustomEndDate] = useState<string>(defaultDates.endDate);
   const [selectedCategoryId, setSelectedCategoryId] = useState<AnalyticsExpenseCategoryId | null>(null);
-  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() => getGarageSettings());
+  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
+    getGarageSettings(activeGarageId || undefined)
+  );
   const [fleetData, setFleetData] = useState<{
     repairs: RepairTask[];
     expenses: GeneralExpense[];
   }>({ repairs: [], expenses: [] });
 
   useEffect(() => {
-    const syncSettings = () => setGarageSettings(getGarageSettings());
+    const syncSettings = () => setGarageSettings(getGarageSettings(activeGarageId || undefined));
     syncSettings();
     window.addEventListener('autogarage_settings_updated', syncSettings);
     return () => window.removeEventListener('autogarage_settings_updated', syncSettings);
-  }, []);
+  }, [activeGarageId]);
 
   useEffect(() => {
     const unsub = subscribeAllFleetExpensesAndRepairs(vehicles, (data) => {
@@ -106,7 +112,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     return () => unsub();
   }, [vehicles]);
 
+  const activeProfileType: AppUserProfileType =
+    propProfileType === 'particulier'
+      ? 'particulier'
+      : resolveUserProfileType(garageSettings);
+  const isParticulier = activeProfileType === 'particulier';
+
   const report = useMemo(() => {
+    const effectiveTaxConfig = isParticulier
+      ? createDefaultFrenchTaxConfig('particulier')
+      : garageSettings.frenchTaxConfig;
     return computeDealershipAnalytics({
       vehicles,
       repairs: fleetData.repairs,
@@ -116,9 +131,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         timeRange === 'custom'
           ? { startDate: customStartDate, endDate: customEndDate }
           : undefined,
-      taxRegime: garageSettings.taxRegime,
-      taxRatePercent: garageSettings.taxRatePercent,
-      frenchTaxConfig: garageSettings.frenchTaxConfig,
+      taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
+      taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
+      frenchTaxConfig: effectiveTaxConfig,
     });
   }, [
     vehicles,
@@ -127,6 +142,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     timeRange,
     customStartDate,
     customEndDate,
+    isParticulier,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
     garageSettings.frenchTaxConfig,
@@ -134,14 +150,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
   const analytics = report.expenseBreakdown;
   const { inventory, salesPerformance, monthlySnapshot, cashFlow } = report;
-  const activeProfileType = resolveUserProfileType(garageSettings);
-  const isParticulier = activeProfileType === 'particulier';
-  const hasHistoricalTaxAmounts =
+  const hasAnyCalculatedTax =
     salesPerformance.taxAmount > 0 ||
-    salesPerformance.vatAmount > 0 ||
     salesPerformance.urssafAmount > 0 ||
-    salesPerformance.corporateIsAmount > 0;
-  const showFrenchTaxBreakdown = !isParticulier || hasHistoricalTaxAmounts;
+    salesPerformance.versementLiberatoireAmount > 0 ||
+    salesPerformance.microBicEstimatedIrAmount > 0 ||
+    salesPerformance.corporateIsAmount > 0 ||
+    salesPerformance.vatAmount > 0;
+  const particulierDealsCount = salesPerformance.particulierDealsCount ?? 0;
+  const taxedDealsCount = salesPerformance.taxedDealsCount ?? 0;
+  const isMixedRegime = particulierDealsCount > 0 && (taxedDealsCount > 0 || hasAnyCalculatedTax);
+  const allDealsParticulier =
+    salesPerformance.soldCount > 0 &&
+    particulierDealsCount === salesPerformance.soldCount &&
+    !hasAnyCalculatedTax;
+  const showFrenchTaxBreakdown = (!isParticulier && !allDealsParticulier) || hasAnyCalculatedTax;
   const showHistoricalIsCard = salesPerformance.corporateIsAmount > 0;
 
   const timeRanges: { id: AnalyticsTimeRange; label: string }[] = [
@@ -311,7 +334,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               {t('analyticsPillarsHeading')}
             </h2>
             <div className="flex flex-wrap items-center gap-1.5">
-              {!isParticulier && (
+              {((!isParticulier && !allDealsParticulier) || hasAnyCalculatedTax) && (
                 <span
                   data-testid="analytics-tax-estimate-badge"
                   className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-500 border border-amber-500/30"
@@ -319,9 +342,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   {t('taxEstimateBadge')}
                 </span>
               )}
-              <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[var(--surface-muted)] text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums">
-                {isParticulier && !hasHistoricalTaxAmounts
+              <span
+                data-testid="analytics-regime-badge"
+                className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[var(--surface-muted)] text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums"
+              >
+                {(isParticulier && !hasAnyCalculatedTax) || allDealsParticulier
                   ? t('profileBadgeParticulier')
+                  : isMixedRegime || (isParticulier && hasAnyCalculatedTax)
+                  ? pickLocalized(lang, {
+                      fr: `Mixte par transaction (${particulierDealsCount} Particulier · ${taxedDealsCount} Pro)`,
+                      ru: `Смешанный режим (${particulierDealsCount} Физлицо · ${taxedDealsCount} Проф.)`,
+                      hy: `Խառը ռեժիմ (${particulierDealsCount} Անհատ · ${taxedDealsCount} Պրոֆ.)`,
+                      ka: `შერეული რეჟიმი (${particulierDealsCount} კერძო · ${taxedDealsCount} პროფ.)`,
+                    })
                   : t('saleReportRegime', { regime: salesPerformance.taxLabel })}
               </span>
             </div>
@@ -423,10 +456,18 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </p>
               </div>
               <p className="text-xs text-[var(--muted-foreground)] mt-2 tabular-nums">
-                {isParticulier && !hasHistoricalTaxAmounts
+                {(isParticulier && !hasAnyCalculatedTax) || allDealsParticulier
                   ? t('profileBadgeParticulier')
                   : t('pillarNetProfitHint', {
-                      regime: salesPerformance.taxLabel,
+                      regime:
+                        isParticulier || isMixedRegime
+                          ? pickLocalized(lang, {
+                              fr: 'Ventes Micro-entrepreneur uniquement',
+                              ru: 'Только сделки Micro-entrepreneur',
+                              hy: 'Միայն Micro-entrepreneur գործարքներ',
+                              ka: 'მხოლოდ Micro-entrepreneur გარიგებები',
+                            })
+                          : salesPerformance.taxLabel,
                       tax: formatEuro(salesPerformance.taxAmount),
                     })}
               </p>

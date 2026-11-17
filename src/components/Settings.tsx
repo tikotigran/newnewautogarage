@@ -81,6 +81,7 @@ import {
   parseBackupPayload,
   vehiclesToCsv,
 } from '../utils/settingsUtils';
+import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 
 const LANGUAGE_FLAGS: Record<Language, string> = {
   fr: '🇫🇷',
@@ -95,6 +96,7 @@ interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   userId?: string;
+  activeGarageId?: string | null;
   vehicles?: Vehicle[];
   theme: 'dark' | 'light';
   onThemeChange: (theme: 'dark' | 'light') => void;
@@ -130,6 +132,7 @@ export const Settings: React.FC<SettingsProps> = ({
   isOpen,
   onClose,
   userId,
+  activeGarageId,
   vehicles = [],
   theme,
   onThemeChange,
@@ -188,10 +191,11 @@ export const Settings: React.FC<SettingsProps> = ({
   }, []);
 
   const isPage = variant === 'page';
+  const targetGarageId = activeGarageId || DEFAULT_GARAGE_ID;
 
   useEffect(() => {
     if (isOpen || isPage) {
-      const current = getGarageSettings();
+      const current = getGarageSettings(targetGarageId);
       const globalDefaults = getSuperAdminTaxDefaults();
       const resolvedProfile = resolveUserProfileType(current);
       const profileStatus = resolvedProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
@@ -217,6 +221,7 @@ export const Settings: React.FC<SettingsProps> = ({
       setSettings({
         ...DEFAULT_GARAGE_SETTINGS,
         ...current,
+        garageId: targetGarageId,
         theme,
         profileType: resolvedProfile,
         entityType: 'physique',
@@ -240,7 +245,7 @@ export const Settings: React.FC<SettingsProps> = ({
       setIsAdvancedTaxOpen(false);
 
       if (userId) {
-        fetchGarageSettingsFromCloud(userId).then((cloudSettings) => {
+        fetchGarageSettingsFromCloud(userId, targetGarageId).then((cloudSettings) => {
           const cloudProfile = resolveUserProfileType(cloudSettings);
           const cloudStatus = cloudProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
           const cloudRegime = cloudProfile === 'particulier' ? 'none' : 'micro';
@@ -284,7 +289,7 @@ export const Settings: React.FC<SettingsProps> = ({
         });
       }
     }
-  }, [isOpen, isPage, theme, userId]);
+  }, [isOpen, isPage, theme, userId, targetGarageId]);
 
   if (!isPage && !isOpen) return null;
 
@@ -298,13 +303,36 @@ export const Settings: React.FC<SettingsProps> = ({
     taxRegime: activeProfileType === 'particulier' ? 'none' : 'micro',
   });
 
-  const handleSelectProfileType = (targetProfile: AppUserProfileType) => {
+  const handleSelectProfileType = async (targetProfile: AppUserProfileType) => {
     setErrors({});
     const patch = buildProfileSettingsPatch(targetProfile, settings);
-    setSettings((prev) => ({
-      ...prev,
+    const nextSettings: GarageSettings = {
+      ...settings,
       ...patch,
-    }));
+      garageId: targetGarageId,
+      theme,
+      layoutMode: layoutPreference,
+    };
+    setSettings(nextSettings);
+    await saveGarageSettings(nextSettings, userId, targetGarageId);
+    if (onSettingsSaved) onSettingsSaved(nextSettings);
+    setStatusMessage({
+      type: 'success',
+      text:
+        targetProfile === 'particulier'
+          ? L(
+              'Mode Particulier activé : aucun calcul URSSAF, TVA ou impôt professionnel.',
+              'Режим «Частное лицо» (Particulier) активирован: налоги URSSAF и VL отключены.',
+              'Particulier ռեժիմը միացված է՝ URSSAF և TVA հարկեր չկան։',
+              'Particulier რეჟიმი ჩართულია: URSSAF და TVA გათიშულია.'
+            )
+          : L(
+              'Mode Micro-entrepreneur activé.',
+              'Режим Micro-entrepreneur активирован.',
+              'Micro-entrepreneur ռեժիմը միացված է։',
+              'Micro-entrepreneur რეჟიმი ჩართულია.'
+            ),
+    });
   };
 
   const updateTaxConfig = (
@@ -403,7 +431,7 @@ export const Settings: React.FC<SettingsProps> = ({
               (normalizedTax.versementLiberatoireEnabled ? normalizedTax.versementLiberatoireRate : 0)
           );
 
-    const prevSettings = getGarageSettings();
+    const prevSettings = getGarageSettings(targetGarageId);
     const prevTaxConfig = normalizeFrenchTaxConfig(prevSettings);
     const taxDiffs = computeEntityFieldDiffs(
       prevTaxConfig as unknown as Record<string, unknown>,
@@ -457,8 +485,12 @@ export const Settings: React.FC<SettingsProps> = ({
       layoutMode: layoutPreference,
     };
 
-    setSettings(updatedSettings);
-    await saveGarageSettings(updatedSettings, userId);
+    const scopedUpdatedSettings: GarageSettings = {
+      ...updatedSettings,
+      garageId: targetGarageId,
+    };
+    setSettings(scopedUpdatedSettings);
+    await saveGarageSettings(scopedUpdatedSettings, userId, targetGarageId);
     const diffs = computeEntityFieldDiffs(
       prevSettings as unknown as Record<string, unknown>,
       updatedSettings as unknown as Record<string, unknown>,
@@ -620,7 +652,7 @@ export const Settings: React.FC<SettingsProps> = ({
       const text = await file.text();
       const parsed = parseBackupPayload(text);
       await importGarageDatabase(parsed, userId);
-      const refreshed = getGarageSettings();
+      const refreshed = getGarageSettings(targetGarageId);
       setSettings(refreshed);
       if (refreshed.theme) onThemeChange(refreshed.theme);
       if (onSettingsSaved) onSettingsSaved(refreshed);
