@@ -4,10 +4,14 @@ import {
   computeMissingDocumentReminders,
   DOCUMENT_CATEGORIES,
   filterDocumentsByGarage,
+  filterDocumentsForVehicle,
+  getDocumentCategoryCounts,
   inferCategoryFromFileName,
+  MAX_PDF_UPLOAD_BYTES,
   resolveDocumentBinding,
   searchAndFilterDocuments,
   validateDocumentInput,
+  validatePdfUploadFile,
 } from './documents';
 import { GarageDocument, Vehicle } from '../types/garage';
 
@@ -237,4 +241,86 @@ test('inferCategoryFromFileName classifies PDFs and images accurately', () => {
   assert.equal(inferCategoryFromFileName('Carte_Grise_208.pdf', 'application/pdf'), 'carte_grise');
   assert.equal(inferCategoryFromFileName('Cerfa_15776_Cession.pdf', 'application/pdf'), 'certificat_cession');
   assert.equal(inferCategoryFromFileName('photo_avant.jpg', 'image/jpeg'), 'photos_vehicule');
+});
+
+test('filterDocumentsForVehicle returns only documents linked to the given vehicleId sorted newest-first', () => {
+  const extraDoc: GarageDocument = {
+    ...mockDocs[0],
+    id: 'doc_1b',
+    category: 'facture_achat',
+    title: 'Facture achat 208',
+    documentDate: '2026-10-15',
+  };
+  const list = filterDocumentsForVehicle([mockDocs[0], mockDocs[1], extraDoc], 'veh_1');
+  assert.equal(list.length, 2);
+  assert.equal(list[0].id, 'doc_1b');
+  assert.equal(list[1].id, 'doc_1');
+  assert.equal(filterDocumentsForVehicle(mockDocs, '').length, 0);
+});
+
+test('getDocumentCategoryCounts aggregates counts across all 10 categories', () => {
+  const counts = getDocumentCategoryCounts(mockDocs);
+  assert.equal(counts.all, 2);
+  assert.equal(counts.carte_grise, 1);
+  assert.equal(counts.controle_technique, 1);
+  assert.equal(counts.facture_achat, 0);
+  assert.equal(counts.certificat_cession, 0);
+});
+
+test('validatePdfUploadFile enforces strict PDF-only format and 5 MB max limit', () => {
+  assert.equal(MAX_PDF_UPLOAD_BYTES, 5 * 1024 * 1024);
+
+  // Valid PDF files (<= 5 MB)
+  assert.equal(
+    validatePdfUploadFile({ name: 'Carte_Grise.pdf', type: 'application/pdf', size: 1024 }),
+    null
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'EXACT_5MB.PDF', type: 'application/pdf', size: 5 * 1024 * 1024 }),
+    null
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'scan.pdf', type: '', size: 2048 }),
+    null
+  );
+
+  // Non-PDF extensions and MIME types rejected
+  assert.equal(
+    validatePdfUploadFile({ name: 'photo.jpg', type: 'image/jpeg', size: 50000 }),
+    'pdf_only'
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'scan.png', type: 'image/png', size: 50000 }),
+    'pdf_only'
+  );
+  assert.equal(
+    validatePdfUploadFile({
+      name: 'contract.docx',
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 50000,
+    }),
+    'pdf_only'
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'iphone_photo.heic', type: 'image/heic', size: 50000 }),
+    'pdf_only'
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'iphone_photo.heic', type: '', size: 50000 }),
+    'pdf_only'
+  );
+  assert.equal(
+    validatePdfUploadFile({ name: 'spoofed.pdf', type: 'image/png', size: 50000 }),
+    'pdf_only'
+  );
+
+  // PDF exceeding 5 MB rejected
+  assert.equal(
+    validatePdfUploadFile({
+      name: 'huge_dossier.pdf',
+      type: 'application/pdf',
+      size: 5 * 1024 * 1024 + 1,
+    }),
+    'pdf_too_large'
+  );
 });

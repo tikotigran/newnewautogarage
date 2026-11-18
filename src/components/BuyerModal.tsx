@@ -84,6 +84,12 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     ) {
       return targetVehicle.buyerInfo.sellerProfileType;
     }
+    if (targetVehicle?.purchaseStatus === 'particulier') {
+      return 'particulier';
+    }
+    if (targetVehicle?.purchaseStatus === 'micro') {
+      return 'micro_entrepreneur';
+    }
     const snap = targetVehicle?.buyerInfo?.taxSnapshot;
     if (snap?.isHistoricalSnapshot) {
       if (snap.taxRegime === 'none' || snap.legalStatus === 'particulier') {

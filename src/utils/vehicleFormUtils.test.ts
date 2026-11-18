@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildVehicleSubmitPayload,
   hasVehicleCerfaDetails,
+  mapProfileTypeToPurchaseStatus,
+  resolveDefaultPurchaseStatus,
+  resolveVehiclePurchaseStatus,
   validateQuickVehicleForm,
   validateVehicleFormDetailed,
   VehicleFormInput,
@@ -37,90 +40,87 @@ function createBaseInput(overrides: Partial<VehicleFormInput> = {}): VehicleForm
   };
 }
 
-test('validateQuickVehicleForm allows creating a vehicle when all mandatory Cerfa fields are provided', () => {
-  assert.equal(validateQuickVehicleForm(createBaseInput(), 'ru'), null);
-  assert.equal(
-    validateQuickVehicleForm(
-      createBaseInput({ formulaNumber: '', certificateDate: '2021-05-01' }),
-      'fr'
-    ),
-    null
-  );
+test('validateQuickVehicleForm allows creating a vehicle with only the 5 standard fields and without Cerfa registration fields', () => {
   assert.equal(
     validateQuickVehicleForm(
       createBaseInput({
-        hasRegistrationCertificate: false,
+        commercialDesignation: '',
+        firstRegistrationDate: '',
+        hasRegistrationCertificate: null,
         formulaNumber: '',
         certificateDate: '',
-        absenceReason: 'Déclaration de perte jointe',
+        absenceReason: '',
       }),
       'ru'
     ),
     null
   );
+  assert.equal(validateQuickVehicleForm(createBaseInput(), 'fr'), null);
 });
 
-test('validateVehicleFormDetailed catches missing mandatory Cerfa fields and emits fieldErrors & toastMessage', () => {
-  const missingCert = validateVehicleFormDetailed(
+test('validateVehicleFormDetailed catches missing standard fields & invalid VIN/mileage without blocking on Cerfa fields', () => {
+  const noCerfaErrors = validateVehicleFormDetailed(
     createBaseInput({
       commercialDesignation: '',
       firstRegistrationDate: '',
       hasRegistrationCertificate: null,
       formulaNumber: '',
-    }),
-    'ru'
-  );
-  assert.ok(missingCert.fieldErrors.commercialDesignation);
-  assert.ok(missingCert.fieldErrors.firstRegistrationDate);
-  assert.ok(missingCert.fieldErrors.hasRegistrationCertificate);
-  assert.ok(missingCert.toastMessage?.startsWith('Заполните обязательные поля бланка Cerfa:'));
-
-  const missingFormulaOrCertDate = validateVehicleFormDetailed(
-    createBaseInput({
-      hasRegistrationCertificate: true,
-      formulaNumber: '',
       certificateDate: '',
+      absenceReason: '',
     }),
     'ru'
   );
-  assert.ok(missingFormulaOrCertDate.fieldErrors.formulaOrCertificateDate);
+  assert.equal(noCerfaErrors.firstError, null);
+  assert.deepEqual(noCerfaErrors.fieldErrors, {});
 
-  const missingAbsenceReason = validateVehicleFormDetailed(
+  const missingCore = validateVehicleFormDetailed(
     createBaseInput({
-      hasRegistrationCertificate: false,
-      formulaNumber: '',
-      certificateDate: '',
-      absenceReason: '  ',
+      make: '',
+      model: '  ',
+      year: 1850,
+      registrationNumber: '',
+      purchasePrice: '',
     }),
     'ru'
   );
-  assert.ok(missingAbsenceReason.fieldErrors.absenceReason);
+  assert.ok(missingCore.fieldErrors.make);
+  assert.ok(missingCore.fieldErrors.model);
+  assert.ok(missingCore.fieldErrors.year);
+  assert.ok(missingCore.fieldErrors.registrationNumber);
+  assert.ok(missingCore.fieldErrors.purchasePrice);
+  assert.ok(missingCore.toastMessage?.startsWith('Заполните обязательные поля автомобиля:'));
 
-  assert.ok(validateQuickVehicleForm(createBaseInput({ make: '' }), 'fr'));
-  assert.ok(validateQuickVehicleForm(createBaseInput({ model: '  ' }), 'fr'));
-  assert.ok(validateQuickVehicleForm(createBaseInput({ registrationNumber: '' }), 'ru'));
-  assert.ok(validateQuickVehicleForm(createBaseInput({ purchasePrice: '' }), 'ru'));
-  assert.ok(validateQuickVehicleForm(createBaseInput({ year: 1850 }), 'fr'));
   assert.ok(validateQuickVehicleForm(createBaseInput({ vin: 'SHORT123' }), 'ru'));
+  assert.ok(validateQuickVehicleForm(createBaseInput({ mileage: -10 }), 'ru'));
   assert.equal(
     validateQuickVehicleForm(createBaseInput({ vin: 'VF3UPHNK0MT129841' }), 'fr'),
     null
   );
 });
 
-test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte Grise codes', () => {
-  const quickPayload = buildVehicleSubmitPayload(createBaseInput(), 'user_1');
+test('buildVehicleSubmitPayload preserves unset Cerfa fields without fallback synthesis and normalizes Carte Grise codes', () => {
+  const quickPayload = buildVehicleSubmitPayload(
+    createBaseInput({
+      commercialDesignation: '',
+      firstRegistrationDate: '',
+      hasRegistrationCertificate: null,
+      formulaNumber: '',
+      certificateDate: '',
+      absenceReason: '',
+    }),
+    'user_1'
+  );
   assert.equal(quickPayload.make, 'Peugeot');
-  assert.equal(quickPayload.commercialDesignation, '208 GT Line 130ch');
-  assert.equal(quickPayload.firstRegistrationDate, '2021-04-15');
+  assert.equal(quickPayload.commercialDesignation, '');
+  assert.equal(quickPayload.firstRegistrationDate, '');
   assert.equal(quickPayload.registrationNumber, 'AB-123-CD');
-  assert.equal(quickPayload.hasRegistrationCertificate, true);
-  assert.equal(quickPayload.formulaNumber, '2021AB12345');
+  assert.equal(quickPayload.hasRegistrationCertificate, undefined);
+  assert.equal(quickPayload.formulaNumber, '');
   assert.equal(quickPayload.mileage, 0);
   assert.equal(quickPayload.vin, '');
   assert.equal(quickPayload.nationalGenre, 'VP');
   assert.equal(quickPayload.totalInvested, 8500);
-  assert.equal(hasVehicleCerfaDetails(quickPayload), true);
+  assert.equal(hasVehicleCerfaDetails(quickPayload), false);
 
   const fullPayload = buildVehicleSubmitPayload(
     createBaseInput({
@@ -147,7 +147,7 @@ test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte
   assert.equal(hasVehicleCerfaDetails(fullPayload), true);
   assert.equal(
     hasVehicleCerfaDetails({
-      ...quickPayload,
+      ...fullPayload,
       formulaNumber: '',
       certificateDate: '',
     }),
@@ -210,3 +210,43 @@ test('buildVehicleSubmitPayload recalculates totalInvested when purchasePrice or
   assert.equal(edited.totalExpenses, 1200);
   assert.equal(edited.totalInvested, 10700);
 });
+
+test('resolveDefaultPurchaseStatus and resolveVehiclePurchaseStatus track active profile and per-vehicle override', () => {
+  assert.equal(mapProfileTypeToPurchaseStatus('micro_entrepreneur'), 'micro');
+  assert.equal(mapProfileTypeToPurchaseStatus('particulier'), 'particulier');
+
+  assert.equal(resolveDefaultPurchaseStatus('micro_entrepreneur'), 'micro');
+  assert.equal(resolveDefaultPurchaseStatus('particulier'), 'particulier');
+  assert.equal(
+    resolveDefaultPurchaseStatus(undefined, { profileType: 'particulier' }),
+    'particulier'
+  );
+  assert.equal(
+    resolveDefaultPurchaseStatus(undefined, { legalStatus: 'micro_entreprise' }),
+    'micro'
+  );
+
+  // Explicit vehicle purchaseStatus overrides workspace fallback
+  assert.equal(
+    resolveVehiclePurchaseStatus({ purchaseStatus: 'particulier' }, 'micro_entrepreneur'),
+    'particulier'
+  );
+  assert.equal(
+    resolveVehiclePurchaseStatus({ purchaseStatus: 'micro' }, 'particulier'),
+    'micro'
+  );
+
+  // Build payload persists purchaseStatus both on creation and edit
+  const createdParticulier = buildVehicleSubmitPayload(
+    createBaseInput({ purchaseStatus: 'particulier' }),
+    'user_1'
+  );
+  assert.equal(createdParticulier.purchaseStatus, 'particulier');
+
+  const createdMicro = buildVehicleSubmitPayload(
+    createBaseInput({ purchaseStatus: 'micro' }),
+    'user_1'
+  );
+  assert.equal(createdMicro.purchaseStatus, 'micro');
+});
+

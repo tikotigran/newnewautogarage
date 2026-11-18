@@ -44,6 +44,7 @@ service cloud.firestore {
              data.mileage is number && data.mileage >= 0 &&
              data.purchasePrice is number && data.purchasePrice >= 0 &&
              data.status in ['preparation', 'repair', 'for_sale', 'sold'] &&
+             (!('purchaseStatus' in data) || data.purchaseStatus in ['micro', 'particulier']) &&
              (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 30)) &&
              (!('totalExpenses' in data) || (data.totalExpenses is number && data.totalExpenses >= 0)) &&
              (!('totalInvested' in data) || (data.totalInvested is number && data.totalInvested >= 0));

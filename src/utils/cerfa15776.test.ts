@@ -8,6 +8,7 @@ import {
   createDemoCerfaVehicle,
   formatFrenchDate,
   pickCerfaTargetVehicle,
+  resolveCerfaSellerModeForVehicle,
   sanitizeWinAnsi,
   splitFrenchDateDigits,
   splitStreetTypeAndName,
@@ -480,7 +481,178 @@ test('getEffectiveCerfa15776Config() resolves saved Superadmin calibration & off
   }
 });
 
+test('vehicle.purchaseStatus automatically binds Cerfa Step 2 seller profile without cross-profile bleed', () => {
+  const dualProfileSettings: GarageSettings = {
+    ...mockGarage,
+    profileType: 'micro_entrepreneur',
+    legalStatus: 'micro_entreprise',
+    name: 'GARAGE PRO SARL',
+    siret: '12345678900012',
+    streetNumber: '10',
+    streetName: 'Avenue de la République',
+    postalCode: '75011',
+    city: 'Paris',
+    proProfile: {
+      name: 'GARAGE PRO SARL',
+      lastName: '',
+      firstName: '',
+      sex: '',
+      siret: '12345678900012',
+      streetNumber: '10',
+      streetExtension: '',
+      streetType: 'Avenue',
+      streetName: 'de la République',
+      postalCode: '75011',
+      city: 'Paris',
+      phone: '01 40 00 00 00',
+      email: 'pro@garage.fr',
+      legalForm: 'Micro-entrepreneur',
+      tvaMention: 'TVA non applicable, art. 293 B du CGI',
+    },
+    particulierProfile: {
+      name: '',
+      lastName: 'DUPONT',
+      firstName: 'Jean',
+      sex: 'M',
+      siret: '',
+      streetNumber: '5',
+      streetExtension: '',
+      streetType: 'Rue',
+      streetName: 'Victor Hugo',
+      postalCode: '69001',
+      city: 'Lyon',
+      phone: '06 11 22 33 44',
+      email: 'jean.dupont@perso.fr',
+      legalForm: '',
+      tvaMention: '',
+    },
+  };
 
+  // 1. Vehicle purchased as Particulier while workspace is currently Micro-entrepreneur
+  const particulierVehicle: Vehicle = {
+    ...mockVehicle,
+    purchaseStatus: 'particulier',
+    buyerInfo: undefined,
+  };
+  assert.equal(resolveCerfaSellerModeForVehicle(particulierVehicle, dualProfileSettings), 'particulier');
+  const cerfaParticulier = buildInitialCerfaData(particulierVehicle, dualProfileSettings);
+  assert.equal(cerfaParticulier.seller.entityType, 'physique');
+  assert.equal(cerfaParticulier.seller.sex, 'M');
+  assert.equal(cerfaParticulier.seller.nameOrCompany, 'DUPONT JEAN');
+  assert.equal(cerfaParticulier.seller.siret, '');
+  assert.equal(cerfaParticulier.seller.city, 'Lyon');
+  assert.equal(cerfaParticulier.seller.streetNumber, '5');
 
+  // 2. Vehicle purchased as Micro-entrepreneur while workspace is currently Particulier
+  const activeParticulierWorkspace: GarageSettings = {
+    ...dualProfileSettings,
+    profileType: 'particulier',
+    legalStatus: 'particulier',
+    name: '',
+    lastName: 'DUPONT',
+    firstName: 'Jean',
+    siret: '',
+    city: 'Lyon',
+  };
+  const microVehicle: Vehicle = {
+    ...mockVehicle,
+    purchaseStatus: 'micro',
+    buyerInfo: undefined,
+  };
+  assert.equal(
+    resolveCerfaSellerModeForVehicle(microVehicle, activeParticulierWorkspace),
+    'micro_entrepreneur'
+  );
+  const cerfaMicro = buildInitialCerfaData(microVehicle, activeParticulierWorkspace);
+  assert.equal(cerfaMicro.seller.entityType, 'morale');
+  assert.equal(cerfaMicro.seller.nameOrCompany, 'GARAGE PRO SARL');
+  assert.equal(cerfaMicro.seller.siret, '12345678900012');
+  assert.equal(cerfaMicro.seller.city, 'Paris');
+  assert.equal(cerfaMicro.seller.streetNumber, '10');
 
+  // 3. Vehicle purchased as Particulier when Particulier slot is still empty -> MUST NOT leak GARAGE PRO SARL or its SIRET
+  const proOnlySettings: GarageSettings = {
+    ...dualProfileSettings,
+    particulierProfile: {
+      name: '',
+      lastName: '',
+      firstName: '',
+      sex: '',
+      siret: '',
+      streetNumber: '',
+      streetExtension: '',
+      streetType: '',
+      streetName: '',
+      postalCode: '',
+      city: '',
+      phone: '',
+      email: '',
+      legalForm: '',
+      tvaMention: '',
+    },
+  };
+  const cerfaParticulierEmpty = buildInitialCerfaData(particulierVehicle, proOnlySettings);
+  assert.equal(cerfaParticulierEmpty.seller.entityType, 'physique');
+  assert.equal(cerfaParticulierEmpty.seller.nameOrCompany, '');
+  assert.equal(cerfaParticulierEmpty.seller.siret, '');
+  assert.equal(cerfaParticulierEmpty.seller.city, '');
+});
 
+test('vehicle saved without (B), (D.3), or certificate presence prompts for them in Cerfa Step 1 while auto-binding seller profile', () => {
+  const quickSavedVehicle: Vehicle = {
+    ...mockVehicle,
+    commercialDesignation: '',
+    firstRegistrationDate: '',
+    hasRegistrationCertificate: undefined,
+    formulaNumber: '',
+    certificateDate: '',
+    absenceReason: '',
+    vin: '',
+    registrationNumber: 'EE-111-FF',
+    purchaseStatus: 'particulier',
+    buyerInfo: undefined,
+  };
+
+  const cerfaData = buildInitialCerfaData(quickSavedVehicle, {
+    ...mockGarage,
+    profileType: 'micro_entrepreneur',
+    particulierProfile: {
+      name: '',
+      lastName: 'DUPONT',
+      firstName: 'Jean',
+      sex: 'M',
+      siret: '',
+      streetNumber: '5',
+      streetExtension: '',
+      streetType: 'Rue',
+      streetName: 'Victor Hugo',
+      postalCode: '69001',
+      city: 'Lyon',
+      phone: '',
+      email: '',
+      legalForm: '',
+      tvaMention: '',
+    },
+  });
+
+  // Unset Cerfa fields stay empty/null instead of silently synthesizing defaults
+  assert.equal(cerfaData.vehicle.firstRegistrationDate, '');
+  assert.equal(cerfaData.vehicle.commercialDesignation, '');
+  assert.equal(cerfaData.vehicle.hasRegistrationCertificate, null);
+
+  // Seller Step 2 still auto-binds to Particulier based on vehicle.purchaseStatus
+  assert.equal(cerfaData.seller.entityType, 'physique');
+  assert.equal(cerfaData.seller.nameOrCompany, 'DUPONT JEAN');
+  assert.equal(cerfaData.seller.siret, '');
+
+  // Cerfa Step 1 validation requires (B), (D.3), certificate presence, and VIN when generating Cerfa
+  const step1Errors = validateCerfaStep(1, cerfaData);
+  assert.ok(step1Errors.firstRegistrationDate);
+  assert.ok(step1Errors.commercialDesignation);
+  assert.ok(step1Errors.hasRegistrationCertificate);
+  assert.ok(step1Errors.vin);
+
+  const fullValidation = validateAllCerfaSteps(cerfaData, 'ru');
+  assert.equal(fullValidation.firstInvalidStep, 1);
+  assert.ok(fullValidation.toastMessage?.startsWith('Заполните обязательные поля бланка Cerfa:'));
+});

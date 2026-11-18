@@ -2,6 +2,12 @@ import { AppUserProfileType, GarageSettings, StatusProfileData, Vehicle } from '
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
 import { Language } from './i18nUtils';
 import { formatCerfaMissingToast } from './vehicleFormUtils';
+import {
+  EMPTY_PARTICULIER_PROFILE,
+  EMPTY_PRO_PROFILE,
+  pickStatusProfileFields,
+  resolveSeparatedProfiles,
+} from './profileSeparationUtils';
 export { CERFA_15776_CONFIG } from './cerfaConfig';
 
 export interface Cerfa15776VehicleStep {
@@ -14,7 +20,7 @@ export interface Cerfa15776VehicleStep {
   nationalGenre: string;      // (J.1) Genre national (VP, CTTE, etc.)
   bodywork?: string;          // (J.3) Carrosserie (CI, BREAK, etc.)
   mileage: number | '';       // Kilométrage inscrit au compteur
-  hasRegistrationCertificate: boolean; // Présence du certificat d'immatriculation (OUI / NON)
+  hasRegistrationCertificate: boolean | null; // Présence du certificat d'immatriculation (OUI / NON)
   formulaNumber: string;      // Numéro de formule (ex: 2019AB12345)
   certificateDate: string;    // ou (I) date du certificat d'immatriculation
   absenceReason: string;      // Motif d'absence si NON
@@ -133,6 +139,38 @@ export function sanitizeWinAnsi(input: string): string {
 }
 
 /**
+ * Resolves the seller profile mode (`'micro_entrepreneur'` | `'particulier'`) for Cerfa 15776*02
+ * from a vehicle's `purchaseStatus` first, preventing a vehicle bought under one status from
+ * accidentally defaulting to the workspace's opposite active profile.
+ */
+export function resolveCerfaSellerModeForVehicle(
+  vehicle?: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'> | null,
+  garageSettings?: Partial<GarageSettings> | null
+): AppUserProfileType {
+  if (vehicle?.purchaseStatus === 'particulier') {
+    return 'particulier';
+  }
+  if (vehicle?.purchaseStatus === 'micro') {
+    return 'micro_entrepreneur';
+  }
+  const explicitDealProfile = vehicle?.buyerInfo?.sellerProfileType;
+  if (explicitDealProfile === 'particulier' || explicitDealProfile === 'micro_entrepreneur') {
+    return explicitDealProfile;
+  }
+  if (
+    garageSettings?.profileType === 'particulier' ||
+    garageSettings?.legalStatus === 'particulier' ||
+    garageSettings?.taxRegime === 'none'
+  ) {
+    return 'particulier';
+  }
+  if (garageSettings?.profileType === 'micro_entrepreneur') {
+    return 'micro_entrepreneur';
+  }
+  return garageSettings?.entityType === 'physique' ? 'particulier' : 'micro_entrepreneur';
+}
+
+/**
  * Builds Step 2 (Seller / Cédant) fields directly from the garage's separated profile slots
  * (`proProfile` for Micro-entrepreneur vs `particulierProfile` for Particulier), ensuring zero
  * cross-status data bleed and clearing SIRET when Particulier is selected.
@@ -143,9 +181,43 @@ export function buildCerfaSellerFromProfile(
   baseSeller?: Partial<Cerfa15776SellerStep>
 ): Cerfa15776SellerStep {
   const isParticulier = targetMode === 'particulier';
-  const sourceSlot: Partial<StatusProfileData> = isParticulier
-    ? garageSettings.particulierProfile || garageSettings
-    : garageSettings.proProfile || garageSettings;
+  const hasSeparatedSlots = Boolean(
+    garageSettings.particulierProfile || garageSettings.proProfile
+  );
+
+  let sourceSlot: Partial<StatusProfileData>;
+  if (hasSeparatedSlots) {
+    const { particulierProfile, proProfile } = resolveSeparatedProfiles(garageSettings);
+    sourceSlot = isParticulier ? particulierProfile : proProfile;
+  } else if (isParticulier) {
+    const isFlatParticulier =
+      garageSettings.profileType === 'particulier' ||
+      garageSettings.legalStatus === 'particulier' ||
+      garageSettings.taxRegime === 'none' ||
+      garageSettings.entityType === 'physique';
+    const hasPersonalName = Boolean(
+      garageSettings.lastName?.trim() || garageSettings.firstName?.trim()
+    );
+    if (isFlatParticulier) {
+      sourceSlot = pickStatusProfileFields(garageSettings, 'particulier');
+    } else if (hasPersonalName) {
+      sourceSlot = {
+        ...pickStatusProfileFields(garageSettings, 'particulier'),
+        name: '',
+      };
+    } else {
+      sourceSlot = { ...EMPTY_PARTICULIER_PROFILE };
+    }
+  } else {
+    const isExplicitParticulierOnly =
+      (garageSettings.profileType === 'particulier' ||
+        garageSettings.legalStatus === 'particulier' ||
+        garageSettings.taxRegime === 'none') &&
+      !garageSettings.siret?.trim();
+    sourceSlot = isExplicitParticulierOnly
+      ? { ...EMPTY_PRO_PROFILE }
+      : pickStatusProfileFields(garageSettings, 'micro_entrepreneur');
+  }
 
   const sellerStreet = sourceSlot.streetType?.trim()
     ? {
@@ -221,14 +293,7 @@ export function buildInitialCerfaData(
   const saleDate = buyer?.saleDate || todayIso;
   const saleTime = buyer?.saleTime || '14:00';
 
-  const initialSellerMode: AppUserProfileType =
-    buyer?.sellerProfileType === 'particulier' || buyer?.sellerProfileType === 'micro_entrepreneur'
-      ? buyer.sellerProfileType
-      : garageSettings.profileType
-      ? garageSettings.profileType
-      : garageSettings.entityType === 'physique'
-      ? 'particulier'
-      : 'micro_entrepreneur';
+  const initialSellerMode = resolveCerfaSellerModeForVehicle(vehicle, garageSettings);
 
   const sellerStep = buildCerfaSellerFromProfile(garageSettings, initialSellerMode, {
     saleDate,
@@ -245,13 +310,15 @@ export function buildInitialCerfaData(
       vin: (vehicle.vin || '').toUpperCase(),
       make: (vehicle.make || '').toUpperCase(),
       typeVariantVersion: vehicle.typeVariantVersion || vehicle.trim || vehicle.model || '',
-      commercialDesignation: (vehicle.commercialDesignation || vehicle.model || '').toUpperCase(),
-      firstRegistrationDate:
-        vehicle.firstRegistrationDate || (vehicle.year ? `${vehicle.year}-01-01` : ''),
+      commercialDesignation: (vehicle.commercialDesignation || '').toUpperCase(),
+      firstRegistrationDate: vehicle.firstRegistrationDate || '',
       nationalGenre: vehicle.nationalGenre || 'VP',
       bodywork: (vehicle.bodyType || 'CI').toUpperCase(),
       mileage: vehicle.mileage ?? 0,
-      hasRegistrationCertificate: vehicle.hasRegistrationCertificate ?? true,
+      hasRegistrationCertificate:
+        typeof vehicle.hasRegistrationCertificate === 'boolean'
+          ? vehicle.hasRegistrationCertificate
+          : null,
       formulaNumber: (vehicle.formulaNumber || '').toUpperCase(),
       certificateDate: vehicle.certificateDate || '',
       absenceReason: vehicle.absenceReason || '',
@@ -421,10 +488,13 @@ export function createDemoCerfaVehicle(userId: string = 'garage_pro_dealer'): Ve
     userId,
     make: 'PEUGEOT',
     model: '208 GT LINE',
+    commercialDesignation: '208 GT LINE',
+    firstRegistrationDate: '2020-06-15',
     trim: 'UPHNK0MT129841',
     typeVariantVersion: 'UPHNK0MT129841',
     nationalGenre: 'VP',
     bodyType: 'CI',
+    hasRegistrationCertificate: true,
     formulaNumber: '2021AB12345',
     certificateDate: '2021-09-20',
     year: 2020,

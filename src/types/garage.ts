@@ -24,6 +24,8 @@ export type UserLayoutPreference = 'global' | LayoutMode;
 
 export type AppUserProfileType = 'particulier' | 'micro_entrepreneur';
 
+export type VehiclePurchaseStatus = 'micro' | 'particulier';
+
 export type LegalStatus =
   | 'particulier'
   | 'micro_entreprise'
@@ -231,6 +233,7 @@ export interface Vehicle {
   purchasePrice: number;
   targetSalePrice: number;
   status: VehicleStatus;
+  purchaseStatus?: VehiclePurchaseStatus;
   photos: string[];
   documents: VehicleDocument[];
   buyerInfo?: BuyerInfo;

@@ -1546,6 +1546,12 @@ export default function App() {
               onOpenSellModal={handleOpenSellModal}
               onDeleteVehicle={handleDeleteVehicle}
               userId={effectiveUserId}
+              userEmail={userProfile?.email || user?.email || null}
+              activeGarageId={activeGarageId}
+              documents={garageDocuments}
+              documentHistory={garageDocumentHistory}
+              purchases={garagePurchases}
+              vehicles={activeGarageId ? garageVehicles : vehicles}
               featureFlags={effectiveFeatureFlags}
               profileType={activeProfileType}
               onValidationToast={showGlobalToast}
@@ -1598,6 +1604,7 @@ export default function App() {
         onSubmit={handleSaveVehicle}
         initialVehicle={editingVehicle}
         userId={effectiveUserId}
+        defaultPurchaseStatus={activeProfileType === 'particulier' ? 'particulier' : 'micro'}
         onValidationToast={showGlobalToast}
       />
 

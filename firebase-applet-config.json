@@ -1,12 +1,12 @@
 {
-  "projectId": "citric-return-q6gf7",
-  "appId": "1:694577266604:web:495eedad052ee875148409",
-  "apiKey": "AIzaSyBYb1hJlNvPCjzGt7nNklhAErrVYRZfnCI",
-  "authDomain": "citric-return-q6gf7.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-newnewautogarage-c463e7f8-dff1-4df0-9b35-e40280e591fd",
-  "storageBucket": "citric-return-q6gf7.firebasestorage.app",
-  "messagingSenderId": "694577266604",
+  "projectId": "gen-lang-client-0991582754",
+  "appId": "1:980976463193:web:c3fa60d9ec03f8544d7048",
+  "apiKey": "AIzaSyDkBJ_8rMi7jpz9iMAM3NonhZQKJmES8RQ",
+  "authDomain": "gen-lang-client-0991582754.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-032a65ec-8c40-4191-badb-5e3c9b87e4c5",
+  "storageBucket": "gen-lang-client-0991582754.firebasestorage.app",
+  "messagingSenderId": "980976463193",
   "measurementId": "",
-  "oAuthClientId": "694577266604-ajgm3qonivc5iuvpi8rnmiqlkg6b1cqj.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

@@ -30,6 +30,11 @@
           "enum": ["preparation", "repair", "for_sale", "sold"],
           "description": "Current lifecycle status"
         },
+        "purchaseStatus": {
+          "type": "string",
+          "enum": ["micro", "particulier"],
+          "description": "Purchase owner status (Micro-entrepreneur business vs Particulier private individual) used to pre-select Cerfa 15776*02 seller data"
+        },
         "photos": { "type": "array", "description": "List of photo URLs or base64 data" },
         "documents": { "type": "array", "description": "List of attached document metadata and URLs" },
         "buyerInfo": { "type": "object", "description": "Buyer details recorded upon sale" },

@@ -658,10 +658,10 @@ export async function buildCerfa15776PdfBytes(
     const mileageNum = v.mileage === '' ? 0 : Number(v.mileage);
     drawField(page, `${mileageNum.toLocaleString('fr-FR')} km`, s1.mileage, 'section1Vehicle.mileage');
 
-    drawCheck(page, s1.certificate.checkboxYes, 'section1Vehicle.certificate.checkboxYes', v.hasRegistrationCertificate);
-    drawCheck(page, s1.certificate.checkboxNo, 'section1Vehicle.certificate.checkboxNo', !v.hasRegistrationCertificate);
+    drawCheck(page, s1.certificate.checkboxYes, 'section1Vehicle.certificate.checkboxYes', v.hasRegistrationCertificate === true);
+    drawCheck(page, s1.certificate.checkboxNo, 'section1Vehicle.certificate.checkboxNo', v.hasRegistrationCertificate === false);
 
-    if (v.hasRegistrationCertificate) {
+    if (v.hasRegistrationCertificate === true) {
       const cleanFormula = v.formulaNumber.replace(/\s+/g, '').toUpperCase();
       const suffix = cleanFormula.startsWith('20') ? cleanFormula.slice(2) : cleanFormula;
       drawComb(page, suffix, s1.certificate.formulaNumber, 'section1Vehicle.certificate.formulaNumber');

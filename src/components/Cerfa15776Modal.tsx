@@ -31,6 +31,7 @@ import {
   buildVehicleCerfaPatch,
   createCalibrationDummyCerfaData,
   pickCerfaTargetVehicle,
+  resolveCerfaSellerModeForVehicle,
   validateAllCerfaSteps,
   validateCerfaStep,
 } from '../utils/cerfa15776';
@@ -162,11 +163,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         setLatestGarageSettings(cloud);
         if (!hasSellerEditsRef.current && !calibrationDummyMode) {
           const targetVehicle = isPage ? activePick.vehicle : vehicle;
-          const explicitProfile = targetVehicle.buyerInfo?.sellerProfileType;
-          const mode: AppUserProfileType =
-            explicitProfile === 'particulier' || explicitProfile === 'micro_entrepreneur'
-              ? explicitProfile
-              : cloud.profileType || 'micro_entrepreneur';
+          const mode = resolveCerfaSellerModeForVehicle(targetVehicle, cloud);
           setFormData((prev) => ({
             ...prev,
             seller: buildCerfaSellerFromProfile(cloud, mode, prev.seller),
@@ -537,7 +534,8 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     'w-full bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition';
   const inputErrorClass =
     'w-full bg-[var(--background)] border border-red-500 ring-2 ring-red-500/20 rounded-[var(--ag-button-radius)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-red-500 transition';
-  const getInputClass = (hasErr: boolean) => (hasErr ? inputErrorClass : inputClass);
+  const getInputClass = (hasErr: boolean, extraClass = '') =>
+    `${hasErr ? inputErrorClass : inputClass}${extraClass ? ` ${extraClass}` : ''}`;
   const labelClass = 'block text-xs font-semibold text-[var(--secondary-foreground)] mb-1.5';
 
   const alertsBlock = (
@@ -592,6 +590,31 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       {/* STEP 1: VEHICLE */}
       {step === 1 && (
         <div className="space-y-4">
+          {Object.keys(errors).length === 0 &&
+            (!formData.vehicle.firstRegistrationDate.trim() ||
+              !formData.vehicle.commercialDesignation.trim() ||
+              typeof formData.vehicle.hasRegistrationCertificate !== 'boolean' ||
+              (formData.vehicle.hasRegistrationCertificate === true &&
+                !formData.vehicle.formulaNumber.trim() &&
+                !formData.vehicle.certificateDate.trim()) ||
+              (formData.vehicle.hasRegistrationCertificate === false &&
+                !formData.vehicle.absenceReason.trim()) ||
+              !formData.vehicle.vin.trim()) && (
+            <div
+              data-testid="cerfa-step1-missing-hint"
+              className="px-3.5 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs text-amber-300 flex items-start gap-2"
+            >
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>
+                {pickLocalized(lang, {
+                  fr: 'Certains champs requis pour le Cerfa 15776*02 ((B), (D.3), VIN ou présence du certificat) ne sont pas encore renseignés. Veuillez les compléter ci-dessous.',
+                  ru: 'Для формирования Cerfa 15776*02 заполните недостающие поля автомобиля ((B), (D.3), VIN или наличие СТС) ниже.',
+                  hy: 'Cerfa 15776*02-ի ձևավորման համար լրացրեք ավտոմեքենայի պակասող դաշտերը ((B), (D.3), VIN կամ վկայականի առկայություն)։',
+                  ka: 'Cerfa 15776*02-ის შესადგენად შეავსეთ ავტომობილის ნაკლული ველები ((B), (D.3), VIN ან მოწმობის არსებობა).',
+                })}
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="cerfa-reg" className={labelClass}>
@@ -736,9 +759,10 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
+                data-testid="cerfa-cert-yes"
                 onClick={() => updateVehicleField('hasRegistrationCertificate', true)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
-                  formData.vehicle.hasRegistrationCertificate
+                className={`px-4 py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  formData.vehicle.hasRegistrationCertificate === true
                     ? 'bg-blue-600/20 text-blue-400 border-blue-500/50'
                     : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)]'
                 }`}
@@ -747,9 +771,10 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               </button>
               <button
                 type="button"
+                data-testid="cerfa-cert-no"
                 onClick={() => updateVehicleField('hasRegistrationCertificate', false)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold border transition ${
-                  !formData.vehicle.hasRegistrationCertificate
+                className={`px-4 py-2 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                  formData.vehicle.hasRegistrationCertificate === false
                     ? 'bg-amber-600/20 text-amber-400 border-amber-500/50'
                     : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)]'
                 }`}
@@ -758,7 +783,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               </button>
             </div>
 
-            {formData.vehicle.hasRegistrationCertificate ? (
+            {formData.vehicle.hasRegistrationCertificate === true && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div>
                   <label htmlFor="cerfa-formula" className={labelClass}>
@@ -788,7 +813,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   />
                 </div>
               </div>
-            ) : (
+            )}
+
+            {formData.vehicle.hasRegistrationCertificate === false && (
               <div className="pt-1">
                 <label htmlFor="cerfa-absence-reason" className={labelClass}>
                   Motif d'absence du certificat d'immatriculation *
@@ -858,6 +885,39 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               </div>
             )}
           </div>
+
+          {activePick.vehicle.purchaseStatus && !calibrationDummyMode && (
+            <div
+              data-testid="cerfa-seller-bound-status"
+              className="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--background)]/60 text-[11px] text-[var(--muted-foreground)] flex items-center gap-2"
+            >
+              {activePick.vehicle.purchaseStatus === 'particulier' ? (
+                <>
+                  <UserCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Profil lié au véhicule : 👤 Particulier (pré-rempli depuis le profil privé, sans SIRET)',
+                      ru: 'Привязан статус авто: 👤 Particulier (личные данные из профиля частного лица, без SIRET)',
+                      hy: 'Կցված է մեքենայի կարգավիճակը՝ 👤 Particulier (անհատական պրոֆիլից, առանց SIRET)',
+                      ka: 'მიბმულია ავტოს სტატუსი: 👤 Particulier (ფიზიკური პირის პროფილიდან, SIRET-ის გარეშე)',
+                    })}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>
+                    {pickLocalized(lang, {
+                      fr: 'Profil lié au véhicule : 💼 Micro-entrepreneur (raison sociale et SIRET professionnels)',
+                      ru: 'Привязан статус авто: 💼 Micro-entrepreneur (название бизнеса и SIRET из бизнес-профиля)',
+                      hy: 'Կցված է մեքենայի կարգավիճակը՝ 💼 Micro-entrepreneur (բիզնես անվանում և SIRET)',
+                      ka: 'მიბმულია ავტოს სტატუსი: 💼 Micro-entrepreneur (კომპანიის დასახელება და SIRET)',
+                    })}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

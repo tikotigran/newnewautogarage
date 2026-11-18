@@ -124,6 +124,31 @@ export function filterDocumentHistoryByGarage(
   );
 }
 
+export function filterDocumentsForVehicle(
+  documents: GarageDocument[],
+  vehicleId: string
+): GarageDocument[] {
+  if (!vehicleId) return [];
+  return documents
+    .filter((d) => d.vehicleId === vehicleId)
+    .sort((a, b) =>
+      (b.documentDate || b.createdAt).localeCompare(a.documentDate || a.createdAt)
+    );
+}
+
+export function getDocumentCategoryCounts(
+  documents: GarageDocument[]
+): Record<'all' | GarageDocumentCategory, number> {
+  const map: Record<string, number> = { all: documents.length };
+  for (const c of DOCUMENT_CATEGORIES) {
+    map[c.id] = 0;
+  }
+  for (const d of documents) {
+    map[d.category] = (map[d.category] || 0) + 1;
+  }
+  return map as Record<'all' | GarageDocumentCategory, number>;
+}
+
 export function inferCategoryFromFileName(
   fileName: string,
   mimeType: string
@@ -262,6 +287,31 @@ export function resolveDocumentBinding(params: {
     clientEmail: clientEmail?.trim() || veh?.buyerInfo?.email?.trim() || undefined,
     clientPhone: clientPhone?.trim() || veh?.buyerInfo?.phone?.trim() || undefined,
   };
+}
+
+export const MAX_PDF_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB max PDF upload size
+
+export type PdfUploadValidationError = 'pdf_only' | 'pdf_too_large';
+
+export function validatePdfUploadFile(file: {
+  name: string;
+  type?: string;
+  size: number;
+}): PdfUploadValidationError | null {
+  const lowerName = (file.name || '').trim().toLowerCase();
+  const lowerType = (file.type || '').trim().toLowerCase();
+  const hasPdfExtension = lowerName.endsWith('.pdf');
+  const hasPdfMime = lowerType === 'application/pdf';
+
+  if (!hasPdfExtension || (lowerType.length > 0 && !hasPdfMime)) {
+    return 'pdf_only';
+  }
+
+  if (!Number.isFinite(file.size) || file.size < 0 || file.size > MAX_PDF_UPLOAD_BYTES) {
+    return 'pdf_too_large';
+  }
+
+  return null;
 }
 
 export function validateDocumentInput(input: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Wrench,
@@ -14,6 +14,7 @@ import {
   FileText,
   Download,
   AlertCircle,
+  AlertTriangle,
   Truck,
   Sparkles,
   ShieldCheck,
@@ -27,6 +28,7 @@ import {
   ListCheck,
   Receipt,
   Layers,
+  FolderOpen,
   Image as ImageIcon,
 } from 'lucide-react';
 import {
@@ -39,6 +41,10 @@ import {
   GeneralExpenseCategory,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
+  GarageDocument,
+  GarageDocumentCategory,
+  DocumentHistoryEvent,
+  Purchase,
   TASK_PRESETS,
 } from '../types/garage';
 import { ThemedSelect } from './ThemedSelect';
@@ -81,6 +87,19 @@ import {
   resolveUserProfileType,
 } from '../utils/frenchTaxEngine';
 import { VehiclePhotoPlaceholder } from './VehiclePhotoPlaceholder';
+import {
+  computeMissingDocumentReminders,
+  DOCUMENT_CATEGORIES,
+  extractUniqueClients,
+  filterDocumentsForVehicle,
+  getDocumentCategoryCounts,
+  getDocumentCategoryLabel,
+} from '../utils/documents';
+import { triggerDocumentDownload } from '../utils/documentFileHelpers';
+import { deleteGarageDocument } from '../services/documentService';
+import { DocumentCard } from './DocumentCard';
+import { DocumentUploadModal, DocumentUploadPreset } from './DocumentUploadModal';
+import { DocumentPreviewModal } from './DocumentPreviewModal';
 
 interface VehicleDetailProps {
   vehicle: Vehicle;
@@ -89,6 +108,12 @@ interface VehicleDetailProps {
   onOpenSellModal: (vehicle: Vehicle) => void;
   onDeleteVehicle: (vehicleId: string) => void;
   userId: string;
+  userEmail?: string | null;
+  activeGarageId?: string | null;
+  documents?: GarageDocument[];
+  documentHistory?: DocumentHistoryEvent[];
+  purchases?: Purchase[];
+  vehicles?: Vehicle[];
   featureFlags?: FeatureFlagsConfig;
   profileType?: AppUserProfileType;
   onValidationToast?: (message: string) => void;
@@ -101,6 +126,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   onOpenSellModal,
   onDeleteVehicle,
   userId,
+  userEmail = null,
+  activeGarageId = null,
+  documents = [],
+  documentHistory = [],
+  purchases = [],
+  vehicles: allVehicles = [],
   featureFlags = DEFAULT_FEATURE_FLAGS,
   profileType: propProfileType,
   onValidationToast,
@@ -114,6 +145,13 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [isLoadingSubdata, setIsLoadingSubdata] = useState(true);
   const [showCerfaWizard, setShowCerfaWizard] = useState(false);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+
+  // Vehicle documents vault state
+  const [docCategoryFilter, setDocCategoryFilter] = useState<'all' | GarageDocumentCategory>('all');
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<GarageDocument | null>(null);
+  const [docUploadPreset, setDocUploadPreset] = useState<DocumentUploadPreset | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<GarageDocument | null>(null);
 
   // Inline Carte Grise / Cerfa technical editor state
   const [isEditingSpecs, setIsEditingSpecs] = useState(false);
@@ -146,7 +184,89 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
   useEffect(() => {
     setActivePhotoIndex(0);
+    setDocCategoryFilter('all');
   }, [vehicle.id]);
+
+  // Scoped vehicle documents & handlers
+  const modalVehicles = useMemo(
+    () =>
+      allVehicles.some((v) => v.id === vehicle.id)
+        ? allVehicles
+        : [vehicle, ...allVehicles],
+    [allVehicles, vehicle]
+  );
+
+  const vehicleDocuments = useMemo(
+    () => filterDocumentsForVehicle(documents, vehicle.id),
+    [documents, vehicle.id]
+  );
+
+  const docCategoryCounts = useMemo(
+    () => getDocumentCategoryCounts(vehicleDocuments),
+    [vehicleDocuments]
+  );
+
+  useEffect(() => {
+    if (docCategoryFilter !== 'all' && docCategoryCounts[docCategoryFilter] === 0) {
+      setDocCategoryFilter('all');
+    }
+  }, [docCategoryFilter, docCategoryCounts]);
+
+  const filteredVehicleDocuments = useMemo(
+    () =>
+      docCategoryFilter === 'all'
+        ? vehicleDocuments
+        : vehicleDocuments.filter((d) => d.category === docCategoryFilter),
+    [vehicleDocuments, docCategoryFilter]
+  );
+
+  const vehiclePurchases = useMemo(
+    () => purchases.filter((p) => p.vehicleId === vehicle.id),
+    [purchases, vehicle.id]
+  );
+
+  const vehicleMissingReminders = useMemo(
+    () =>
+      computeMissingDocumentReminders({
+        vehicles: [vehicle],
+        documents: vehicleDocuments,
+        purchases: vehiclePurchases,
+      }),
+    [vehicle, vehicleDocuments, vehiclePurchases]
+  );
+
+  const uniqueClients = useMemo(
+    () => extractUniqueClients(modalVehicles, documents),
+    [modalVehicles, documents]
+  );
+
+  const openDocCreateModal = (presetOverrides?: Partial<DocumentUploadPreset>) => {
+    setEditingDoc(null);
+    setDocUploadPreset({
+      vehicleId: vehicle.id,
+      clientName: vehicle.buyerInfo?.fullName || undefined,
+      bindingType: 'vehicle',
+      ...presetOverrides,
+    });
+    setIsDocModalOpen(true);
+  };
+
+  const openDocEditModal = (docItem: GarageDocument) => {
+    setEditingDoc(docItem);
+    setDocUploadPreset(null);
+    setIsDocModalOpen(true);
+  };
+
+  const handleDownloadDocument = async (docItem: GarageDocument) => {
+    await triggerDocumentDownload(docItem, userEmail);
+  };
+
+  const handleDeleteDocument = async (docItem: GarageDocument) => {
+    await deleteGarageDocument(docItem, userEmail || undefined);
+    if (previewDoc?.id === docItem.id) {
+      setPreviewDoc(null);
+    }
+  };
 
   // New repair task form state
   const [showAddTask, setShowAddTask] = useState(false);
@@ -965,6 +1085,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         </button>
 
         <button
+          type="button"
+          data-testid="vehicle-tab-documents"
           onClick={() => setActiveTab('documents')}
           className={`flex items-center gap-2 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs sm:text-sm font-bold transition whitespace-nowrap ${
             activeTab === 'documents'
@@ -974,6 +1096,15 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         >
           <FileText className="w-4 h-4" />
           <span>{t('tabDocuments')}</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-md text-[11px] font-extrabold tabular-nums ${
+              activeTab === 'documents'
+                ? 'bg-black/20 text-[var(--primary-foreground)]'
+                : 'bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)]'
+            }`}
+          >
+            {vehicleDocuments.length}
+          </span>
         </button>
       </div>
 
@@ -2121,9 +2252,157 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         </div>
       )}
 
-      {/* TAB 4: SALES & DOCUMENT GENERATION MODULE */}
+      {/* TAB 4: VEHICLE DOCUMENTS VAULT & SALES PDF GENERATION */}
       {activeTab === 'documents' && (
         <div className="space-y-4">
+          {/* Vehicle-Scoped Documents Vault */}
+          <div
+            data-testid="vehicle-documents-vault"
+            className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
+                  <FolderOpen className="w-5 h-5 text-[var(--primary)]" />
+                  <span>{t('carDocsSectionTitle')}</span>
+                  <span className="text-xs font-extrabold px-2 py-0.5 rounded-lg bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] tabular-nums">
+                    {vehicleDocuments.length}
+                  </span>
+                </h2>
+                <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                  {t('carDocsSectionSubtitle')}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                data-testid="vehicle-upload-doc-btn"
+                onClick={() => openDocCreateModal()}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition whitespace-nowrap shrink-0"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{t('uploadDocForCarBtn')}</span>
+              </button>
+            </div>
+
+            {/* Missing Documents Quick-Upload Bar for this Vehicle */}
+            {vehicleMissingReminders.length > 0 && (
+              <div
+                data-testid="vehicle-missing-docs-strip"
+                className="bg-amber-500/5 border border-amber-500/25 rounded-xl p-3 space-y-2"
+              >
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {t('carDocsMissingTitle')} ({vehicleMissingReminders.length})
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {vehicleMissingReminders.map((rem) => (
+                    <button
+                      key={rem.id}
+                      type="button"
+                      data-testid={`vehicle-missing-upload-${rem.category}`}
+                      onClick={() => openDocCreateModal({ category: rem.category })}
+                      title={pickLocalized(lang, {
+                        fr: rem.reasonFr,
+                        ru: rem.reasonRu,
+                        hy: rem.reasonHy,
+                        ka: rem.reasonKa,
+                      })}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition hover:opacity-90 ${
+                        rem.severity === 'high'
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{getDocumentCategoryLabel(rem.category, lang)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Category Filter Chips */}
+            {vehicleDocuments.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  data-testid="vehicle-doc-filter-all"
+                  onClick={() => setDocCategoryFilter('all')}
+                  className={`px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold border transition ${
+                    docCategoryFilter === 'all'
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
+                      : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)] hover:border-[var(--primary)]/50'
+                  }`}
+                >
+                  {t('docsAllCategories')} ({docCategoryCounts.all})
+                </button>
+                {DOCUMENT_CATEGORIES.filter((cat) => docCategoryCounts[cat.id] > 0).map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    data-testid={`vehicle-doc-filter-${cat.id}`}
+                    onClick={() => setDocCategoryFilter(cat.id)}
+                    className={`px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-semibold border transition ${
+                      docCategoryFilter === cat.id
+                        ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)]'
+                        : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)] hover:border-[var(--primary)]/50'
+                    }`}
+                  >
+                    {getDocumentCategoryLabel(cat.id, lang)} ({docCategoryCounts[cat.id]})
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Vehicle Document Cards Grid or Empty State */}
+            {filteredVehicleDocuments.length > 0 ? (
+              <div
+                data-testid="vehicle-documents-grid"
+                className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+              >
+                {filteredVehicleDocuments.map((docItem) => (
+                  <DocumentCard
+                    key={docItem.id}
+                    doc={docItem}
+                    boundVehicle={vehicle}
+                    showVehicleLink={false}
+                    onPreview={(d) => setPreviewDoc(d)}
+                    onDownload={handleDownloadDocument}
+                    onEdit={openDocEditModal}
+                    onDelete={handleDeleteDocument}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div
+                data-testid="vehicle-documents-empty"
+                className="bg-[var(--background)] border border-dashed border-[var(--border)] rounded-[var(--ag-card-radius)] p-8 text-center space-y-3"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center mx-auto border border-[var(--primary)]/20">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm sm:text-base font-bold text-[var(--foreground)]">
+                  {t('carDocsEmptyTitle')}
+                </h3>
+                <p className="text-xs text-[var(--muted-foreground)] max-w-md mx-auto">
+                  {t('carDocsEmptySubtitle')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openDocCreateModal()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{t('uploadDocForCarBtn')}</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Official Sales & Administrative PDF Generation */}
           <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-[var(--ag-card-padding)] shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold text-[var(--foreground)] flex items-center gap-2">
@@ -2265,11 +2544,33 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         </div>
       )}
 
+      {/* Vehicle Document Upload / Edit Modal */}
+      <DocumentUploadModal
+        isOpen={isDocModalOpen}
+        onClose={() => setIsDocModalOpen(false)}
+        editingDoc={editingDoc}
+        preset={docUploadPreset}
+        vehicles={modalVehicles}
+        uniqueClients={uniqueClients}
+        userId={userId}
+        userEmail={userEmail}
+        activeGarageId={activeGarageId}
+      />
+
+      {/* Vehicle Document Preview Modal */}
+      <DocumentPreviewModal
+        doc={previewDoc}
+        historyEvents={documentHistory}
+        onClose={() => setPreviewDoc(null)}
+        onDownload={handleDownloadDocument}
+      />
+
       {/* Cerfa 15776*02 Multi-Step Wizard */}
       <Cerfa15776Modal
         isOpen={showCerfaWizard}
         onClose={() => setShowCerfaWizard(false)}
         vehicle={vehicle}
+        userId={userId}
         onValidationToast={onValidationToast}
       />
     </div>

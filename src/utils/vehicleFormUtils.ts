@@ -1,4 +1,10 @@
-import { Vehicle, VehicleStatus } from '../types/garage';
+import {
+  AppUserProfileType,
+  GarageSettings,
+  Vehicle,
+  VehiclePurchaseStatus,
+  VehicleStatus,
+} from '../types/garage';
 import { roundToTwo } from './finance';
 import { Language, pickLocalized } from './i18nUtils';
 
@@ -25,7 +31,46 @@ export interface VehicleFormInput {
   purchaseDate: string;
   targetSalePrice: number | '';
   status: VehicleStatus;
+  purchaseStatus?: VehiclePurchaseStatus;
   photos: string[];
+}
+
+export function mapProfileTypeToPurchaseStatus(
+  profileType?: AppUserProfileType | null
+): VehiclePurchaseStatus {
+  return profileType === 'particulier' ? 'particulier' : 'micro';
+}
+
+export function resolveDefaultPurchaseStatus(
+  activeProfileType?: AppUserProfileType | null,
+  settings?: Pick<GarageSettings, 'profileType' | 'legalStatus' | 'taxRegime'> | null
+): VehiclePurchaseStatus {
+  if (activeProfileType === 'particulier') return 'particulier';
+  if (activeProfileType === 'micro_entrepreneur') return 'micro';
+  if (
+    settings?.profileType === 'particulier' ||
+    settings?.legalStatus === 'particulier' ||
+    settings?.taxRegime === 'none'
+  ) {
+    return 'particulier';
+  }
+  return 'micro';
+}
+
+export function resolveVehiclePurchaseStatus(
+  vehicle?: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'> | null,
+  fallbackProfileType?: AppUserProfileType | null
+): VehiclePurchaseStatus {
+  if (vehicle?.purchaseStatus === 'particulier' || vehicle?.purchaseStatus === 'micro') {
+    return vehicle.purchaseStatus;
+  }
+  if (vehicle?.buyerInfo?.sellerProfileType === 'particulier') {
+    return 'particulier';
+  }
+  if (vehicle?.buyerInfo?.sellerProfileType === 'micro_entrepreneur') {
+    return 'micro';
+  }
+  return mapProfileTypeToPurchaseStatus(fallbackProfileType);
 }
 
 export type VehicleFormFieldErrorKey =
@@ -61,23 +106,38 @@ export function formatCerfaMissingToast(missingLabels: string[], lang: Language 
   });
 }
 
+export function formatVehicleMissingToast(missingLabels: string[], lang: Language = 'ru'): string {
+  const joined = missingLabels.join(', ');
+  return pickLocalized(lang, {
+    fr: `Veuillez remplir les champs obligatoires du véhicule : ${joined}`,
+    ru: `Заполните обязательные поля автомобиля: ${joined}`,
+    hy: `Լրացրեք ավտոմեքենայի պարտադիր դաշտերը՝ ${joined}`,
+    ka: `შეავსეთ ავტომობილის სავალდებულო ველები: ${joined}`,
+  });
+}
+
 export function validateVehicleFormDetailed(
   input: Pick<
     VehicleFormInput,
     | 'make'
     | 'model'
-    | 'commercialDesignation'
-    | 'firstRegistrationDate'
     | 'year'
     | 'registrationNumber'
     | 'purchasePrice'
     | 'vin'
     | 'mileage'
-    | 'hasRegistrationCertificate'
-    | 'formulaNumber'
-    | 'certificateDate'
-    | 'absenceReason'
-  >,
+  > &
+    Partial<
+      Pick<
+        VehicleFormInput,
+        | 'commercialDesignation'
+        | 'firstRegistrationDate'
+        | 'hasRegistrationCertificate'
+        | 'formulaNumber'
+        | 'certificateDate'
+        | 'absenceReason'
+      >
+    >,
   lang: Language = 'fr'
 ): VehicleFormValidationResult {
   const fieldErrors: Partial<Record<VehicleFormFieldErrorKey, string>> = {};
@@ -85,10 +145,10 @@ export function validateVehicleFormDetailed(
 
   if (!input.make.trim()) {
     const label = pickLocalized(lang, {
-      fr: '(D.1) Marque',
-      ru: '(D.1) Марка',
-      hy: '(D.1) Մակնիշ',
-      ka: '(D.1) მარკა',
+      fr: 'Marque',
+      ru: 'Марка',
+      hy: 'Մակնիշ',
+      ka: 'მარკა',
     });
     missingLabels.push(label);
     fieldErrors.make = label;
@@ -105,18 +165,6 @@ export function validateVehicleFormDetailed(
     fieldErrors.model = label;
   }
 
-  if (!input.commercialDesignation.trim()) {
-    const label = '(D.3) Dénomination commerciale';
-    missingLabels.push(label);
-    fieldErrors.commercialDesignation = label;
-  }
-
-  if (!input.firstRegistrationDate.trim()) {
-    const label = '(B) 1re immatriculation';
-    missingLabels.push(label);
-    fieldErrors.firstRegistrationDate = label;
-  }
-
   const parsedYear = Number(input.year);
   if (input.year === '' || Number.isNaN(parsedYear) || parsedYear < 1900 || parsedYear > 2100) {
     const label = pickLocalized(lang, {
@@ -131,10 +179,10 @@ export function validateVehicleFormDetailed(
 
   if (!input.registrationNumber.trim()) {
     const label = pickLocalized(lang, {
-      fr: "(A) N° d'immatriculation",
-      ru: '(A) Госномер (Immatriculation)',
-      hy: '(A) Պետհամարանիշ',
-      ka: '(A) სახელმწიფო ნომერი',
+      fr: "N° d'immatriculation",
+      ru: 'Госномер',
+      hy: 'Պետհամարանիշ',
+      ka: 'სახელმწიფო ნომერი',
     });
     missingLabels.push(label);
     fieldErrors.registrationNumber = label;
@@ -153,34 +201,6 @@ export function validateVehicleFormDetailed(
     });
     missingLabels.push(label);
     fieldErrors.purchasePrice = label;
-  }
-
-  if (input.hasRegistrationCertificate === null || input.hasRegistrationCertificate === undefined) {
-    const label = "Présence du certificat d'immatriculation (OUI / NON)";
-    missingLabels.push(label);
-    fieldErrors.hasRegistrationCertificate = label;
-  } else if (input.hasRegistrationCertificate === true) {
-    const hasFormula = input.formulaNumber.trim().length > 0;
-    const hasCertDate = input.certificateDate.trim().length > 0;
-    if (!hasFormula && !hasCertDate) {
-      const label = pickLocalized(lang, {
-        fr: 'Numéro de formule ou (I) Date du certificat',
-        ru: 'Numéro de formule или (I) Date du certificat',
-        hy: 'Numéro de formule կամ (I) Date du certificat',
-        ka: 'Numéro de formule ან (I) Date du certificat',
-      });
-      missingLabels.push(label);
-      fieldErrors.formulaOrCertificateDate = label;
-    }
-  } else if (!input.absenceReason.trim()) {
-    const label = pickLocalized(lang, {
-      fr: "Motif d'absence du certificat",
-      ru: 'Причина отсутствия СТС (Motif)',
-      hy: 'Վկայականի բացակայության պատճառ',
-      ka: 'მოწმობის არარსებობის მიზეზი',
-    });
-    missingLabels.push(label);
-    fieldErrors.absenceReason = label;
   }
 
   const cleanedVin = input.vin.replace(/\s+/g, '').toUpperCase();
@@ -215,7 +235,7 @@ export function validateVehicleFormDetailed(
     };
   }
 
-  const toastMessage = formatCerfaMissingToast(missingLabels, lang);
+  const toastMessage = formatVehicleMissingToast(missingLabels, lang);
   return {
     firstError: toastMessage,
     toastMessage,
@@ -229,18 +249,23 @@ export function validateQuickVehicleForm(
     VehicleFormInput,
     | 'make'
     | 'model'
-    | 'commercialDesignation'
-    | 'firstRegistrationDate'
     | 'year'
     | 'registrationNumber'
     | 'purchasePrice'
     | 'vin'
     | 'mileage'
-    | 'hasRegistrationCertificate'
-    | 'formulaNumber'
-    | 'certificateDate'
-    | 'absenceReason'
-  >,
+  > &
+    Partial<
+      Pick<
+        VehicleFormInput,
+        | 'commercialDesignation'
+        | 'firstRegistrationDate'
+        | 'hasRegistrationCertificate'
+        | 'formulaNumber'
+        | 'certificateDate'
+        | 'absenceReason'
+      >
+    >,
   lang: Language = 'fr'
 ): string | null {
   return validateVehicleFormDetailed(input, lang).firstError;
@@ -290,11 +315,19 @@ export function buildVehicleSubmitPayload(
       ? Number(input.year)
       : yearFromFirstReg || new Date().getFullYear();
 
+  const resolvedPurchaseStatus: VehiclePurchaseStatus =
+    input.purchaseStatus === 'particulier' || input.purchaseStatus === 'micro'
+      ? input.purchaseStatus
+      : initialVehicle?.purchaseStatus === 'particulier' ||
+        initialVehicle?.purchaseStatus === 'micro'
+      ? initialVehicle.purchaseStatus
+      : 'micro';
+
   return {
     userId,
     make: input.make.trim(),
     model: input.model.trim(),
-    commercialDesignation: input.commercialDesignation.trim() || input.model.trim(),
+    commercialDesignation: input.commercialDesignation.trim(),
     firstRegistrationDate: input.firstRegistrationDate.trim(),
     trim: input.trim.trim(),
     year: resolvedYear,
@@ -307,7 +340,9 @@ export function buildVehicleSubmitPayload(
     nationalGenre: input.nationalGenre.trim() || 'VP',
     bodyType: input.bodyType.trim().toUpperCase(),
     hasRegistrationCertificate:
-      input.hasRegistrationCertificate === null ? true : input.hasRegistrationCertificate,
+      typeof input.hasRegistrationCertificate === 'boolean'
+        ? input.hasRegistrationCertificate
+        : undefined,
     formulaNumber: input.formulaNumber.replace(/\s+/g, '').toUpperCase(),
     certificateDate: input.certificateDate.trim(),
     absenceReason: input.absenceReason.trim(),
@@ -315,6 +350,7 @@ export function buildVehicleSubmitPayload(
     purchasePrice: parsedPurchasePrice,
     targetSalePrice: parsedTargetPrice,
     status: input.status || 'preparation',
+    purchaseStatus: resolvedPurchaseStatus,
     photos: input.photos,
     documents: initialVehicle?.documents || [],
     buyerInfo: initialVehicle?.buyerInfo,
@@ -331,13 +367,16 @@ export function hasVehicleCerfaDetails(vehicle: Partial<Vehicle>): boolean {
   const hasCertProof =
     vehicle.hasRegistrationCertificate === false
       ? Boolean(vehicle.absenceReason && vehicle.absenceReason.trim())
-      : Boolean(vehicle.formulaNumber || vehicle.certificateDate);
+      : vehicle.hasRegistrationCertificate === true
+      ? Boolean(vehicle.formulaNumber || vehicle.certificateDate)
+      : false;
   return Boolean(
     vehicle.registrationNumber &&
       vehicle.registrationNumber.trim().length > 0 &&
       vehicle.firstRegistrationDate &&
       vehicle.firstRegistrationDate.trim().length > 0 &&
-      (vehicle.commercialDesignation || vehicle.model) &&
+      vehicle.commercialDesignation &&
+      vehicle.commercialDesignation.trim().length > 0 &&
       hasCertProof
   );
 }
