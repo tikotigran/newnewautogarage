@@ -102,10 +102,15 @@
         "profileType": { "type": "string", "enum": ["particulier", "micro_entrepreneur"], "description": "Active application profile type" },
         "role": { "type": "string", "enum": ["user", "superadmin"], "description": "RBAC role" },
         "planId": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Subscription plan" },
+        "plan": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Subscription plan alias" },
+        "subscriptionTier": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Subscription tier alias" },
+        "billingCycle": { "type": "string", "enum": ["monthly", "annual"], "description": "Billing cycle (monthly or annual)" },
         "vehicleLimit": { "type": "number", "description": "Maximum allowed vehicles" },
         "activeVehiclesCount": { "type": "number", "description": "Current active vehicles count" },
         "subscriptionStatus": { "type": "string", "enum": ["active", "trial", "past_due", "canceled"], "description": "Billing status" },
         "mrrAmount": { "type": "number", "description": "Monthly recurring revenue in EUR" },
+        "lastPaymentDate": { "type": "string", "maxLength": 50, "description": "Last payment date" },
+        "nextRenewalDate": { "type": "string", "maxLength": 50, "description": "Next billing renewal date" },
         "createdAt": { "type": "string", "description": "Creation timestamp" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" }
       },
@@ -158,6 +163,12 @@
         "taxRegime": { "type": "string", "enum": ["sarl", "sas", "micro", "custom", "none"], "description": "Tax regime for P&L" },
         "taxRatePercent": { "type": "number", "description": "Default tax rate percentage" },
         "frenchTaxConfig": { "type": "object", "description": "French tax rules configuration (URSSAF, VL, IS brackets, VAT, effective dates)" },
+        "particulierProfile": { "type": "object", "description": "Independent profile details (name, address, phone, email) for Particulier status" },
+        "proProfile": { "type": "object", "description": "Independent profile details (company name, SIRET, address, phone, email) for Micro-entrepreneur status" },
+        "planId": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Active workspace subscription plan" },
+        "plan": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Active workspace subscription plan alias" },
+        "subscriptionTier": { "type": "string", "enum": ["starter", "pro", "enterprise"], "description": "Active workspace subscription tier" },
+        "billingCycle": { "type": "string", "enum": ["monthly", "annual"], "description": "Billing cycle" },
         "createdAt": { "type": "string", "description": "Creation timestamp" },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" }
       },
@@ -178,6 +189,8 @@
         "currency": { "type": "string", "enum": ["EUR", "USD", "CHF", "GBP"], "description": "Currency" },
         "layoutMode": { "type": "string", "enum": ["global", "classic", "sidebar"], "description": "User layout preference" },
         "frenchTaxConfig": { "type": "object", "description": "Structured French tax configuration (Micro URSSAF/VL, SARL/SAS progressive IS, VAT)" },
+        "particulierProfile": { "type": "object", "description": "Independent profile details for Particulier status" },
+        "proProfile": { "type": "object", "description": "Independent profile details for Micro-entrepreneur status" },
         "isCalculationHistory": { "type": "array", "description": "Recorded annual corporate IS calculation history" },
         "taxAuditHistory": { "type": "array", "description": "Audit log of tax settings modifications" }
       },
@@ -463,6 +476,36 @@
         "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
       },
       "required": ["cerfa_15776_02", "cerfa_13750_07", "declaration_achat"]
+    },
+    "FeatureFlagsConfig": {
+      "title": "FeatureFlagsConfig",
+      "description": "Global platform module feature flags managed by SuperAdmin and enforced across all users.",
+      "type": "object",
+      "properties": {
+        "cerfaGenerator": { "type": "boolean", "description": "Enable Cerfa 15776*02 / 13750*07 generator" },
+        "pnlCalculator": { "type": "boolean", "description": "Enable real-time P&L margin calculator" },
+        "expenseAnalytics": { "type": "boolean", "description": "Enable Analytics & P&L charts module" },
+        "multiGarage": { "type": "boolean", "description": "Enable multi-garage workspaces and switcher" },
+        "repairChecklist": { "type": "boolean", "description": "Enable repair tasks checklist" },
+        "suppliersModule": { "type": "boolean", "description": "Enable Suppliers & Purchases module" },
+        "documentsModule": { "type": "boolean", "description": "Enable Documents Vault module" },
+        "exportsBackup": { "type": "boolean", "description": "Enable Exports & Backup module" },
+        "updatedAtIso": { "type": "string", "maxLength": 50, "description": "ISO timestamp of last update" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" },
+        "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
+      }
+    },
+    "SubscriptionPlansConfig": {
+      "title": "SubscriptionPlansConfig",
+      "description": "Global platform SaaS subscription plan tiers managed by SuperAdmin.",
+      "type": "object",
+      "properties": {
+        "plans": { "type": "array", "description": "List of subscription plan objects" },
+        "updatedAtIso": { "type": "string", "maxLength": 50, "description": "ISO timestamp of last update" },
+        "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" },
+        "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
+      },
+      "required": ["plans"]
     }
   },
   "firestore": {
@@ -541,6 +584,14 @@
     "/platform_settings/cerfa_templates": {
       "schema": { "$ref": "#/entities/CerfaTemplatesCalibration" },
       "description": "Global platform Cerfa PDF field calibration coordinates managed by SuperAdmin."
+    },
+    "/platform_settings/feature_flags": {
+      "schema": { "$ref": "#/entities/FeatureFlagsConfig" },
+      "description": "Global platform feature flags managed by SuperAdmin and synced in real time across all users."
+    },
+    "/platform_settings/subscription_plans": {
+      "schema": { "$ref": "#/entities/SubscriptionPlansConfig" },
+      "description": "Global platform SaaS subscription plans synced between SuperAdmin and user settings."
     }
   }
 }

@@ -11,6 +11,7 @@ import {
   removeGarageFromList,
   removeVehiclesForGarage,
   resolveNextActiveGarageId,
+  resolveSinglePrimaryGarageId,
   upsertGarageInList,
 } from './garageUtils';
 import { GarageWorkspace, Vehicle } from '../types/garage';
@@ -247,6 +248,15 @@ test('hasOpenGarageWorkspace hides garage sections until a garage is opened in m
   assert.equal(hasOpenGarageWorkspace(true, ''), false);
   assert.equal(hasOpenGarageWorkspace(true, 'garage_1'), true);
   assert.equal(hasOpenGarageWorkspace(false, null), true);
+});
+
+test('resolveSinglePrimaryGarageId selects existing active garage or falls back to first primary garage', () => {
+  const g1 = makeGarage({ id: 'garage_primary', name: 'Primary Garage' });
+  const g2 = makeGarage({ id: 'garage_secondary', name: 'Secondary Garage' });
+  assert.equal(resolveSinglePrimaryGarageId([g1, g2], null), 'garage_primary');
+  assert.equal(resolveSinglePrimaryGarageId([g1, g2], 'unknown_id'), 'garage_primary');
+  assert.equal(resolveSinglePrimaryGarageId([g1, g2], 'garage_secondary'), 'garage_secondary');
+  assert.equal(resolveSinglePrimaryGarageId([], null), DEFAULT_GARAGE_ID);
 });
 
 

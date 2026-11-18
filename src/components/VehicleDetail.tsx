@@ -91,6 +91,7 @@ interface VehicleDetailProps {
   userId: string;
   featureFlags?: FeatureFlagsConfig;
   profileType?: AppUserProfileType;
+  onValidationToast?: (message: string) => void;
 }
 
 export const VehicleDetail: React.FC<VehicleDetailProps> = ({
@@ -102,6 +103,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   userId,
   featureFlags = DEFAULT_FEATURE_FLAGS,
   profileType: propProfileType,
+  onValidationToast,
 }) => {
   const { t, lang, getTextStyle } = useI18n();
   const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>('overview');
@@ -2268,6 +2270,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         isOpen={showCerfaWizard}
         onClose={() => setShowCerfaWizard(false)}
         vehicle={vehicle}
+        onValidationToast={onValidationToast}
       />
     </div>
   );

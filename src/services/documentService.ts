@@ -190,6 +190,7 @@ export async function createGarageDocument(input: {
   fileUrl: string;
   documentDate: string;
   notes?: string;
+  isDemo?: boolean;
 }): Promise<GarageDocument> {
   const id = generateId('gdoc');
   const now = new Date().toISOString();
@@ -211,6 +212,7 @@ export async function createGarageDocument(input: {
     fileUrl: input.fileUrl,
     documentDate: input.documentDate,
     notes: input.notes?.trim() || undefined,
+    isDemo: input.isDemo ? true : undefined,
     createdAt: now,
     updatedAt: now,
   });
@@ -485,6 +487,7 @@ export async function seedDemoDocuments(
       ]),
       documentDate: peugeot.purchaseDate || today,
       notes: 'Carte grise originale barrée à l’achat',
+      isDemo: true,
     });
 
     await createGarageDocument({
@@ -506,6 +509,7 @@ export async function seedDemoDocuments(
         `Date: ${peugeot.purchaseDate || today}`,
       ]),
       documentDate: peugeot.purchaseDate || today,
+      isDemo: true,
     });
   }
 
@@ -530,6 +534,7 @@ export async function seedDemoDocuments(
         `Date CT: ${today}`,
       ]),
       documentDate: today,
+      isDemo: true,
     });
 
     await createGarageDocument({
@@ -551,6 +556,7 @@ export async function seedDemoDocuments(
         'Total TTC: 500 EUR',
       ]),
       documentDate: today,
+      isDemo: true,
     });
   }
 
@@ -580,6 +586,7 @@ export async function seedDemoDocuments(
       ]),
       documentDate: audi.buyerInfo?.saleDate || today,
       notes: 'Signé en concession',
+      isDemo: true,
     });
 
     await createGarageDocument({
@@ -601,6 +608,7 @@ export async function seedDemoDocuments(
         '#2563eb'
       ),
       documentDate: audi.buyerInfo?.saleDate || today,
+      isDemo: true,
     });
   }
 
@@ -625,6 +633,7 @@ export async function seedDemoDocuments(
         `Date: ${vw.purchaseDate || today}`,
       ]),
       documentDate: vw.purchaseDate || today,
+      isDemo: true,
     });
   }
 }

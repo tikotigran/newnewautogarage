@@ -2,10 +2,13 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
@@ -18,11 +21,13 @@ import {
 } from '../utils/cerfaConfig';
 import {
   AppUserProfileType,
+  BillingCycle,
   DynamicExpenseCategory,
   FeatureFlagsConfig,
   FrenchTaxConfiguration,
   GlobalTextOverrides,
   SubscriptionPlan,
+  SubscriptionPlanId,
   SystemThemeConfig,
   UserProfile,
 } from '../types/garage';
@@ -32,11 +37,15 @@ import {
 } from '../utils/frenchTaxEngine';
 import {
   applySystemThemeVariables,
+  computePlanPricing,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
+  getPlanCapabilities,
   isSuperAdminUser,
+  normalizeFeatureFlags,
+  normalizeSubscriptionPlans,
   resolveSystemThemeConfig,
   sortExpenseCategories,
   SUPERADMIN_BOOTSTRAP_EMAIL,
@@ -90,7 +99,7 @@ const SEEDED_ACCOUNTS: UserProfile[] = [
     vehicleLimit: 9999,
     activeVehiclesCount: 4,
     subscriptionStatus: 'active',
-    mrrAmount: 149,
+    mrrAmount: 79,
     lastPaymentDate: '2026-11-01',
     createdAt: '2026-01-15T09:00:00Z',
     updatedAt: '2026-11-01T10:00:00Z',
@@ -106,7 +115,7 @@ const SEEDED_ACCOUNTS: UserProfile[] = [
     vehicleLimit: 50,
     activeVehiclesCount: 24,
     subscriptionStatus: 'active',
-    mrrAmount: 49,
+    mrrAmount: 39,
     lastPaymentDate: '2026-11-03',
     createdAt: '2026-03-12T14:20:00Z',
     updatedAt: '2026-11-03T08:15:00Z',
@@ -121,7 +130,7 @@ const SEEDED_ACCOUNTS: UserProfile[] = [
     vehicleLimit: 50,
     activeVehiclesCount: 31,
     subscriptionStatus: 'active',
-    mrrAmount: 49,
+    mrrAmount: 39,
     lastPaymentDate: '2026-11-05',
     createdAt: '2026-05-20T11:00:00Z',
     updatedAt: '2026-11-05T16:40:00Z',
@@ -150,7 +159,7 @@ const SEEDED_ACCOUNTS: UserProfile[] = [
     vehicleLimit: 9999,
     activeVehiclesCount: 86,
     subscriptionStatus: 'past_due',
-    mrrAmount: 149,
+    mrrAmount: 79,
     lastPaymentDate: '2026-10-01',
     createdAt: '2026-02-04T10:15:00Z',
     updatedAt: '2026-11-02T09:00:00Z',
@@ -184,36 +193,59 @@ export async function ensureAndGetUserProfile(user: User | null): Promise<UserPr
 
   const now = new Date().toISOString();
   const ref = doc(db, 'users', user.uid);
+  const isBootstrapAdmin = isSuperAdminUser({
+    email: user.email,
+    emailVerified: user.emailVerified,
+  });
+
   try {
     const snap = await getDoc(ref);
     if (snap.exists()) {
-      const profile = snap.data() as UserProfile;
+      let profile = snap.data() as UserProfile;
+      if (isBootstrapAdmin && profile.role !== 'superadmin') {
+        profile = {
+          ...profile,
+          role: 'superadmin',
+          planId: 'enterprise',
+          vehicleLimit: 9999,
+          updatedAt: now,
+        };
+        try {
+          await updateDoc(ref, {
+            role: 'superadmin',
+            planId: 'enterprise',
+            vehicleLimit: 9999,
+            updatedAt: now,
+          });
+        } catch {
+          // ignore if Firestore rules haven't been redeployed yet
+        }
+      }
       writeLocal(LOCAL_CURRENT_PROFILE_KEY, profile);
       return profile;
     }
-
-    const isBootstrapAdmin = isSuperAdminUser({
-      email: user.email,
-      emailVerified: user.emailVerified,
-    });
 
     const pendingProfile = getPendingProfileType();
     if (pendingProfile) {
       clearPendingProfileType();
     }
 
+    const defaultPlanId: SubscriptionPlanId = isBootstrapAdmin ? 'enterprise' : 'starter';
     const newProfile: UserProfile = {
       uid: user.uid,
       email: user.email || '',
       displayName: user.displayName || user.email?.split('@')[0] || 'Garage User',
-      garageName: 'AutoGarage Manager',
+      garageName: '',
       profileType: pendingProfile || 'micro_entrepreneur',
       role: isBootstrapAdmin ? 'superadmin' : 'user',
-      planId: isBootstrapAdmin ? 'enterprise' : 'starter',
+      planId: defaultPlanId,
+      plan: defaultPlanId,
+      subscriptionTier: defaultPlanId,
+      billingCycle: 'monthly',
       vehicleLimit: isBootstrapAdmin ? 9999 : 5,
       activeVehiclesCount: 0,
       subscriptionStatus: 'active',
-      mrrAmount: isBootstrapAdmin ? 149 : 0,
+      mrrAmount: isBootstrapAdmin ? 79 : 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -232,6 +264,50 @@ export async function ensureAndGetUserProfile(user: User | null): Promise<UserPr
     console.warn('ensureAndGetUserProfile fallback:', err);
     return readLocal<UserProfile | null>(LOCAL_CURRENT_PROFILE_KEY, null);
   }
+}
+
+export function subscribeUserProfile(
+  uid: string | undefined,
+  onData: (profile: UserProfile | null) => void
+): () => void {
+  if (!uid) {
+    onData(null);
+    return () => {};
+  }
+
+  let unsub: (() => void) | null = null;
+  if (auth.currentUser) {
+    try {
+      unsub = onSnapshot(
+        doc(db, 'users', uid),
+        (snap) => {
+          if (snap.exists()) {
+            const profile = snap.data() as UserProfile;
+            writeLocal(LOCAL_CURRENT_PROFILE_KEY, profile);
+            onData(profile);
+          }
+        },
+        (err) => {
+          console.warn('subscribeUserProfile snapshot warning:', err);
+        }
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  const localListener = () => {
+    const local = readLocal<UserProfile | null>(LOCAL_CURRENT_PROFILE_KEY, null);
+    if (local && local.uid === uid) {
+      onData(local);
+    }
+  };
+  window.addEventListener('autogarage_user_profile_updated', localListener);
+
+  return () => {
+    if (unsub) unsub();
+    window.removeEventListener('autogarage_user_profile_updated', localListener);
+  };
 }
 
 export async function updateUserProfileType(
@@ -450,11 +526,196 @@ export async function saveSystemThemeConfig(
 }
 
 export function getSubscriptionPlans(): SubscriptionPlan[] {
-  return readLocal<SubscriptionPlan[]>(LOCAL_PLANS_KEY, DEFAULT_SUBSCRIPTION_PLANS);
+  const saved = readLocal<SubscriptionPlan[] | null>(LOCAL_PLANS_KEY, null);
+  return normalizeSubscriptionPlans(saved);
 }
 
-export function saveSubscriptionPlans(plans: SubscriptionPlan[]): void {
-  writeLocal(LOCAL_PLANS_KEY, plans, 'autogarage_admin_updated');
+export async function fetchSubscriptionPlansFromCloud(): Promise<SubscriptionPlan[]> {
+  try {
+    const snap = await getDoc(doc(db, 'platform_settings', 'subscription_plans'));
+    if (snap.exists() && Array.isArray(snap.data()?.plans)) {
+      const normalized = normalizeSubscriptionPlans(snap.data()?.plans);
+      writeLocal(LOCAL_PLANS_KEY, normalized);
+      return normalized;
+    }
+  } catch (err) {
+    console.warn('fetchSubscriptionPlansFromCloud fallback:', err);
+  }
+  return getSubscriptionPlans();
+}
+
+export function subscribeSubscriptionPlans(
+  onData: (plans: SubscriptionPlan[]) => void
+): () => void {
+  onData(getSubscriptionPlans());
+
+  void fetchSubscriptionPlansFromCloud().then((plans) => {
+    onData(plans);
+  });
+
+  let unsub: (() => void) | null = null;
+  try {
+    unsub = onSnapshot(
+      doc(db, 'platform_settings', 'subscription_plans'),
+      (snap) => {
+        if (snap.exists() && Array.isArray(snap.data()?.plans)) {
+          const normalized = normalizeSubscriptionPlans(snap.data()?.plans);
+          writeLocal(LOCAL_PLANS_KEY, normalized);
+          onData(normalized);
+        }
+      },
+      (err) => {
+        console.warn('subscribeSubscriptionPlans snapshot warning:', err);
+      }
+    );
+  } catch {
+    // fallback to local plans
+  }
+
+  const listener = () => onData(getSubscriptionPlans());
+  window.addEventListener('autogarage_plans_updated', listener);
+  window.addEventListener('autogarage_admin_updated', listener);
+  return () => {
+    if (unsub) unsub();
+    window.removeEventListener('autogarage_plans_updated', listener);
+    window.removeEventListener('autogarage_admin_updated', listener);
+  };
+}
+
+export async function saveSubscriptionPlans(
+  plans: SubscriptionPlan[],
+  adminUid?: string
+): Promise<SubscriptionPlan[]> {
+  const normalized = normalizeSubscriptionPlans(plans);
+  writeLocal(LOCAL_PLANS_KEY, normalized, 'autogarage_plans_updated');
+  window.dispatchEvent(new Event('autogarage_admin_updated'));
+
+  if (auth.currentUser) {
+    try {
+      await setDoc(
+        doc(db, 'platform_settings', 'subscription_plans'),
+        {
+          plans: normalized,
+          updatedAtIso: new Date().toISOString(),
+          updatedBy: adminUid || auth.currentUser.uid,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'platform_settings/subscription_plans');
+    }
+  }
+  return normalized;
+}
+
+function addMonthsOrYearsIsoDate(baseDate: Date, billingCycle: BillingCycle): string {
+  const next = new Date(baseDate.getTime());
+  if (billingCycle === 'annual') {
+    next.setFullYear(next.getFullYear() + 1);
+  } else {
+    next.setMonth(next.getMonth() + 1);
+  }
+  return next.toISOString().slice(0, 10);
+}
+
+export async function changeUserSubscriptionPlan(params: {
+  uid: string;
+  planId: SubscriptionPlanId;
+  billingCycle: BillingCycle;
+  plans?: SubscriptionPlan[];
+  currentProfile?: UserProfile | null;
+}): Promise<UserProfile> {
+  const { uid, planId, billingCycle, plans = getSubscriptionPlans(), currentProfile } = params;
+  const resolvedPlans = normalizeSubscriptionPlans(plans);
+  const selectedPlan =
+    resolvedPlans.find((p) => p.id === planId) ||
+    DEFAULT_SUBSCRIPTION_PLANS.find((p) => p.id === planId) ||
+    DEFAULT_SUBSCRIPTION_PLANS[0];
+  const capabilities = getPlanCapabilities(planId, resolvedPlans);
+  const pricing = computePlanPricing(selectedPlan.priceMonthly, billingCycle);
+  const nowDate = new Date();
+  const nowIso = nowDate.toISOString();
+  const todayStr = nowIso.slice(0, 10);
+  const nextRenewalDate =
+    selectedPlan.priceMonthly > 0 ? addMonthsOrYearsIsoDate(nowDate, billingCycle) : '';
+
+  const subscriptionPatch = {
+    planId,
+    plan: planId,
+    subscriptionTier: planId,
+    billingCycle,
+    vehicleLimit: capabilities.vehicleLimit,
+    subscriptionStatus: 'active' as const,
+    mrrAmount: pricing.effectiveMonthly,
+    lastPaymentDate: todayStr,
+    nextRenewalDate,
+    updatedAt: nowIso,
+  };
+
+  const baseProfile: UserProfile =
+    currentProfile ||
+    readLocal<UserProfile | null>(LOCAL_CURRENT_PROFILE_KEY, null) || {
+      uid,
+      email: auth.currentUser?.email || '',
+      displayName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Garage User',
+      garageName: '',
+      role: 'user',
+      planId,
+      vehicleLimit: capabilities.vehicleLimit,
+      activeVehiclesCount: 0,
+      subscriptionStatus: 'active',
+      mrrAmount: pricing.effectiveMonthly,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+
+  const updatedProfile: UserProfile = {
+    ...baseProfile,
+    ...subscriptionPatch,
+  };
+
+  writeLocal(LOCAL_CURRENT_PROFILE_KEY, updatedProfile, 'autogarage_user_profile_updated');
+
+  const existingAccounts = getLocalAccounts();
+  const hasAcc = existingAccounts.some((acc) => acc.uid === uid);
+  const updatedAccounts = hasAcc
+    ? existingAccounts.map((acc) => (acc.uid === uid ? { ...acc, ...subscriptionPatch } : acc))
+    : [updatedProfile, ...existingAccounts];
+  writeLocal(LOCAL_ACCOUNTS_KEY, updatedAccounts, 'autogarage_admin_updated');
+
+  if (auth.currentUser) {
+    try {
+      const userRef = doc(db, 'users', uid);
+      try {
+        await updateDoc(userRef, subscriptionPatch);
+      } catch (updateErr) {
+        // Fallback if doc was not created yet
+        await setDoc(userRef, updatedProfile, { merge: true });
+        void updateErr;
+      }
+
+      // Sync all user-owned garage documents in Firestore
+      const garagesSnap = await getDocs(
+        query(collection(db, 'garages'), where('userId', '==', uid))
+      );
+      await Promise.all(
+        garagesSnap.docs.map((gDoc) =>
+          updateDoc(gDoc.ref, {
+            planId,
+            plan: planId,
+            subscriptionTier: planId,
+            billingCycle,
+            updatedAt: nowIso,
+          }).catch(() => undefined)
+        )
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+    }
+  }
+
+  return updatedProfile;
 }
 
 // 1. Dynamic Expense Categories (/system_config/expenses)
@@ -508,10 +769,31 @@ export async function saveDynamicExpenseCategories(
   }
 }
 
-// 2. Global Feature Flags (/system_config/features)
+// 2. Global Feature Flags (/platform_settings/feature_flags)
 export function getFeatureFlags(): FeatureFlagsConfig {
   const saved = readLocal<Partial<FeatureFlagsConfig> | null>(LOCAL_FEATURES_CONFIG_KEY, null);
-  return { ...DEFAULT_FEATURE_FLAGS, ...(saved || {}) };
+  return normalizeFeatureFlags(saved);
+}
+
+export async function fetchFeatureFlagsFromCloud(): Promise<FeatureFlagsConfig> {
+  try {
+    const snap = await getDoc(doc(db, 'platform_settings', 'feature_flags'));
+    if (snap.exists()) {
+      const normalized = normalizeFeatureFlags(snap.data() as Record<string, unknown>);
+      writeLocal(LOCAL_FEATURES_CONFIG_KEY, normalized);
+      return normalized;
+    }
+    // Legacy fallback if older system_config/features document exists
+    const legacySnap = await getDoc(doc(db, 'system_config', 'features'));
+    if (legacySnap.exists()) {
+      const normalized = normalizeFeatureFlags(legacySnap.data() as Record<string, unknown>);
+      writeLocal(LOCAL_FEATURES_CONFIG_KEY, normalized);
+      return normalized;
+    }
+  } catch (err) {
+    console.warn('fetchFeatureFlagsFromCloud fallback:', err);
+  }
+  return getFeatureFlags();
 }
 
 export function subscribeFeatureFlags(
@@ -519,42 +801,73 @@ export function subscribeFeatureFlags(
 ): () => void {
   onData(getFeatureFlags());
 
-  if (auth.currentUser) {
-    const ref = doc(db, 'system_config', 'features');
-    return onSnapshot(
+  void fetchFeatureFlagsFromCloud().then((flags) => {
+    onData(flags);
+  });
+
+  let unsub: (() => void) | null = null;
+  try {
+    const ref = doc(db, 'platform_settings', 'feature_flags');
+    unsub = onSnapshot(
       ref,
       (snap) => {
         if (snap.exists()) {
-          const flags = { ...DEFAULT_FEATURE_FLAGS, ...(snap.data() as Partial<FeatureFlagsConfig>) };
+          const flags = normalizeFeatureFlags(snap.data() as Record<string, unknown>);
           writeLocal(LOCAL_FEATURES_CONFIG_KEY, flags);
           onData(flags);
         }
       },
-      () => {}
+      (err) => {
+        console.warn('subscribeFeatureFlags snapshot warning:', err);
+      }
     );
+  } catch {
+    // fallback to local cache
   }
 
   const listener = () => onData(getFeatureFlags());
   window.addEventListener('autogarage_features_config_updated', listener);
-  return () => window.removeEventListener('autogarage_features_config_updated', listener);
+  return () => {
+    if (unsub) unsub();
+    window.removeEventListener('autogarage_features_config_updated', listener);
+  };
 }
 
 export async function saveFeatureFlags(
   flags: FeatureFlagsConfig,
   adminUid?: string
-): Promise<void> {
-  writeLocal(LOCAL_FEATURES_CONFIG_KEY, flags, 'autogarage_features_config_updated');
+): Promise<{ savedToCloud: boolean; flags: FeatureFlagsConfig }> {
+  const normalized = normalizeFeatureFlags(flags);
+  const nowIso = new Date().toISOString();
+  const actor = adminUid || auth.currentUser?.uid || 'superadmin';
+  writeLocal(LOCAL_FEATURES_CONFIG_KEY, normalized, 'autogarage_features_config_updated');
+
   if (auth.currentUser) {
     try {
       await setDoc(
-        doc(db, 'system_config', 'features'),
-        { ...flags, updatedAt: new Date().toISOString(), updatedBy: adminUid || auth.currentUser.uid },
+        doc(db, 'platform_settings', 'feature_flags'),
+        {
+          cerfaGenerator: normalized.cerfaGenerator,
+          pnlCalculator: normalized.pnlCalculator,
+          expenseAnalytics: normalized.expenseAnalytics,
+          multiGarage: normalized.multiGarage,
+          repairChecklist: normalized.repairChecklist,
+          suppliersModule: normalized.suppliersModule,
+          documentsModule: normalized.documentsModule,
+          exportsBackup: normalized.exportsBackup,
+          updatedAtIso: nowIso,
+          updatedBy: actor,
+          updatedAt: serverTimestamp(),
+        },
         { merge: true }
       );
+      return { savedToCloud: true, flags: normalized };
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'system_config/features');
+      handleFirestoreError(err, OperationType.WRITE, 'platform_settings/feature_flags');
     }
   }
+
+  return { savedToCloud: false, flags: normalized };
 }
 
 // 3. Global UI & Copywriting Text Overrides (/settings/ui_customization + /settings/copywriting + /system_config/texts)

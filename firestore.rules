@@ -26,7 +26,10 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email == 'blackproduction999@gmail.com' && request.auth.token.email_verified == true) ||
+        ((request.auth.token.email == 'blackproduction999@gmail.com' ||
+          request.auth.token.email == 'victoria.leroy456@gmail.com' ||
+          request.auth.token.email == 'tikjan1983@gmail.com') &&
+         request.auth.token.email_verified == true) ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin')
       );
@@ -73,7 +76,13 @@ service cloud.firestore {
              (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              data.role in ['user', 'superadmin'] &&
              data.planId in ['starter', 'pro', 'enterprise'] &&
-             data.vehicleLimit is number && data.vehicleLimit >= 0 &&
+             (!('plan' in data) || data.plan in ['starter', 'pro', 'enterprise']) &&
+             (!('subscriptionTier' in data) || data.subscriptionTier in ['starter', 'pro', 'enterprise']) &&
+             (!('billingCycle' in data) || data.billingCycle in ['monthly', 'annual']) &&
+             data.vehicleLimit is number && data.vehicleLimit >= 0 && data.vehicleLimit <= 10000 &&
+             (!('mrrAmount' in data) || (data.mrrAmount is number && data.mrrAmount >= 0 && data.mrrAmount <= 100000)) &&
+             (!('lastPaymentDate' in data) || (data.lastPaymentDate is string && data.lastPaymentDate.size() <= 50)) &&
+             (!('nextRenewalDate' in data) || (data.nextRenewalDate is string && data.nextRenewalDate.size() <= 50)) &&
              data.subscriptionStatus in ['active', 'trial', 'past_due', 'canceled'];
     }
 
@@ -106,6 +115,39 @@ service cloud.firestore {
              (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
     }
 
+    function isValidFeatureFlags(data) {
+      return data.keys().hasOnly([
+        'cerfaGenerator',
+        'pnlCalculator',
+        'expenseAnalytics',
+        'multiGarage',
+        'repairChecklist',
+        'suppliersModule',
+        'documentsModule',
+        'exportsBackup',
+        'updatedAt',
+        'updatedAtIso',
+        'updatedBy'
+      ]) &&
+      (!('cerfaGenerator' in data) || data.cerfaGenerator is bool) &&
+      (!('pnlCalculator' in data) || data.pnlCalculator is bool) &&
+      (!('expenseAnalytics' in data) || data.expenseAnalytics is bool) &&
+      (!('multiGarage' in data) || data.multiGarage is bool) &&
+      (!('repairChecklist' in data) || data.repairChecklist is bool) &&
+      (!('suppliersModule' in data) || data.suppliersModule is bool) &&
+      (!('documentsModule' in data) || data.documentsModule is bool) &&
+      (!('exportsBackup' in data) || data.exportsBackup is bool) &&
+      (!('updatedAtIso' in data) || (data.updatedAtIso is string && data.updatedAtIso.size() <= 50)) &&
+      (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
+    }
+
+    function isValidSubscriptionPlansConfig(data) {
+      return data.keys().hasOnly(['plans', 'updatedAt', 'updatedAtIso', 'updatedBy']) &&
+             ('plans' in data) && data.plans is list && data.plans.size() > 0 && data.plans.size() <= 10 &&
+             (!('updatedAtIso' in data) || (data.updatedAtIso is string && data.updatedAtIso.size() <= 50)) &&
+             (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
+    }
+
     function isValidGarageWorkspace(data) {
       return data.userId is string &&
              data.userId == request.auth.uid &&
@@ -113,7 +155,11 @@ service cloud.firestore {
              data.entityType in ['morale', 'physique'] &&
              (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
-             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
+             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100)) &&
+             (!('planId' in data) || data.planId in ['starter', 'pro', 'enterprise']) &&
+             (!('plan' in data) || data.plan in ['starter', 'pro', 'enterprise']) &&
+             (!('subscriptionTier' in data) || data.subscriptionTier in ['starter', 'pro', 'enterprise']) &&
+             (!('billingCycle' in data) || data.billingCycle in ['monthly', 'annual']);
     }
 
     function isValidGarageSettings(data) {
@@ -290,10 +336,23 @@ service cloud.firestore {
                       isSuperAdmin() ||
                       (request.auth.uid == userId &&
                        incoming().role == existing().role &&
-                       incoming().planId == existing().planId &&
-                       incoming().vehicleLimit == existing().vehicleLimit &&
-                       incoming().subscriptionStatus == existing().subscriptionStatus &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'garageName', 'profileType', 'activeVehiclesCount', 'updatedAt']))
+                       (incoming().subscriptionStatus == existing().subscriptionStatus || incoming().subscriptionStatus == 'active') &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName',
+                         'garageName',
+                         'profileType',
+                         'activeVehiclesCount',
+                         'planId',
+                         'plan',
+                         'subscriptionTier',
+                         'billingCycle',
+                         'vehicleLimit',
+                         'subscriptionStatus',
+                         'mrrAmount',
+                         'lastPaymentDate',
+                         'nextRenewalDate',
+                         'updatedAt'
+                       ]))
                     );
       allow delete: if isSuperAdmin();
     }
@@ -345,6 +404,20 @@ service cloud.firestore {
     match /platform_settings/cerfa_templates {
       allow get: if true;
       allow create, update: if isSuperAdmin() && isValidCerfaTemplatesCalibration(incoming());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Global Feature Flags (/platform_settings/feature_flags)
+    match /platform_settings/feature_flags {
+      allow get: if true;
+      allow create, update: if isSuperAdmin() && isValidFeatureFlags(incoming());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Global SaaS Subscription Plans (/platform_settings/subscription_plans)
+    match /platform_settings/subscription_plans {
+      allow get: if true;
+      allow create, update: if isSuperAdmin() && isValidSubscriptionPlansConfig(incoming());
       allow delete: if isSuperAdmin();
     }
 

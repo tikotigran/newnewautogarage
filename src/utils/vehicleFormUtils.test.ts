@@ -4,6 +4,7 @@ import {
   buildVehicleSubmitPayload,
   hasVehicleCerfaDetails,
   validateQuickVehicleForm,
+  validateVehicleFormDetailed,
   VehicleFormInput,
 } from './vehicleFormUtils';
 
@@ -11,6 +12,8 @@ function createBaseInput(overrides: Partial<VehicleFormInput> = {}): VehicleForm
   return {
     make: 'Peugeot',
     model: '208',
+    commercialDesignation: '208 GT Line 130ch',
+    firstRegistrationDate: '2021-04-15',
     trim: '',
     year: 2021,
     registrationNumber: 'AB-123-CD',
@@ -22,8 +25,10 @@ function createBaseInput(overrides: Partial<VehicleFormInput> = {}): VehicleForm
     typeVariantVersion: '',
     nationalGenre: 'VP',
     bodyType: '',
-    formulaNumber: '',
+    hasRegistrationCertificate: true,
+    formulaNumber: '2021AB12345',
     certificateDate: '',
+    absenceReason: '',
     purchaseDate: '2026-11-15',
     targetSalePrice: '',
     status: 'preparation',
@@ -32,12 +37,65 @@ function createBaseInput(overrides: Partial<VehicleFormInput> = {}): VehicleForm
   };
 }
 
-test('validateQuickVehicleForm allows creating a vehicle with only the 5 mandatory fields', () => {
-  const err = validateQuickVehicleForm(createBaseInput(), 'ru');
-  assert.equal(err, null);
+test('validateQuickVehicleForm allows creating a vehicle when all mandatory Cerfa fields are provided', () => {
+  assert.equal(validateQuickVehicleForm(createBaseInput(), 'ru'), null);
+  assert.equal(
+    validateQuickVehicleForm(
+      createBaseInput({ formulaNumber: '', certificateDate: '2021-05-01' }),
+      'fr'
+    ),
+    null
+  );
+  assert.equal(
+    validateQuickVehicleForm(
+      createBaseInput({
+        hasRegistrationCertificate: false,
+        formulaNumber: '',
+        certificateDate: '',
+        absenceReason: 'Déclaration de perte jointe',
+      }),
+      'ru'
+    ),
+    null
+  );
 });
 
-test('validateQuickVehicleForm catches missing mandatory fields and invalid optional VIN', () => {
+test('validateVehicleFormDetailed catches missing mandatory Cerfa fields and emits fieldErrors & toastMessage', () => {
+  const missingCert = validateVehicleFormDetailed(
+    createBaseInput({
+      commercialDesignation: '',
+      firstRegistrationDate: '',
+      hasRegistrationCertificate: null,
+      formulaNumber: '',
+    }),
+    'ru'
+  );
+  assert.ok(missingCert.fieldErrors.commercialDesignation);
+  assert.ok(missingCert.fieldErrors.firstRegistrationDate);
+  assert.ok(missingCert.fieldErrors.hasRegistrationCertificate);
+  assert.ok(missingCert.toastMessage?.startsWith('Заполните обязательные поля бланка Cerfa:'));
+
+  const missingFormulaOrCertDate = validateVehicleFormDetailed(
+    createBaseInput({
+      hasRegistrationCertificate: true,
+      formulaNumber: '',
+      certificateDate: '',
+    }),
+    'ru'
+  );
+  assert.ok(missingFormulaOrCertDate.fieldErrors.formulaOrCertificateDate);
+
+  const missingAbsenceReason = validateVehicleFormDetailed(
+    createBaseInput({
+      hasRegistrationCertificate: false,
+      formulaNumber: '',
+      certificateDate: '',
+      absenceReason: '  ',
+    }),
+    'ru'
+  );
+  assert.ok(missingAbsenceReason.fieldErrors.absenceReason);
+
   assert.ok(validateQuickVehicleForm(createBaseInput({ make: '' }), 'fr'));
   assert.ok(validateQuickVehicleForm(createBaseInput({ model: '  ' }), 'fr'));
   assert.ok(validateQuickVehicleForm(createBaseInput({ registrationNumber: '' }), 'ru'));
@@ -53,11 +111,16 @@ test('validateQuickVehicleForm catches missing mandatory fields and invalid opti
 test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte Grise codes', () => {
   const quickPayload = buildVehicleSubmitPayload(createBaseInput(), 'user_1');
   assert.equal(quickPayload.make, 'Peugeot');
+  assert.equal(quickPayload.commercialDesignation, '208 GT Line 130ch');
+  assert.equal(quickPayload.firstRegistrationDate, '2021-04-15');
   assert.equal(quickPayload.registrationNumber, 'AB-123-CD');
+  assert.equal(quickPayload.hasRegistrationCertificate, true);
+  assert.equal(quickPayload.formulaNumber, '2021AB12345');
   assert.equal(quickPayload.mileage, 0);
   assert.equal(quickPayload.vin, '');
   assert.equal(quickPayload.nationalGenre, 'VP');
   assert.equal(quickPayload.totalInvested, 8500);
+  assert.equal(hasVehicleCerfaDetails(quickPayload), true);
 
   const fullPayload = buildVehicleSubmitPayload(
     createBaseInput({
@@ -82,7 +145,14 @@ test('buildVehicleSubmitPayload defaults empty mileage to 0 and normalizes Carte
   assert.equal(fullPayload.formulaNumber, '2021AB12345');
   assert.equal(fullPayload.certificateDate, '2021-05-12');
   assert.equal(hasVehicleCerfaDetails(fullPayload), true);
-  assert.equal(hasVehicleCerfaDetails(quickPayload), false);
+  assert.equal(
+    hasVehicleCerfaDetails({
+      ...quickPayload,
+      formulaNumber: '',
+      certificateDate: '',
+    }),
+    false
+  );
 });
 
 test('buildVehicleSubmitPayload recalculates totalInvested when purchasePrice or mileage is edited on an existing vehicle', () => {
@@ -91,11 +161,15 @@ test('buildVehicleSubmitPayload recalculates totalInvested when purchasePrice or
     userId: 'user_1',
     make: 'Renault',
     model: 'Clio V',
+    commercialDesignation: 'Clio V Intens',
+    firstRegistrationDate: '2020-02-01',
     trim: 'Intens',
     year: 2020,
     mileage: 50000,
     vin: '',
     registrationNumber: 'AA-111-BB',
+    hasRegistrationCertificate: true,
+    formulaNumber: '2020CD99999',
     purchaseDate: '2026-09-01',
     purchasePrice: 8900,
     targetSalePrice: 12500,
@@ -116,6 +190,8 @@ test('buildVehicleSubmitPayload recalculates totalInvested when purchasePrice or
     createBaseInput({
       make: 'Renault',
       model: 'Clio V',
+      commercialDesignation: 'Clio V Intens',
+      firstRegistrationDate: '2020-02-01',
       year: 2020,
       registrationNumber: 'cc-222-dd',
       mileage: 54320,

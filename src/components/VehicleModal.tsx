@@ -16,7 +16,8 @@ import { ThemedSelect } from './ThemedSelect';
 import { LocaleDateInput } from './LocaleDateInput';
 import {
   buildVehicleSubmitPayload,
-  validateQuickVehicleForm,
+  validateVehicleFormDetailed,
+  VehicleFormFieldErrorKey,
 } from '../utils/vehicleFormUtils';
 
 interface VehicleModalProps {
@@ -25,6 +26,7 @@ interface VehicleModalProps {
   onSubmit: (data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   initialVehicle?: Vehicle | null;
   userId: string;
+  onValidationToast?: (message: string) => void;
 }
 
 export const VehicleModal: React.FC<VehicleModalProps> = ({
@@ -33,16 +35,21 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   onSubmit,
   initialVehicle,
   userId,
+  onValidationToast,
 }) => {
   const { t, lang } = useI18n();
   const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
 
-  // 5 Primary Required Fields
+  // Primary & Mandatory Cerfa Vehicle Fields
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
+  const [commercialDesignation, setCommercialDesignation] = useState('');
+  const [firstRegistrationDate, setFirstRegistrationDate] = useState('');
   const [year, setYear] = useState<number | ''>(2021);
   const [registrationNumber, setRegistrationNumber] = useState('');
   const [purchasePrice, setPurchasePrice] = useState<number | ''>('');
+  const [hasRegistrationCertificate, setHasRegistrationCertificate] = useState<boolean | null>(null);
+  const [absenceReason, setAbsenceReason] = useState('');
 
   // Collapsible Secondary & Carte Grise Fields
   const [isExtendedOpen, setIsExtendedOpen] = useState(false);
@@ -64,14 +71,22 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<VehicleFormFieldErrorKey, string>>>({});
 
   useEffect(() => {
     if (initialVehicle) {
       setMake(initialVehicle.make);
       setModel(initialVehicle.model);
+      setCommercialDesignation(initialVehicle.commercialDesignation || initialVehicle.model || '');
+      setFirstRegistrationDate(
+        initialVehicle.firstRegistrationDate ||
+          (initialVehicle.year ? `${initialVehicle.year}-01-01` : '')
+      );
       setYear(initialVehicle.year);
       setRegistrationNumber(initialVehicle.registrationNumber || '');
       setPurchasePrice(initialVehicle.purchasePrice);
+      setHasRegistrationCertificate(initialVehicle.hasRegistrationCertificate ?? true);
+      setAbsenceReason(initialVehicle.absenceReason || '');
 
       setIsExtendedOpen(true);
       setTrim(initialVehicle.trim || '');
@@ -91,9 +106,13 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
     } else {
       setMake('');
       setModel('');
+      setCommercialDesignation('');
+      setFirstRegistrationDate('');
       setYear(2021);
       setRegistrationNumber('');
       setPurchasePrice('');
+      setHasRegistrationCertificate(null);
+      setAbsenceReason('');
 
       setIsExtendedOpen(false);
       setTrim('');
@@ -112,6 +131,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setPhotos([]);
     }
     setError(null);
+    setFieldErrors({});
   }, [initialVehicle, isOpen]);
 
   if (!isOpen) return null;
@@ -158,11 +178,24 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleFirstRegDateChange = (nextDate: string) => {
+    setFirstRegistrationDate(nextDate);
+    setFieldErrors((prev) => ({ ...prev, firstRegistrationDate: undefined, year: undefined }));
+    if (/^\d{4}/.test(nextDate.trim())) {
+      const parsedYr = Number(nextDate.trim().slice(0, 4));
+      if (!Number.isNaN(parsedYr) && parsedYr >= 1900 && parsedYr <= 2100) {
+        setYear(parsedYr);
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const formState = {
       make,
       model,
+      commercialDesignation,
+      firstRegistrationDate,
       trim,
       year,
       registrationNumber,
@@ -174,23 +207,33 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       typeVariantVersion,
       nationalGenre,
       bodyType,
+      hasRegistrationCertificate,
       formulaNumber,
       certificateDate,
+      absenceReason,
       purchaseDate,
       targetSalePrice,
       status,
       photos,
     };
 
-    const validationError = validateQuickVehicleForm(formState, lang);
-    if (validationError) {
-      setError(validationError);
+    const validation = validateVehicleFormDetailed(formState, lang);
+    if (validation.firstError) {
+      setFieldErrors(validation.fieldErrors);
+      setError(validation.firstError);
+      if (validation.fieldErrors.vin || validation.fieldErrors.mileage) {
+        setIsExtendedOpen(true);
+      }
+      if (validation.toastMessage) {
+        onValidationToast?.(validation.toastMessage);
+      }
       return;
     }
 
     try {
       setIsSubmitting(true);
       setError(null);
+      setFieldErrors({});
       const payload = buildVehicleSubmitPayload(formState, userId, initialVehicle);
       await onSubmit(payload);
       onClose();
@@ -212,6 +255,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   const inputClass =
     'w-full px-3.5 py-2.5 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)] transition';
+  const inputErrorClass =
+    'w-full px-3.5 py-2.5 bg-[var(--background)] border border-red-500 ring-2 ring-red-500/20 rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-red-500 transition';
+  const getInputClass = (hasErr: boolean, extra = '') =>
+    `${hasErr ? inputErrorClass : inputClass}${extra ? ` ${extra}` : ''}`;
   const labelClass = 'block text-xs font-semibold text-[var(--secondary-foreground)] mb-1.5';
 
   return (
@@ -248,16 +295,20 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
           <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto">
           {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400 flex items-center gap-2">
+            <div
+              role="alert"
+              data-testid="vehicle-modal-validation-error"
+              className="p-3 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400 flex items-center gap-2"
+            >
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* 5 Mandatory Quick-Entry Fields */}
+          {/* Mandatory Primary & Cerfa Registration Fields */}
           <div
             data-testid="vehicle-modal-primary-fields"
             className="space-y-4 bg-[var(--surface-muted)]/35 border border-[var(--border)] rounded-2xl p-4 sm:p-5"
@@ -278,9 +329,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   required
                   autoFocus
                   value={make}
-                  onChange={(e) => setMake(e.target.value)}
+                  onChange={(e) => {
+                    setMake(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, make: undefined }));
+                  }}
                   placeholder="ex. Peugeot, Renault..."
-                  className={inputClass}
+                  className={getInputClass(Boolean(fieldErrors.make))}
                 />
               </div>
 
@@ -293,14 +347,53 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   type="text"
                   required
                   value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(e) => {
+                    setModel(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, model: undefined }));
+                  }}
                   placeholder="ex. 208, Clio V, Golf..."
-                  className={inputClass}
+                  className={getInputClass(Boolean(fieldErrors.model))}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="vehicle-d3-commercial" className={labelClass}>
+                  (D.3) Dénomination commerciale *
+                </label>
+                <input
+                  id="vehicle-d3-commercial"
+                  data-testid="vehicle-d3-commercial"
+                  type="text"
+                  required
+                  value={commercialDesignation}
+                  onChange={(e) => {
+                    setCommercialDesignation(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, commercialDesignation: undefined }));
+                  }}
+                  placeholder="ex. 208 GT Line, Clio TCe 90..."
+                  className={getInputClass(Boolean(fieldErrors.commercialDesignation))}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="vehicle-first-reg" className={labelClass}>
+                  (B) 1re immatriculation *
+                </label>
+                <LocaleDateInput
+                  id="vehicle-first-reg"
+                  testId="vehicle-first-reg-date"
+                  ariaLabel="(B) 1re immatriculation"
+                  required
+                  value={firstRegistrationDate}
+                  onChange={handleFirstRegDateChange}
+                  className={getInputClass(Boolean(fieldErrors.firstRegistrationDate))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label htmlFor="vehicle-year" className={labelClass}>
                   {t('year')} *
@@ -312,8 +405,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   min={1900}
                   max={2100}
                   value={year}
-                  onChange={(e) => setYear(e.target.value === '' ? '' : Number(e.target.value))}
-                  className={inputClass}
+                  onChange={(e) => {
+                    setYear(e.target.value === '' ? '' : Number(e.target.value));
+                    setFieldErrors((prev) => ({ ...prev, year: undefined }));
+                  }}
+                  className={getInputClass(Boolean(fieldErrors.year))}
                 />
               </div>
 
@@ -326,14 +422,18 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   type="text"
                   required
                   value={registrationNumber}
-                  onChange={(e) => setRegistrationNumber(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setRegistrationNumber(e.target.value.toUpperCase());
+                    setFieldErrors((prev) => ({ ...prev, registrationNumber: undefined }));
+                  }}
                   placeholder="ex. AB-123-CD"
-                  className={`${inputClass} font-mono uppercase placeholder:normal-case`}
+                  className={getInputClass(
+                    Boolean(fieldErrors.registrationNumber),
+                    'font-mono uppercase placeholder:normal-case'
+                  )}
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="vehicle-purchase-price" className={labelClass}>
                   {t('purchasePriceLabel')} (€) *
@@ -345,14 +445,154 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   min={0}
                   step="any"
                   value={purchasePrice}
-                  onChange={(e) =>
-                    setPurchasePrice(e.target.value === '' ? '' : Number(e.target.value))
-                  }
+                  onChange={(e) => {
+                    setPurchasePrice(e.target.value === '' ? '' : Number(e.target.value));
+                    setFieldErrors((prev) => ({ ...prev, purchasePrice: undefined }));
+                  }}
                   placeholder="ex. 8500"
-                  className={`${inputClass} font-bold`}
+                  className={getInputClass(Boolean(fieldErrors.purchasePrice), 'font-bold')}
                 />
               </div>
+            </div>
 
+            {/* Mandatory Cerfa Carte Grise Presence & Formula / Certificate Date */}
+            <div
+              data-testid="vehicle-cert-presence-block"
+              className={`rounded-2xl border p-3.5 space-y-3 bg-[var(--background)]/65 transition ${
+                fieldErrors.hasRegistrationCertificate
+                  ? 'border-red-500 ring-2 ring-red-500/20'
+                  : 'border-[var(--border)]'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[var(--foreground)]">
+                  Présence du certificat d'immatriculation *
+                </span>
+                <div
+                  role="radiogroup"
+                  aria-label="Présence du certificat d'immatriculation"
+                  className="flex items-center gap-2"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={hasRegistrationCertificate === true}
+                    data-testid="vehicle-cert-yes"
+                    onClick={() => {
+                      setHasRegistrationCertificate(true);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        hasRegistrationCertificate: undefined,
+                        absenceReason: undefined,
+                      }));
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      hasRegistrationCertificate === true
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                        : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    OUI
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={hasRegistrationCertificate === false}
+                    data-testid="vehicle-cert-no"
+                    onClick={() => {
+                      setHasRegistrationCertificate(false);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        hasRegistrationCertificate: undefined,
+                        formulaOrCertificateDate: undefined,
+                      }));
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      hasRegistrationCertificate === false
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                        : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                    }`}
+                  >
+                    NON
+                  </button>
+                </div>
+              </div>
+
+              {hasRegistrationCertificate === true && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label htmlFor="vehicle-formula" className={labelClass}>
+                      {t('formulaNumberLabel')} (2019...) *
+                    </label>
+                    <input
+                      id="vehicle-formula"
+                      data-testid="vehicle-formula-number"
+                      type="text"
+                      value={formulaNumber}
+                      onChange={(e) => {
+                        setFormulaNumber(e.target.value.toUpperCase());
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          formulaOrCertificateDate: undefined,
+                        }));
+                      }}
+                      placeholder="ex. 2019AB12345"
+                      className={getInputClass(
+                        Boolean(fieldErrors.formulaOrCertificateDate),
+                        'font-mono uppercase placeholder:normal-case'
+                      )}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="vehicle-cert-date" className={labelClass}>
+                      {t('certificateDateLabel')} (ou ancien format) *
+                    </label>
+                    <LocaleDateInput
+                      id="vehicle-cert-date"
+                      testId="vehicle-cert-date"
+                      ariaLabel={t('certificateDateLabel')}
+                      value={certificateDate}
+                      onChange={(val) => {
+                        setCertificateDate(val);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          formulaOrCertificateDate: undefined,
+                        }));
+                      }}
+                      className={getInputClass(Boolean(fieldErrors.formulaOrCertificateDate))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {hasRegistrationCertificate === false && (
+                <div className="pt-1">
+                  <label htmlFor="vehicle-absence-reason" className={labelClass}>
+                    {L(
+                      "Motif d'absence du certificat *",
+                      'Причина отсутствия СТС *',
+                      'Վկայականի բացակայության պատճառը *',
+                      'მოწმობის არარსებობის მიზეზი *'
+                    )}
+                  </label>
+                  <input
+                    id="vehicle-absence-reason"
+                    data-testid="vehicle-absence-reason"
+                    type="text"
+                    required
+                    value={absenceReason}
+                    onChange={(e) => {
+                      setAbsenceReason(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, absenceReason: undefined }));
+                    }}
+                    placeholder="ex. Déclaration de perte / vol..."
+                    className={getInputClass(Boolean(fieldErrors.absenceReason))}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="vehicle-mileage" className={labelClass}>
                   {t('mileage')} (km)
@@ -362,12 +602,23 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   type="number"
                   min={0}
                   value={mileage}
-                  onChange={(e) =>
-                    setMileage(e.target.value === '' ? '' : Number(e.target.value))
-                  }
+                  onChange={(e) => {
+                    setMileage(e.target.value === '' ? '' : Number(e.target.value));
+                    setFieldErrors((prev) => ({ ...prev, mileage: undefined }));
+                  }}
                   placeholder="ex. 65000"
-                  className={inputClass}
+                  className={getInputClass(Boolean(fieldErrors.mileage))}
                 />
+              </div>
+              <div className="flex items-end">
+                <p className="text-[11px] text-[var(--muted-foreground)] pb-2">
+                  {L(
+                    'Champs Cerfa requis pour générer le Certificat de cession 15776*02.',
+                    'Обязательные поля Cerfa проверяются перед сохранением авто.',
+                    'Cerfa պարտադիր դաշտերը ստուգվում են պահպանելուց առաջ։',
+                    'Cerfa სავალდებულო ველები მოწმდება შენახვამდე.'
+                  )}
+                </p>
               </div>
             </div>
 
@@ -586,7 +837,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                       value={vin}
                       onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
                       placeholder="ex. VF3UPHNK0MT129841"
-                      className={`${inputClass} font-mono uppercase placeholder:normal-case`}
+                      className={getInputClass(
+                        Boolean(fieldErrors.vin),
+                        'font-mono uppercase placeholder:normal-case'
+                      )}
                     />
                   </div>
 
@@ -605,7 +859,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   </div>
                 </div>
 
-                {/* French Carte Grise Codes (D.2, J.1, J.3, Formule, Date I) */}
+                {/* French Carte Grise Codes (D.2, J.1, J.3) */}
                 <div className="pt-3 border-t border-[var(--border)] space-y-3">
                   <p className="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
                     {t('carteGriseSectionTitle')}
@@ -658,36 +912,6 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                         onChange={(e) => setBodyType(e.target.value.toUpperCase())}
                         placeholder="ex. CI, BREAK"
                         className={`${inputClass} uppercase placeholder:normal-case`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="vehicle-formula" className={labelClass}>
-                        {t('formulaNumberLabel')}
-                      </label>
-                      <input
-                        id="vehicle-formula"
-                        type="text"
-                        value={formulaNumber}
-                        onChange={(e) => setFormulaNumber(e.target.value.toUpperCase())}
-                        placeholder="ex. 2021AB12345"
-                        className={`${inputClass} font-mono uppercase placeholder:normal-case`}
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="vehicle-cert-date" className={labelClass}>
-                        {t('certificateDateLabel')}
-                      </label>
-                      <LocaleDateInput
-                        id="vehicle-cert-date"
-                        testId="vehicle-cert-date"
-                        ariaLabel={t('certificateDateLabel')}
-                        value={certificateDate}
-                        onChange={setCertificateDate}
-                        className={inputClass}
                       />
                     </div>
                   </div>

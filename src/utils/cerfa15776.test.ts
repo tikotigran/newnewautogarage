@@ -11,6 +11,7 @@ import {
   sanitizeWinAnsi,
   splitFrenchDateDigits,
   splitStreetTypeAndName,
+  validateAllCerfaSteps,
   validateCerfaStep,
   CERFA_15776_CONFIG,
 } from './cerfa15776';
@@ -33,10 +34,14 @@ const mockVehicle: Vehicle = {
   userId: 'user_1',
   make: 'Volkswagen',
   model: 'Golf VII - 1.6 TDI 115ch',
+  commercialDesignation: 'GOLF VII 1.6 TDI',
+  firstRegistrationDate: '2019-03-10',
   trim: 'Confortline DSG7',
   year: 2019,
   mileage: 94000,
   vin: 'WVWZZZAUZKP512984',
+  hasRegistrationCertificate: true,
+  formulaNumber: '2019AB55555',
   purchaseDate: '2026-10-01',
   purchasePrice: 9500,
   targetSalePrice: 12900,
@@ -156,7 +161,7 @@ test('buildInitialCerfaData pre-fills all 3 steps from vehicle, garage, and buye
   assert.equal(perDealMicro.seller.siret, '89412345600012');
 });
 
-test('validateCerfaStep catches missing required fields per step', () => {
+test('validateCerfaStep & validateAllCerfaSteps catch missing mandatory Cerfa fields across all steps', () => {
   const data = buildInitialCerfaData(mockVehicle, mockGarage);
   // Step 1 requires registrationNumber when VIN > 10 chars
   const step1Errors = validateCerfaStep(1, data);
@@ -166,6 +171,42 @@ test('validateCerfaStep catches missing required fields per step', () => {
   assert.deepEqual(validateCerfaStep(1, data), {});
   assert.deepEqual(validateCerfaStep(2, data), {});
   assert.deepEqual(validateCerfaStep(3, data), {});
+
+  // Missing (B), (D.3), and formula/certificate date on Step 1
+  const missingStep1 = validateCerfaStep(1, {
+    ...data,
+    vehicle: {
+      ...data.vehicle,
+      firstRegistrationDate: '',
+      commercialDesignation: '',
+      formulaNumber: '',
+      certificateDate: '',
+    },
+  });
+  assert.ok(missingStep1.firstRegistrationDate);
+  assert.ok(missingStep1.commercialDesignation);
+  assert.ok(missingStep1.formulaOrCertificateDate);
+
+  // Missing seller N° de voie and Nom de la voie on Step 2
+  const missingStep2 = validateCerfaStep(2, {
+    ...data,
+    seller: { ...data.seller, streetNumber: '', streetName: '' },
+  });
+  assert.ok(missingStep2.sellerStreetNumber);
+  assert.ok(missingStep2.sellerStreetName);
+
+  // Missing buyer N° de voie and Nom de la voie on Step 3 + full wizard check
+  const invalidBuyerData = {
+    ...data,
+    buyer: { ...data.buyer, streetNumber: '', streetName: '' },
+  };
+  const missingStep3 = validateCerfaStep(3, invalidBuyerData);
+  assert.ok(missingStep3.buyerStreetNumber);
+  assert.ok(missingStep3.buyerStreetName);
+
+  const fullResult = validateAllCerfaSteps(invalidBuyerData, 'ru');
+  assert.equal(fullResult.firstInvalidStep, 3);
+  assert.ok(fullResult.toastMessage?.startsWith('Заполните обязательные поля бланка Cerfa:'));
 });
 
 test('CERFA_15776_CONFIG exposes structured sections with valid coordinates', () => {

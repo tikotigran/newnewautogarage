@@ -13,6 +13,7 @@ import {
   List,
   Edit,
   Menu,
+  Crown,
 } from 'lucide-react';
 import {
   FeatureFlagsConfig,
@@ -35,6 +36,7 @@ import {
   VehicleInventoryFinancials,
 } from '../utils/inventoryUtils';
 import { ThemedSelect } from './ThemedSelect';
+import { pickLocalized } from '../utils/i18nUtils';
 
 interface VehicleListProps {
   vehicles: Vehicle[];
@@ -50,6 +52,11 @@ interface VehicleListProps {
   isSeeding: boolean;
   featureFlags?: FeatureFlagsConfig;
   onOpenMobileSidebar?: () => void;
+  vehicleLimit?: number;
+  totalOwnedVehiclesCount?: number;
+  currentPlanName?: string;
+  upgradePlanName?: string;
+  onOpenUpgradePlan?: () => void;
 }
 
 const VIEW_MODE_STORAGE_KEY = 'autogarage_inventory_view';
@@ -66,8 +73,23 @@ export const VehicleList: React.FC<VehicleListProps> = ({
   onSeedData,
   isSeeding,
   onOpenMobileSidebar,
+  vehicleLimit,
+  totalOwnedVehiclesCount,
+  currentPlanName = 'Starter',
+  upgradePlanName = 'Pro',
+  onOpenUpgradePlan,
 }) => {
   const { t, lang } = useI18n();
+  const usedVehiclesCount = totalOwnedVehiclesCount ?? vehicles.length;
+  const isFiniteQuota = typeof vehicleLimit === 'number' && vehicleLimit < 9999;
+  const isAtVehicleLimit = isFiniteQuota && usedVehiclesCount >= (vehicleLimit as number);
+  const handleAddVehicleAction = () => {
+    if (isAtVehicleLimit && onOpenUpgradePlan) {
+      onOpenUpgradePlan();
+      return;
+    }
+    onNewVehicle();
+  };
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<InventorySortField>('date');
@@ -205,13 +227,63 @@ export const VehicleList: React.FC<VehicleListProps> = ({
         <button
           type="button"
           data-testid="page-header-new-vehicle"
-          onClick={onNewVehicle}
+          onClick={handleAddVehicleAction}
           className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto h-9 px-3.5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 shadow-sm transition whitespace-nowrap shrink-0 cursor-pointer"
         >
           <PlusCircle className="w-4 h-4 shrink-0" />
           <span>{t('newVehicle')}</span>
         </button>
       </div>
+
+      {/* Starter Plan Vehicle Quota Notice */}
+      {isAtVehicleLimit && (
+        <div
+          data-testid="vehicle-quota-banner"
+          className="bg-[var(--card)] border border-[var(--primary)]/50 rounded-[var(--ag-card-radius)] p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-[var(--primary)]/15 text-[var(--primary)] flex items-center justify-center shrink-0 mt-0.5">
+              <Crown className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-[var(--foreground)] tabular-nums">
+                {pickLocalized(lang, {
+                  fr: `Limite du forfait ${currentPlanName} atteinte (${usedVehiclesCount} / ${vehicleLimit} véhicules)`,
+                  ru: `Достигнут лимит тарифа ${currentPlanName} (${usedVehiclesCount} / ${vehicleLimit} авто)`,
+                  hy: `${currentPlanName} սակագնի սահմանաչափը սպառվել է (${usedVehiclesCount} / ${vehicleLimit} մեքենա)`,
+                  ka: `${currentPlanName} ტარიფის ლიმიტი ამოწურულია (${usedVehiclesCount} / ${vehicleLimit} ავტო)`,
+                })}
+              </p>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                {pickLocalized(lang, {
+                  fr: `Passez au forfait ${upgradePlanName} pour un stock élargi, tous les Cerfa et les fournisseurs.`,
+                  ru: `Перейдите на тариф ${upgradePlanName} для расширенного склада, всех бланков Cerfa и учёта поставщиков.`,
+                  hy: `Անցեք ${upgradePlanName} սակագնին՝ ընդլայնված ավտոպարկի և բոլոր Cerfa ձևաթղթերի համար։`,
+                  ka: `გადადით ${upgradePlanName} ტარიფზე გაფართოებული საწყობისა და ყველა Cerfa ფორმისთვის.`,
+                })}
+              </p>
+            </div>
+          </div>
+          {onOpenUpgradePlan && (
+            <button
+              type="button"
+              data-testid="vehicle-quota-upgrade-btn"
+              onClick={onOpenUpgradePlan}
+              className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-95 transition whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Crown className="w-3.5 h-3.5" />
+              <span>
+                {pickLocalized(lang, {
+                  fr: `Passer à ${upgradePlanName}`,
+                  ru: `Перейти на ${upgradePlanName}`,
+                  hy: `Անցնել ${upgradePlanName}-ի`,
+                  ka: `${upgradePlanName}-ზე გადასვლა`,
+                })}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Controls Bar: Search & Status Filters */}
       <div className="bg-[var(--card)] rounded-[var(--ag-card-radius)] border border-[var(--border)] p-3.5 sm:p-4 shadow-sm space-y-3">
@@ -689,7 +761,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
               type="button"
-              onClick={onNewVehicle}
+              onClick={handleAddVehicleAction}
               className="px-5 py-2.5 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition flex items-center gap-2"
             >
               <PlusCircle className="w-4 h-4" />

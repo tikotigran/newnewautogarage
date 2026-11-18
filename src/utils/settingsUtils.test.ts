@@ -54,12 +54,14 @@ test('validateGarageSettings returns empty errors for valid profile and flags mi
     ...validSettings,
     name: '  ',
     siret: '1234',
+    streetNumber: '',
     postalCode: '750',
     email: 'not-an-email',
   };
   const errs = validateGarageSettings(invalid);
   assert.ok(errs.name);
   assert.ok(errs.siret);
+  assert.ok(errs.streetNumber);
   assert.ok(errs.postalCode);
   assert.ok(errs.email);
 
@@ -162,3 +164,37 @@ test('vehiclesToCsv formats headers and rows with semicolon delimiter', () => {
   assert.ok(lines[0].startsWith('ID;Marque;Modele;'));
   assert.ok(lines[1].includes('"GT;Line"'));
 });
+
+test('DEFAULT_GARAGE_SETTINGS initializes all profile, address, and contact fields as empty strings', async () => {
+  const { DEFAULT_GARAGE_SETTINGS } = await import('../services/garageService');
+  const emptyKeys: Array<keyof GarageSettings> = [
+    'name',
+    'lastName',
+    'firstName',
+    'sex',
+    'siret',
+    'streetNumber',
+    'streetExtension',
+    'streetType',
+    'streetName',
+    'postalCode',
+    'city',
+    'phone',
+    'email',
+  ];
+  for (const key of emptyKeys) {
+    assert.equal(
+      DEFAULT_GARAGE_SETTINGS[key],
+      '',
+      `Expected DEFAULT_GARAGE_SETTINGS.${String(key)} to be empty string`
+    );
+  }
+  const errs = validateGarageSettings(DEFAULT_GARAGE_SETTINGS);
+  assert.ok(errs.name);
+  assert.ok(errs.streetNumber);
+  assert.ok(errs.streetName);
+  assert.ok(errs.postalCode);
+  assert.ok(errs.city);
+  assert.ok(errs.email);
+});
+

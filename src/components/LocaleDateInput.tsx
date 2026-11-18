@@ -18,6 +18,7 @@ interface LocaleDateInputProps {
   onChange: (isoDate: string) => void;
   className?: string;
   ariaLabel?: string;
+  required?: boolean;
 }
 
 export const LocaleDateInput: React.FC<LocaleDateInputProps> = ({
@@ -27,6 +28,7 @@ export const LocaleDateInput: React.FC<LocaleDateInputProps> = ({
   onChange,
   className = '',
   ariaLabel,
+  required = false,
 }) => {
   const { lang } = useI18n();
   const separator = getDateSeparator(lang);
@@ -172,6 +174,8 @@ export const LocaleDateInput: React.FC<LocaleDateInputProps> = ({
         type="text"
         inputMode="numeric"
         aria-label={ariaLabel}
+        required={required}
+        aria-required={required || undefined}
         value={displayText}
         onChange={handleTextChange}
         onBlur={handleBlur}

@@ -1,6 +1,7 @@
 import {
   CardPaddingDensity,
   LayoutMode,
+  PlanModulesConfig,
   SubscriptionPlan,
   SubscriptionPlanId,
   SystemThemeConfig,
@@ -11,7 +12,42 @@ import {
 import { roundToTwo } from './finance';
 import { Language } from './i18nUtils';
 
+import type { BillingCycle } from '../types/garage';
+
 export const SUPERADMIN_BOOTSTRAP_EMAIL = 'blackproduction999@gmail.com';
+export const SUPERADMIN_BOOTSTRAP_EMAILS = [
+  'blackproduction999@gmail.com',
+  'victoria.leroy456@gmail.com',
+  'tikjan1983@gmail.com',
+] as const;
+
+export function getDefaultPlanModules(planId: SubscriptionPlanId): PlanModulesConfig {
+  if (planId === 'enterprise') {
+    return {
+      cerfaAutofill: true,
+      suppliers: true,
+      analytics: true,
+      exportsBackup: true,
+      multiGarage: true,
+    };
+  }
+  if (planId === 'pro') {
+    return {
+      cerfaAutofill: true,
+      suppliers: true,
+      analytics: true,
+      exportsBackup: true,
+      multiGarage: false,
+    };
+  }
+  return {
+    cerfaAutofill: false,
+    suppliers: false,
+    analytics: false,
+    exportsBackup: false,
+    multiGarage: false,
+  };
+}
 
 export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
@@ -19,32 +55,294 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     name: 'Starter',
     priceMonthly: 0,
     vehicleLimit: 5,
-    featuresFr: ['Jusqu’à 5 véhicules', 'Bilan P&L basique', 'Export Cerfa 15776*02'],
-    featuresRu: ['До 5 автомобилей', 'Базовый расчёт P&L', 'Экспорт Cerfa 15776*02'],
-    featuresHy: ['Մինչև 5 ավտոմեքենա', 'Բազային P&L հաշվարկ', 'Cerfa 15776*02 արտահանում'],
-    featuresKa: ['5-მდე ავტომობილი', 'საბაზისო P&L გათვლა', 'Cerfa 15776*02 ექსპორტი'],
+    isPopular: false,
+    modules: getDefaultPlanModules('starter'),
+    taglineFr: 'Pour démarrer la gestion du parc',
+    taglineRu: 'Для старта и небольшого автопарка',
+    taglineHy: 'Սկսելու և փոքր ավտոպարկի համար',
+    taglineKa: 'დასაწყებად და მცირე ავტოპარკისთვის',
+    featuresFr: [
+      'Gestion du parc (jusqu’à 5 véhicules)',
+      'Calculateur P&L par véhicule',
+      'Remplissage manuel Cerfa 15776*02',
+    ],
+    featuresRu: [
+      'Базовый учёт автопарка (до 5 авто)',
+      'Расчёт P&L',
+      'Ручное заполнение Cerfa',
+    ],
+    featuresHy: [
+      'Ավտոպարկի բազային հաշվառում (մինչև 5 մեքենա)',
+      'P&L շահույթի հաշվարկ',
+      'Cerfa-ի ձեռքով լրացում',
+    ],
+    featuresKa: [
+      'ავტოპარკის საბაზისო აღრიცხვა (5 ავტომდე)',
+      'P&L მოგების გათვლა',
+      'Cerfa-ს ხელით შევსება',
+    ],
   },
   {
     id: 'pro',
-    name: 'Pro Dealer',
-    priceMonthly: 49,
-    vehicleLimit: 50,
-    featuresFr: ['Jusqu’à 50 véhicules', 'Analytique & Dépenses', 'Factures PDF TVA Marge'],
-    featuresRu: ['До 50 автомобилей', 'Аналитика и расходы', 'Счета PDF (TVA sur marge)'],
-    featuresHy: ['Մինչև 50 ավտոմեքենա', 'Վերլուծություն և ծախսեր', 'PDF հաշիվներ (TVA sur marge)'],
-    featuresKa: ['50-მდე ავტომობილი', 'ანალიტიკა და ხარჯები', 'PDF ინვოისები (TVA sur marge)'],
+    name: 'Pro',
+    priceMonthly: 39,
+    vehicleLimit: null,
+    isPopular: true,
+    modules: getDefaultPlanModules('pro'),
+    taglineFr: 'Idéal pour marchands et garages indépendants',
+    taglineRu: 'Оптимально для автодилеров и СТО',
+    taglineHy: 'Լավագույնը անկախ ավտոդիլերների համար',
+    taglineKa: 'საუკეთესოა დამოუკიდებელი დილერებისთვის',
+    featuresFr: [
+      'Stock de véhicules illimité',
+      'Auto-remplissage & export PDF de tous les Cerfa (15776*02, 13750*07, DA)',
+      'Fournisseurs, achats & pièces détachées',
+      'Analytique détaillée & exports cloud',
+    ],
+    featuresRu: [
+      'Безлимитный склад авто',
+      'Автозаполнение и PDF-экспорт всех бланков Cerfa (15776*02, 13750*07, DA)',
+      'Учёт поставщиков и запчастей',
+      'Аналитика P&L, экспорт и бэкап',
+    ],
+    featuresHy: [
+      'Անսահմանափակ ավտոպարկ',
+      'Բոլոր Cerfa ձևաթղթերի ավտոլրացում և PDF արտահանում (15776*02, 13750*07, DA)',
+      'Մատակարարների և պահեստամասերի հաշվառում',
+      'Վերլուծություն, արտահանում և պահուստավորում',
+    ],
+    featuresKa: [
+      'ულიმიტო ავტომობილების საწყობი',
+      'ყველა Cerfa ფორმის ავტოშევსება და PDF ექსპორტი (15776*02, 13750*07, DA)',
+      'მომწოდებლებისა და ნაწილების აღრიცხვა',
+      'ანალიტიკა, ექსპორტი და სარეზერვო ასლი',
+    ],
   },
   {
     id: 'enterprise',
-    name: 'Enterprise',
-    priceMonthly: 149,
-    vehicleLimit: 9999,
-    featuresFr: ['Véhicules illimités', 'Support prioritaire', 'Multi-utilisateurs & API'],
-    featuresRu: ['Безлимитный автопарк', 'Приоритетная поддержка', 'Мульти-доступ и API'],
-    featuresHy: ['Անսահմանափակ ավտոպարկ', 'Առաջնահերթ աջակցություն', 'Բազմաօգտատեր և API'],
-    featuresKa: ['ულიმიტო ავტოპარკი', 'პრიორიტეტული მხარდაჭერა', 'მულტი-წვდომა და API'],
+    name: 'Business',
+    priceMonthly: 79,
+    vehicleLimit: null,
+    isPopular: false,
+    modules: getDefaultPlanModules('enterprise'),
+    taglineFr: 'Pour groupes automobiles multi-sites',
+    taglineRu: 'Для сетей автосалонов и нескольких ЮЛ',
+    taglineHy: 'Բազմամասնաճյուղ ավտոսրահների ցանցերի համար',
+    taglineKa: 'მულტი-ფილიალიანი ავტოქსელებისთვის',
+    featuresFr: [
+      'Tout ce qui est inclus dans Pro',
+      'Mode Multi-garages (plusieurs sites / sociétés)',
+      'Analytique financière avancée',
+      'Support prioritaire dédié',
+    ],
+    featuresRu: [
+      'Всё из Pro',
+      'Режим Мультигараж (несколько филиалов/ЮЛ)',
+      'Расширенная аналитика',
+      'Приоритетная поддержка',
+    ],
+    featuresHy: [
+      'Ամենը Pro-ից',
+      'Մուլտիգարաժ ռեժիմ (մի քանի մասնաճյուղ/ընկերություն)',
+      'Ընդլայնված վերլուծություն',
+      'Առաջնահերթ աջակցություն',
+    ],
+    featuresKa: [
+      'ყველაფერი Pro-დან',
+      'მულტი-გარაჟის რეჟიმი (რამდენიმე ფილიალი/იურ. პირი)',
+      'გაფართოებული ანალიტიკა',
+      'პრიორიტეტული მხარდაჭერა',
+    ],
   },
 ];
+
+export const ANNUAL_BILLING_DISCOUNT_RATE = 0.2;
+
+export function getPlanRank(planId?: SubscriptionPlanId | null): number {
+  if (planId === 'enterprise') return 2;
+  if (planId === 'pro') return 1;
+  return 0;
+}
+
+function normalizePlanModules(
+  rawModules: Partial<PlanModulesConfig> | undefined,
+  planId: SubscriptionPlanId
+): PlanModulesConfig {
+  const defaults = getDefaultPlanModules(planId);
+  if (!rawModules || typeof rawModules !== 'object') {
+    return { ...defaults };
+  }
+  return {
+    cerfaAutofill:
+      typeof rawModules.cerfaAutofill === 'boolean'
+        ? rawModules.cerfaAutofill
+        : defaults.cerfaAutofill,
+    suppliers:
+      typeof rawModules.suppliers === 'boolean'
+        ? rawModules.suppliers
+        : defaults.suppliers,
+    analytics:
+      typeof rawModules.analytics === 'boolean'
+        ? rawModules.analytics
+        : defaults.analytics,
+    exportsBackup:
+      typeof rawModules.exportsBackup === 'boolean'
+        ? rawModules.exportsBackup
+        : defaults.exportsBackup,
+    multiGarage:
+      typeof rawModules.multiGarage === 'boolean'
+        ? rawModules.multiGarage
+        : defaults.multiGarage,
+  };
+}
+
+function normalizeVehicleLimit(
+  rawLimit: unknown,
+  fallbackLimit: number | null
+): number | null {
+  if (rawLimit === null) return null;
+  if (typeof rawLimit === 'number' && !Number.isNaN(rawLimit)) {
+    if (rawLimit >= 9999) return null;
+    if (rawLimit >= 1) return Math.round(rawLimit);
+  }
+  return fallbackLimit;
+}
+
+export function normalizeSubscriptionPlans(raw?: unknown): SubscriptionPlan[] {
+  const inputArray = Array.isArray(raw) ? (raw as (Partial<SubscriptionPlan> & { id?: string })[]) : [];
+  const byId = new Map<SubscriptionPlanId, Partial<SubscriptionPlan>>();
+  for (const item of inputArray) {
+    if (!item) continue;
+    const mappedId: SubscriptionPlanId | null =
+      item.id === 'starter' || item.id === 'pro' || item.id === 'enterprise'
+        ? item.id
+        : item.id === 'business'
+        ? 'enterprise'
+        : null;
+    if (mappedId) {
+      byId.set(mappedId, item);
+    }
+  }
+  return DEFAULT_SUBSCRIPTION_PLANS.map((def) => {
+    const custom = byId.get(def.id);
+    if (!custom) return def;
+    const sanitizeFeatures = (list: unknown, fallback?: string[]): string[] => {
+      if (!Array.isArray(list)) return fallback ? [...fallback] : [];
+      return list.map((s) => String(s ?? '').trim()).filter(Boolean);
+    };
+    return {
+      ...def,
+      ...custom,
+      id: def.id,
+      name: typeof custom.name === 'string' && custom.name.trim() ? custom.name.trim() : def.name,
+      priceMonthly:
+        typeof custom.priceMonthly === 'number' && !Number.isNaN(custom.priceMonthly)
+          ? Math.max(0, custom.priceMonthly)
+          : def.priceMonthly,
+      vehicleLimit: normalizeVehicleLimit(custom.vehicleLimit, def.vehicleLimit),
+      isPopular: typeof custom.isPopular === 'boolean' ? custom.isPopular : Boolean(def.isPopular),
+      modules: normalizePlanModules(custom.modules, def.id),
+      featuresFr: sanitizeFeatures(custom.featuresFr, def.featuresFr),
+      featuresRu: sanitizeFeatures(custom.featuresRu, def.featuresRu),
+      featuresHy: sanitizeFeatures(custom.featuresHy, def.featuresHy),
+      featuresKa: sanitizeFeatures(custom.featuresKa, def.featuresKa),
+    };
+  });
+}
+
+export function computePlanPricing(
+  priceMonthly: number,
+  billingCycle: BillingCycle
+): {
+  effectiveMonthly: number;
+  billedAmount: number;
+  annualSavings: number;
+  discountPercent: number;
+} {
+  const safeMonthly = Math.max(0, Number(priceMonthly) || 0);
+  if (billingCycle === 'annual') {
+    const effectiveMonthly = roundToTwo(safeMonthly * (1 - ANNUAL_BILLING_DISCOUNT_RATE));
+    const billedAmount = roundToTwo(effectiveMonthly * 12);
+    const annualSavings = roundToTwo(safeMonthly * 12 - billedAmount);
+    return {
+      effectiveMonthly,
+      billedAmount,
+      annualSavings,
+      discountPercent: Math.round(ANNUAL_BILLING_DISCOUNT_RATE * 100),
+    };
+  }
+  return {
+    effectiveMonthly: roundToTwo(safeMonthly),
+    billedAmount: roundToTwo(safeMonthly),
+    annualSavings: 0,
+    discountPercent: 0,
+  };
+}
+
+export function getPlanBadgeLabel(
+  planId: SubscriptionPlanId | undefined | null,
+  _lang: Language,
+  plans?: SubscriptionPlan[]
+): string {
+  const resolvedId: SubscriptionPlanId =
+    planId === 'enterprise' || planId === 'pro' ? planId : 'starter';
+  if (plans && plans.length > 0) {
+    const matched = plans.find((p) => p.id === resolvedId);
+    if (matched?.name?.trim()) {
+      return matched.name.trim().toUpperCase();
+    }
+  }
+  if (resolvedId === 'enterprise') return 'BUSINESS';
+  if (resolvedId === 'pro') return 'PRO';
+  return 'STARTER';
+}
+
+export interface PlanCapabilities {
+  planId: SubscriptionPlanId;
+  vehicleLimit: number;
+  rawVehicleLimit: number | null;
+  isUnlimitedVehicles: boolean;
+  canUseCerfaAutofillAll: boolean;
+  canUseSuppliers: boolean;
+  canUseDocumentsVault: boolean;
+  canUseExportsBackup: boolean;
+  canUseMultiGarage: boolean;
+  canUseAdvancedAnalytics: boolean;
+}
+
+export function getPlanCapabilities(
+  planId?: SubscriptionPlanId | null,
+  plans: SubscriptionPlan[] = DEFAULT_SUBSCRIPTION_PLANS
+): PlanCapabilities {
+  const resolvedPlanId: SubscriptionPlanId =
+    planId === 'enterprise' || planId === 'pro' ? planId : 'starter';
+  const normalizedPlans = normalizeSubscriptionPlans(plans);
+  const matched =
+    normalizedPlans.find((p) => p.id === resolvedPlanId) ||
+    DEFAULT_SUBSCRIPTION_PLANS.find((p) => p.id === resolvedPlanId)!;
+  const modules = normalizePlanModules(matched.modules, resolvedPlanId);
+  const isUnlimitedVehicles =
+    matched.vehicleLimit === null ||
+    (typeof matched.vehicleLimit === 'number' && matched.vehicleLimit >= 9999);
+  const numericVehicleLimit = isUnlimitedVehicles
+    ? 9999
+    : Math.max(1, Number(matched.vehicleLimit) || 5);
+  const rank = getPlanRank(resolvedPlanId);
+
+  return {
+    planId: resolvedPlanId,
+    vehicleLimit: numericVehicleLimit,
+    rawVehicleLimit: isUnlimitedVehicles ? null : numericVehicleLimit,
+    isUnlimitedVehicles,
+    canUseCerfaAutofillAll: modules.cerfaAutofill,
+    canUseSuppliers: modules.suppliers,
+    canUseDocumentsVault:
+      rank >= 1 || modules.cerfaAutofill || modules.exportsBackup || modules.suppliers,
+    canUseExportsBackup: modules.exportsBackup,
+    canUseMultiGarage: modules.multiGarage,
+    canUseAdvancedAnalytics: modules.analytics,
+  };
+}
 
 export const DEFAULT_LIGHT_PALETTE: ThemePaletteTokens = {
   background: '#f1f5f9',
@@ -481,7 +779,9 @@ export function isSuperAdminUser(params: {
   }
   if (
     params.email &&
-    params.email.toLowerCase() === SUPERADMIN_BOOTSTRAP_EMAIL.toLowerCase() &&
+    SUPERADMIN_BOOTSTRAP_EMAILS.some(
+      (e) => e.toLowerCase() === params.email!.toLowerCase()
+    ) &&
     params.emailVerified !== false
   ) {
     return true;
@@ -620,7 +920,87 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlagsConfig = {
   expenseAnalytics: true,
   multiGarage: true,
   repairChecklist: true,
+  suppliersModule: true,
+  documentsModule: true,
+  exportsBackup: true,
 };
+
+export function normalizeFeatureFlags(
+  raw?: Partial<FeatureFlagsConfig> | Record<string, unknown> | null
+): FeatureFlagsConfig {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    cerfaGenerator:
+      typeof source.cerfaGenerator === 'boolean'
+        ? source.cerfaGenerator
+        : DEFAULT_FEATURE_FLAGS.cerfaGenerator,
+    pnlCalculator:
+      typeof source.pnlCalculator === 'boolean'
+        ? source.pnlCalculator
+        : DEFAULT_FEATURE_FLAGS.pnlCalculator,
+    expenseAnalytics:
+      typeof source.expenseAnalytics === 'boolean'
+        ? source.expenseAnalytics
+        : DEFAULT_FEATURE_FLAGS.expenseAnalytics,
+    multiGarage:
+      typeof source.multiGarage === 'boolean'
+        ? source.multiGarage
+        : DEFAULT_FEATURE_FLAGS.multiGarage,
+    repairChecklist:
+      typeof source.repairChecklist === 'boolean'
+        ? source.repairChecklist
+        : DEFAULT_FEATURE_FLAGS.repairChecklist,
+    suppliersModule:
+      typeof source.suppliersModule === 'boolean'
+        ? source.suppliersModule
+        : DEFAULT_FEATURE_FLAGS.suppliersModule,
+    documentsModule:
+      typeof source.documentsModule === 'boolean'
+        ? source.documentsModule
+        : DEFAULT_FEATURE_FLAGS.documentsModule,
+    exportsBackup:
+      typeof source.exportsBackup === 'boolean'
+        ? source.exportsBackup
+        : DEFAULT_FEATURE_FLAGS.exportsBackup,
+  };
+}
+
+export function isViewAllowedByFeatureFlags(
+  view: string,
+  flags: FeatureFlagsConfig
+): boolean {
+  switch (view) {
+    case 'analytics':
+      return flags.expenseAnalytics;
+    case 'suppliers':
+      return flags.suppliersModule;
+    case 'documents':
+      return flags.documentsModule;
+    case 'exports':
+      return flags.exportsBackup;
+    default:
+      return true;
+  }
+}
+
+export function resolveEffectiveFeatureFlagsForPlan(
+  globalFlags: FeatureFlagsConfig,
+  planId?: SubscriptionPlanId | null,
+  isSuperAdmin: boolean = false,
+  plans: SubscriptionPlan[] = DEFAULT_SUBSCRIPTION_PLANS
+): FeatureFlagsConfig {
+  if (isSuperAdmin && !planId) {
+    return globalFlags;
+  }
+  const caps = getPlanCapabilities(planId, plans);
+  return {
+    ...globalFlags,
+    multiGarage: globalFlags.multiGarage && caps.canUseMultiGarage,
+    suppliersModule: globalFlags.suppliersModule && caps.canUseSuppliers,
+    exportsBackup: globalFlags.exportsBackup && caps.canUseExportsBackup,
+    expenseAnalytics: globalFlags.expenseAnalytics && caps.canUseAdvancedAnalytics,
+  };
+}
 
 export const DEFAULT_DYNAMIC_EXPENSE_CATEGORIES: DynamicExpenseCategory[] = [
   { id: 'transport', labelFr: 'Transport / Rapatriement', labelRu: 'Доставка / Эвакуатор', labelHy: 'Տեղափոխում / Էվակուատոր', labelKa: 'ტრანსპორტირება / ევაკუატორი', icon: 'Truck', defaultAmount: 180, order: 1 },

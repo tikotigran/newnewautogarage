@@ -28,6 +28,7 @@ import {
 import { getGarageSettings } from '../services/garageService';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
+import { formatCerfaMissingToast } from '../utils/vehicleFormUtils';
 
 interface BuyerModalProps {
   isOpen: boolean;
@@ -36,7 +37,17 @@ interface BuyerModalProps {
   garageSettings?: GarageSettings;
   profileType?: AppUserProfileType;
   onConfirmSale: (vehicleId: string, buyerInfo: BuyerInfo) => Promise<void>;
+  onValidationToast?: (message: string) => void;
 }
+
+type BuyerFieldErrorKey =
+  | 'salePrice'
+  | 'saleDate'
+  | 'fullName'
+  | 'streetNumber'
+  | 'streetName'
+  | 'postalCode'
+  | 'city';
 
 export const BuyerModal: React.FC<BuyerModalProps> = ({
   isOpen,
@@ -45,6 +56,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   garageSettings: propGarageSettings,
   profileType: propProfileType,
   onConfirmSale,
+  onValidationToast,
 }) => {
   const { t, lang } = useI18n();
   const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
@@ -100,10 +112,10 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   const [siret, setSiret] = useState(vehicle?.buyerInfo?.siret || '');
   const [birthDate, setBirthDate] = useState(vehicle?.buyerInfo?.birthDate || '1990-01-01');
   const [birthPlace, setBirthPlace] = useState(vehicle?.buyerInfo?.birthPlace || 'Paris');
-  const [streetNumber, setStreetNumber] = useState(vehicle?.buyerInfo?.streetNumber || '14');
-  const [streetName, setStreetName] = useState(vehicle?.buyerInfo?.streetName || 'Rue des Lilas');
-  const [postalCode, setPostalCode] = useState(vehicle?.buyerInfo?.postalCode || '75011');
-  const [city, setCity] = useState(vehicle?.buyerInfo?.city || 'Paris');
+  const [streetNumber, setStreetNumber] = useState(vehicle?.buyerInfo?.streetNumber || '');
+  const [streetName, setStreetName] = useState(vehicle?.buyerInfo?.streetName || '');
+  const [postalCode, setPostalCode] = useState(vehicle?.buyerInfo?.postalCode || '');
+  const [city, setCity] = useState(vehicle?.buyerInfo?.city || '');
   const [phone, setPhone] = useState(vehicle?.buyerInfo?.phone || '');
   const [email, setEmail] = useState(vehicle?.buyerInfo?.email || '');
   const [salePrice, setSalePrice] = useState<number | ''>(
@@ -115,6 +127,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   const [saleTime, setSaleTime] = useState(vehicle?.buyerInfo?.saleTime || '14:00');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<BuyerFieldErrorKey, string>>>({});
 
   useEffect(() => {
     if (vehicle && isOpen) {
@@ -125,16 +138,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       setSiret(vehicle.buyerInfo?.siret || '');
       setBirthDate(vehicle.buyerInfo?.birthDate || '1990-01-01');
       setBirthPlace(vehicle.buyerInfo?.birthPlace || 'Paris');
-      setStreetNumber(vehicle.buyerInfo?.streetNumber || '14');
-      setStreetName(vehicle.buyerInfo?.streetName || 'Rue des Lilas');
-      setPostalCode(vehicle.buyerInfo?.postalCode || '75011');
-      setCity(vehicle.buyerInfo?.city || 'Paris');
+      setStreetNumber(vehicle.buyerInfo?.streetNumber || '');
+      setStreetName(vehicle.buyerInfo?.streetName || '');
+      setPostalCode(vehicle.buyerInfo?.postalCode || '');
+      setCity(vehicle.buyerInfo?.city || '');
       setPhone(vehicle.buyerInfo?.phone || '');
       setEmail(vehicle.buyerInfo?.email || '');
       setSalePrice(vehicle.buyerInfo?.salePrice || vehicle.targetSalePrice || vehicle.purchasePrice);
       setSaleDate(vehicle.buyerInfo?.saleDate || new Date().toISOString().split('T')[0]);
       setSaleTime(vehicle.buyerInfo?.saleTime || '14:00');
       setError(null);
+      setFieldErrors({});
     }
     // Reset only when modal opens for a vehicle, avoiding mid-edit resets on parent re-renders
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,18 +182,57 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim()) {
-      setError(t('buyerFullNamePlaceholder'));
-      return;
+    const nextFieldErrors: Partial<Record<BuyerFieldErrorKey, string>> = {};
+    const missingLabels: string[] = [];
+
+    if (salePrice === '' || Number.isNaN(Number(salePrice)) || Number(salePrice) <= 0) {
+      const lbl = L('Prix de vente final', 'Итоговая цена продажи', 'Վաճառքի գին', 'საბოლოო ფასი');
+      nextFieldErrors.salePrice = lbl;
+      missingLabels.push(lbl);
     }
-    if (salePrice === '' || Number(salePrice) <= 0) {
-      setError('Veuillez renseigner un prix de vente final valide.');
+    if (!saleDate.trim()) {
+      const lbl = L('Date de cession', 'Дата продажи', 'Վաճառքի ամսաթիվ', 'გაყიდვის თარიღი');
+      nextFieldErrors.saleDate = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!fullName.trim()) {
+      const lbl = isCompany ? 'Raison sociale' : L('Nom et Prénom', 'ФИО покупателя', 'Գնորդի անունը', 'მყიდველის სახელი');
+      nextFieldErrors.fullName = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!streetNumber.trim()) {
+      const lbl = 'N° de voie';
+      nextFieldErrors.streetNumber = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!streetName.trim()) {
+      const lbl = 'Nom de la voie';
+      nextFieldErrors.streetName = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!postalCode.trim()) {
+      const lbl = 'Code postal';
+      nextFieldErrors.postalCode = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!city.trim()) {
+      const lbl = 'Commune / Ville';
+      nextFieldErrors.city = lbl;
+      missingLabels.push(lbl);
+    }
+
+    if (missingLabels.length > 0) {
+      const toastMsg = formatCerfaMissingToast(missingLabels, lang);
+      setFieldErrors(nextFieldErrors);
+      setError(toastMsg);
+      onValidationToast?.(toastMsg);
       return;
     }
 
     try {
       setIsSubmitting(true);
       setError(null);
+      setFieldErrors({});
 
       const fullFormattedAddress = `${streetNumber ? streetNumber + ' ' : ''}${streetName.trim()}, ${postalCode.trim()} ${city.trim()}`;
 
@@ -272,9 +325,13 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} noValidate className="p-5 space-y-3.5 max-h-[80vh] overflow-y-auto">
           {error && (
-            <div className="p-3 bg-red-950/40 border border-red-500/40 rounded-xl text-xs text-red-300 flex items-center gap-2">
+            <div
+              role="alert"
+              data-testid="buyer-modal-validation-error"
+              className="p-3 bg-red-950/40 border border-red-500/40 rounded-xl text-xs text-red-300 flex items-center gap-2"
+            >
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
               <span>{error}</span>
             </div>
@@ -461,9 +518,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                   required
                   min={0}
                   step="any"
+                  data-testid="buyer-sale-price"
                   value={salePrice}
-                  onChange={(e) => setSalePrice(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full pl-3 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-bold text-emerald-400 focus:outline-none focus:border-amber-500"
+                  onChange={(e) => {
+                    setSalePrice(e.target.value === '' ? '' : Number(e.target.value));
+                    setFieldErrors((prev) => ({ ...prev, salePrice: undefined }));
+                  }}
+                  className={`w-full pl-3 pr-8 py-2 bg-slate-950 border rounded-xl text-sm font-bold text-emerald-400 focus:outline-none ${
+                    fieldErrors.salePrice
+                      ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                      : 'border-slate-800 focus:border-amber-500'
+                  }`}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-bold">
                   €
@@ -480,9 +545,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 <input
                   type="date"
                   required
+                  data-testid="buyer-sale-date"
                   value={saleDate}
-                  onChange={(e) => setSaleDate(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                  onChange={(e) => {
+                    setSaleDate(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, saleDate: undefined }));
+                  }}
+                  className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none ${
+                    fieldErrors.saleDate
+                      ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                      : 'border-slate-800 focus:border-amber-500'
+                  }`}
                 />
               </div>
             </div>
@@ -547,10 +620,18 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                   <input
                     type="text"
                     required
+                    data-testid="buyer-full-name"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
+                    }}
                     placeholder={isCompany ? 'ex. Entreprise Transport Express' : t('buyerFullNamePlaceholder')}
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                    className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                      fieldErrors.fullName
+                        ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
                   />
                 </div>
               </div>
@@ -603,30 +684,49 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             {/* Address fields */}
             <div className="grid grid-cols-4 gap-3 mb-3">
               <div className="col-span-1">
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {t('buyerStreetNumberLabel')}
+                <label htmlFor="buyer-street-number" className="block text-xs font-semibold text-slate-300 mb-1">
+                  N° de voie *
                 </label>
                 <input
+                  id="buyer-street-number"
+                  data-testid="buyer-street-number"
                   type="text"
+                  required
                   value={streetNumber}
-                  onChange={(e) => setStreetNumber(e.target.value)}
+                  onChange={(e) => {
+                    setStreetNumber(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, streetNumber: undefined }));
+                  }}
                   placeholder="14"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                    fieldErrors.streetNumber
+                      ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                      : 'border-slate-800 focus:border-amber-500'
+                  }`}
                 />
               </div>
               <div className="col-span-3">
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {t('buyerStreetNameLabel')}
+                <label htmlFor="buyer-street-name" className="block text-xs font-semibold text-slate-300 mb-1">
+                  Nom de la voie *
                 </label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <input
+                    id="buyer-street-name"
+                    data-testid="buyer-street-name"
                     type="text"
                     required
                     value={streetName}
-                    onChange={(e) => setStreetName(e.target.value)}
+                    onChange={(e) => {
+                      setStreetName(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, streetName: undefined }));
+                    }}
                     placeholder="Rue des Lilas"
-                    className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                    className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                      fieldErrors.streetName
+                        ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
                   />
                 </div>
               </div>
@@ -634,29 +734,47 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label htmlFor="buyer-postal-code" className="block text-xs font-semibold text-slate-300 mb-1">
                   {t('buyerPostalCodeLabel')}
                 </label>
                 <input
+                  id="buyer-postal-code"
+                  data-testid="buyer-postal-code"
                   type="text"
                   required
                   value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
+                  onChange={(e) => {
+                    setPostalCode(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, postalCode: undefined }));
+                  }}
                   placeholder="69003"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none ${
+                    fieldErrors.postalCode
+                      ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                      : 'border-slate-800 focus:border-amber-500'
+                  }`}
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label htmlFor="buyer-city" className="block text-xs font-semibold text-slate-300 mb-1">
                   {t('buyerCityLabel')}
                 </label>
                 <input
+                  id="buyer-city"
+                  data-testid="buyer-city"
                   type="text"
                   required
                   value={city}
-                  onChange={(e) => setCity(e.target.value)}
+                  onChange={(e) => {
+                    setCity(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, city: undefined }));
+                  }}
                   placeholder="Lyon"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                    fieldErrors.city
+                      ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                      : 'border-slate-800 focus:border-amber-500'
+                  }`}
                 />
               </div>
             </div>
@@ -728,6 +846,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </button>
             <button
               type="submit"
+              data-testid="buyer-modal-submit"
               disabled={isSubmitting}
               className="px-6 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white shadow-lg shadow-purple-500/20 transition flex items-center gap-2"
             >

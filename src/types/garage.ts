@@ -131,6 +131,24 @@ export interface TransactionTaxSnapshot {
   disclaimerNote: string;
 }
 
+export interface StatusProfileData {
+  name: string;
+  lastName?: string;
+  firstName?: string;
+  sex?: 'M' | 'F' | '';
+  siret: string;
+  streetNumber: string;
+  streetExtension?: string;
+  streetType?: string;
+  streetName: string;
+  postalCode: string;
+  city: string;
+  phone: string;
+  email: string;
+  legalForm?: string;
+  tvaMention?: string;
+}
+
 export interface GarageSettings {
   garageId?: string;
   profileType?: AppUserProfileType;
@@ -151,6 +169,8 @@ export interface GarageSettings {
   email: string;
   legalForm?: string;
   tvaMention?: string;
+  particulierProfile?: StatusProfileData;
+  proProfile?: StatusProfileData;
   defaultCerfaTemplate?: string;
   theme?: 'dark' | 'light';
   layoutMode?: UserLayoutPreference;
@@ -199,10 +219,14 @@ export interface Vehicle {
   fuelType?: string;
   gearbox?: string;
   typeVariantVersion?: string; // (D.2) Type, variante, version
+  commercialDesignation?: string; // (D.3) Dénomination commerciale
+  firstRegistrationDate?: string; // (B) Date de 1re immatriculation
   nationalGenre?: string;      // (J.1) Genre national
   bodyType?: string;           // (J.3) Carrosserie
+  hasRegistrationCertificate?: boolean; // Présence du certificat d'immatriculation (OUI / NON)
   formulaNumber?: string;      // Numéro de formule
   certificateDate?: string;    // (I) Date du certificat d'immatriculation
+  absenceReason?: string;      // Motif d'absence du certificat
   purchaseDate: string;
   purchasePrice: number;
   targetSalePrice: number;
@@ -216,6 +240,7 @@ export interface Vehicle {
   totalInvested: number;
   netProfit: number;
   marginPercentage: number;
+  isDemo?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -433,6 +458,7 @@ export const EXPENSE_CATEGORIES: {
 export type UserRole = 'user' | 'superadmin';
 export type SubscriptionPlanId = 'starter' | 'pro' | 'enterprise';
 export type SubscriptionStatus = 'active' | 'trial' | 'past_due' | 'canceled';
+export type BillingCycle = 'monthly' | 'annual';
 
 export interface UserProfile {
   uid: string;
@@ -442,20 +468,38 @@ export interface UserProfile {
   profileType?: AppUserProfileType;
   role: UserRole;
   planId: SubscriptionPlanId;
+  plan?: SubscriptionPlanId;
+  subscriptionTier?: SubscriptionPlanId;
+  billingCycle?: BillingCycle;
   vehicleLimit: number;
   activeVehiclesCount: number;
   subscriptionStatus: SubscriptionStatus;
   mrrAmount: number;
   lastPaymentDate?: string;
+  nextRenewalDate?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PlanModulesConfig {
+  cerfaAutofill: boolean;
+  suppliers: boolean;
+  analytics: boolean;
+  exportsBackup: boolean;
+  multiGarage: boolean;
 }
 
 export interface SubscriptionPlan {
   id: SubscriptionPlanId;
   name: string;
   priceMonthly: number;
-  vehicleLimit: number;
+  vehicleLimit: number | null;
+  isPopular?: boolean;
+  modules?: PlanModulesConfig;
+  taglineFr?: string;
+  taglineRu?: string;
+  taglineHy?: string;
+  taglineKa?: string;
   featuresFr: string[];
   featuresRu: string[];
   featuresHy?: string[];
@@ -530,6 +574,12 @@ export interface GarageWorkspace {
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
   frenchTaxConfig?: FrenchTaxConfiguration;
+  particulierProfile?: StatusProfileData;
+  proProfile?: StatusProfileData;
+  planId?: SubscriptionPlanId;
+  plan?: SubscriptionPlanId;
+  subscriptionTier?: SubscriptionPlanId;
+  billingCycle?: BillingCycle;
   createdAt: string;
   updatedAt: string;
 }
@@ -551,6 +601,9 @@ export interface FeatureFlagsConfig {
   expenseAnalytics: boolean;
   multiGarage: boolean;
   repairChecklist: boolean;
+  suppliersModule: boolean;
+  documentsModule: boolean;
+  exportsBackup: boolean;
 }
 
 export type GlobalTextOverrides = Record<
@@ -602,6 +655,7 @@ export interface Supplier {
   address?: string;
   siret?: string;
   notes?: string;
+  isDemo?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -625,6 +679,7 @@ export interface Purchase {
   invoiceProofUrl?: string;
   vehicleDocuments: PurchaseDocument[];
   notes?: string;
+  isDemo?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -684,6 +739,7 @@ export interface GarageDocument {
   fileUrl: string;
   documentDate: string;
   notes?: string;
+  isDemo?: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -89,6 +89,10 @@ export function validateGarageSettings(settings: GarageSettings): Record<string,
     }
   }
 
+  if (!settings.streetNumber?.trim()) {
+    errors.streetNumber = 'Le numéro de voie (N° de voie) est requis.';
+  }
+
   if (!settings.streetName?.trim()) {
     errors.streetName = 'Le nom de la voie est requis.';
   }

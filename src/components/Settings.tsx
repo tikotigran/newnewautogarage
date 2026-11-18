@@ -34,6 +34,7 @@ import {
   Info,
   ChevronDown,
   ChevronRight,
+  Crown,
 } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebase';
@@ -42,10 +43,14 @@ import {
   FrenchTaxConfiguration,
   GarageSettings,
   LayoutMode,
+  StatusProfileData,
+  SubscriptionPlan,
   TaxSettingsAuditEntry,
   UserLayoutPreference,
+  UserProfile,
   Vehicle,
 } from '../types/garage';
+import { SubscriptionPlanTab } from './SubscriptionPlanTab';
 import { ThemedSelect } from './ThemedSelect';
 import {
   DEFAULT_GARAGE_SETTINGS,
@@ -64,7 +69,6 @@ import {
   subscribeCerfaTemplatesCalibration,
 } from '../services/adminService';
 import {
-  buildProfileSettingsPatch,
   calculateMicroEntrepriseTaxes,
   calculateVehicleProfitBeforeTaxes,
   FRENCH_TAX_DEFAULTS,
@@ -73,6 +77,10 @@ import {
   resolveUserProfileType,
   roundCurrency,
 } from '../utils/frenchTaxEngine';
+import {
+  switchGarageSettingsProfile,
+  syncActiveProfileOnEdit,
+} from '../utils/profileSeparationUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { getIntlLocale, Language, pickLocalized, SUPPORTED_LANGUAGES } from '../utils/i18nUtils';
 import {
@@ -90,17 +98,22 @@ const LANGUAGE_FLAGS: Record<Language, string> = {
   hy: '🇦🇲',
 };
 
-export type SettingsTab = 'company' | 'templates' | 'finance' | 'appearance' | 'security';
+export type SettingsTab = 'company' | 'templates' | 'finance' | 'appearance' | 'subscription' | 'security';
 
 interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   userId?: string;
+  userProfile?: UserProfile | null;
+  subscriptionPlans?: SubscriptionPlan[];
+  allVehiclesCount?: number;
   activeGarageId?: string | null;
   vehicles?: Vehicle[];
   theme: 'dark' | 'light';
   onThemeChange: (theme: 'dark' | 'light') => void;
   onSettingsSaved?: (newSettings: GarageSettings) => void;
+  onPlanUpdated?: (updatedProfile: UserProfile) => void;
+  onSubscriptionToast?: (text: string) => void;
   onOpenAlignerMode?: () => void;
   userEmail?: string | null;
   userRole?: string;
@@ -132,11 +145,16 @@ export const Settings: React.FC<SettingsProps> = ({
   isOpen,
   onClose,
   userId,
+  userProfile = null,
+  subscriptionPlans,
+  allVehiclesCount,
   activeGarageId,
   vehicles = [],
   theme,
   onThemeChange,
   onSettingsSaved,
+  onPlanUpdated,
+  onSubscriptionToast,
   onOpenAlignerMode,
   userEmail,
   userRole = 'user',
@@ -192,9 +210,12 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const isPage = variant === 'page';
   const targetGarageId = activeGarageId || DEFAULT_GARAGE_ID;
+  const hasProfileEditsRef = useRef(false);
 
   useEffect(() => {
+    let isCancelled = false;
     if (isOpen || isPage) {
+      hasProfileEditsRef.current = false;
       const current = getGarageSettings(targetGarageId);
       const globalDefaults = getSuperAdminTaxDefaults();
       const resolvedProfile = resolveUserProfileType(current);
@@ -246,6 +267,7 @@ export const Settings: React.FC<SettingsProps> = ({
 
       if (userId) {
         fetchGarageSettingsFromCloud(userId, targetGarageId).then((cloudSettings) => {
+          if (isCancelled || hasProfileEditsRef.current) return;
           const cloudProfile = resolveUserProfileType(cloudSettings);
           const cloudStatus = cloudProfile === 'particulier' ? 'particulier' : 'micro_entreprise';
           const cloudRegime = cloudProfile === 'particulier' ? 'none' : 'micro';
@@ -289,11 +311,14 @@ export const Settings: React.FC<SettingsProps> = ({
         });
       }
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [isOpen, isPage, theme, userId, targetGarageId]);
 
   if (!isPage && !isOpen) return null;
 
-  const resolvedEmail = userEmail || auth.currentUser?.email || settings.email || 'garage@autogarage.fr';
+  const resolvedEmail = userEmail || auth.currentUser?.email || settings.email || 'user@localhost';
   const resolvedUserId = userId || auth.currentUser?.uid || 'garage_pro_dealer';
   const activeProfileType: AppUserProfileType = resolveUserProfileType(settings);
   const taxConfig: FrenchTaxConfiguration = normalizeFrenchTaxConfig({
@@ -304,15 +329,17 @@ export const Settings: React.FC<SettingsProps> = ({
   });
 
   const handleSelectProfileType = async (targetProfile: AppUserProfileType) => {
+    hasProfileEditsRef.current = true;
     setErrors({});
-    const patch = buildProfileSettingsPatch(targetProfile, settings);
-    const nextSettings: GarageSettings = {
-      ...settings,
-      ...patch,
-      garageId: targetGarageId,
-      theme,
-      layoutMode: layoutPreference,
-    };
+    const nextSettings = switchGarageSettingsProfile(
+      {
+        ...settings,
+        garageId: targetGarageId,
+        theme,
+        layoutMode: layoutPreference,
+      },
+      targetProfile
+    );
     setSettings(nextSettings);
     await saveGarageSettings(nextSettings, userId, targetGarageId);
     if (onSettingsSaved) onSettingsSaved(nextSettings);
@@ -333,6 +360,11 @@ export const Settings: React.FC<SettingsProps> = ({
               'Micro-entrepreneur რეჟიმი ჩართულია.'
             ),
     });
+  };
+
+  const updateProfileField = (patch: Partial<StatusProfileData>) => {
+    hasProfileEditsRef.current = true;
+    setSettings((prev) => syncActiveProfileOnEdit(prev, patch));
   };
 
   const updateTaxConfig = (
@@ -465,25 +497,29 @@ export const Settings: React.FC<SettingsProps> = ({
           ].slice(0, 100)
         : settings.taxAuditHistory || [];
 
-    const updatedSettings: GarageSettings = {
-      ...settings,
-      profileType: targetProfile,
-      entityType: 'physique',
-      siret: targetProfile === 'particulier' ? '' : (settings.siret || '').trim(),
-      legalForm: targetProfile === 'particulier' ? '' : settings.legalForm || 'Micro-entrepreneur',
-      tvaMention:
-        targetProfile === 'particulier'
-          ? ''
-          : 'TVA non applicable, art. 293 B du CGI',
-      postalCode: (settings.postalCode || '').replace(/\s+/g, ''),
-      legalStatus: enforcedStatus,
-      taxRegime: enforcedRegime,
-      taxRatePercent: resolvedTaxRate,
-      frenchTaxConfig: normalizedTax,
-      taxAuditHistory: nextAuditHistory,
-      theme,
-      layoutMode: layoutPreference,
-    };
+    const updatedSettings: GarageSettings = syncActiveProfileOnEdit(
+      {
+        ...settings,
+        profileType: targetProfile,
+        entityType: 'physique',
+        legalStatus: enforcedStatus,
+        taxRegime: enforcedRegime,
+        taxRatePercent: resolvedTaxRate,
+        frenchTaxConfig: normalizedTax,
+        taxAuditHistory: nextAuditHistory,
+        theme,
+        layoutMode: layoutPreference,
+      },
+      {
+        siret: targetProfile === 'particulier' ? '' : (settings.siret || '').trim(),
+        legalForm: targetProfile === 'particulier' ? '' : settings.legalForm || 'Micro-entrepreneur',
+        tvaMention:
+          targetProfile === 'particulier'
+            ? ''
+            : 'TVA non applicable, art. 293 B du CGI',
+        postalCode: (settings.postalCode || '').replace(/\s+/g, ''),
+      }
+    );
 
     const scopedUpdatedSettings: GarageSettings = {
       ...updatedSettings,
@@ -722,6 +758,12 @@ export const Settings: React.FC<SettingsProps> = ({
       icon: Palette,
     },
     {
+      id: 'subscription',
+      label: L('Abonnement & Forfait', 'Тариф и подписка', 'Սակագին և բաժանորդագրություն', 'ტარიფი და გამოწერა'),
+      shortLabel: L('Forfait', 'Тариф', 'Սակագին', 'ტარიფი'),
+      icon: Crown,
+    },
+    {
       id: 'security',
       label: L('Sécurité & Compte', 'Безопасность и Аккаунт', 'Անվտանգություն և հաշիվ', 'უსაფრთხოება და ანგარიში'),
       shortLabel: L('Compte', 'Аккаунт', 'Հաշիվ', 'ანგარიში'),
@@ -862,7 +904,14 @@ export const Settings: React.FC<SettingsProps> = ({
                             .filter(Boolean)
                             .join(' ')
                             .trim()
-                            .toUpperCase() || settings.name || 'NOM PRÉNOM'}
+                            .toUpperCase() ||
+                            settings.name ||
+                            L(
+                              'Nom & Prénom non renseignés',
+                              'ФИО не указаны',
+                              'Անուն և ազգանունը նշված չեն',
+                              'სახელი და გვარი მითითებული არ არის'
+                            )}
                           {settings.sex ? ` (${settings.sex})` : ''}
                         </p>
                         <p className="text-slate-400">
@@ -877,24 +926,51 @@ export const Settings: React.FC<SettingsProps> = ({
                     ) : (
                       <>
                         <p className="font-bold text-white text-sm">
-                          {settings.name || 'AutoGarage Manager'}
+                          {settings.name ||
+                            L(
+                              'Nom commercial non renseigné',
+                              'Название не указано',
+                              'Անվանումը նշված չէ',
+                              'დასახელება მითითებული არ არის'
+                            )}
                         </p>
                         <p className="text-slate-400">
                           SIRET : <span className="font-mono">{settings.siret || L('Optionnel / Non renseigné', 'Не указан', 'Նշված չէ', 'არ არის მითითებული')}</span>
                         </p>
                       </>
                     )}
-                    <p className="text-slate-400">
-                      {[settings.streetNumber, settings.streetExtension, settings.streetType, settings.streetName]
+                    {(() => {
+                      const addrStreet = [
+                        settings.streetNumber,
+                        settings.streetExtension,
+                        settings.streetType,
+                        settings.streetName,
+                      ]
                         .filter(Boolean)
-                        .join(' ')}{' '}
-                      — {settings.postalCode} {settings.city}
-                    </p>
+                        .join(' ');
+                      const addrCity = [settings.postalCode, settings.city]
+                        .filter(Boolean)
+                        .join(' ');
+                      const fullAddr = [addrStreet, addrCity].filter(Boolean).join(' — ');
+                      return (
+                        <p className="text-slate-400">
+                          {fullAddr ||
+                            L(
+                              'Adresse non renseignée',
+                              'Адрес не указан',
+                              'Հասցեն նշված չէ',
+                              'მისამართი მითითებული არ არის'
+                            )}
+                        </p>
+                      );
+                    })()}
                   </div>
-                  <div className="text-right text-[11px] text-slate-400">
-                    <p>{settings.phone}</p>
-                    <p>{settings.email}</p>
-                  </div>
+                  {(settings.phone || settings.email) && (
+                    <div className="text-right text-[11px] text-slate-400">
+                      {settings.phone && <p>{settings.phone}</p>}
+                      {settings.email && <p>{settings.email}</p>}
+                    </div>
+                  )}
                 </div>
 
                 {/* Conditional Identity Fields */}
@@ -908,8 +984,8 @@ export const Settings: React.FC<SettingsProps> = ({
                         id="settings-last-name"
                         type="text"
                         value={settings.lastName || ''}
-                        onChange={(e) => setSettings({ ...settings, lastName: e.target.value.toUpperCase() })}
-                        placeholder="DUPONT"
+                        onChange={(e) => updateProfileField({ lastName: e.target.value.toUpperCase() })}
+                        placeholder="ex. Martin"
                         className={inputClass}
                       />
                       {errors.lastName && <p className="text-[11px] text-red-400 mt-1">{errors.lastName}</p>}
@@ -923,8 +999,8 @@ export const Settings: React.FC<SettingsProps> = ({
                         id="settings-first-name"
                         type="text"
                         value={settings.firstName || ''}
-                        onChange={(e) => setSettings({ ...settings, firstName: e.target.value })}
-                        placeholder="Jean"
+                        onChange={(e) => updateProfileField({ firstName: e.target.value })}
+                        placeholder="ex. Jean"
                         className={inputClass}
                       />
                       {errors.firstName && <p className="text-[11px] text-red-400 mt-1">{errors.firstName}</p>}
@@ -938,7 +1014,7 @@ export const Settings: React.FC<SettingsProps> = ({
                             key={sx}
                             type="button"
                             onClick={() =>
-                              setSettings({ ...settings, sex: settings.sex === sx ? '' : sx })
+                              updateProfileField({ sex: settings.sex === sx ? '' : sx })
                             }
                             className={`h-9 rounded-xl text-xs font-bold border transition ${
                               settings.sex === sx
@@ -969,8 +1045,8 @@ export const Settings: React.FC<SettingsProps> = ({
                           id="settings-company-name"
                           type="text"
                           value={settings.name}
-                          onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                          placeholder="AutoGarage Manager"
+                          onChange={(e) => updateProfileField({ name: e.target.value })}
+                          placeholder="ex. Mon Garage Auto"
                           className={`${inputClass} pl-9`}
                         />
                       </div>
@@ -1003,8 +1079,8 @@ export const Settings: React.FC<SettingsProps> = ({
                           id="settings-siret"
                           type="text"
                           value={settings.siret}
-                          onChange={(e) => setSettings({ ...settings, siret: e.target.value })}
-                          placeholder="894 123 456 00012"
+                          onChange={(e) => updateProfileField({ siret: e.target.value })}
+                          placeholder="ex. 123 456 789 00012"
                           className={`${inputClass} pl-9 font-mono`}
                         />
                       </div>
@@ -1017,16 +1093,18 @@ export const Settings: React.FC<SettingsProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                   <div className="col-span-1">
                     <label htmlFor="settings-street-num" className={labelClass}>
-                      N° de voie
+                      N° de voie *
                     </label>
                     <input
                       id="settings-street-num"
                       type="text"
+                      required
                       value={settings.streetNumber}
-                      onChange={(e) => setSettings({ ...settings, streetNumber: e.target.value })}
-                      placeholder="12"
-                      className={inputClass}
+                      onChange={(e) => updateProfileField({ streetNumber: e.target.value })}
+                      placeholder="ex. 24"
+                      className={`${inputClass}${errors.streetNumber ? ' border-red-500 ring-2 ring-red-500/20' : ''}`}
                     />
+                    {errors.streetNumber && <p className="text-[11px] text-red-400 mt-1">{errors.streetNumber}</p>}
                   </div>
 
                   <div className="col-span-1">
@@ -1037,8 +1115,8 @@ export const Settings: React.FC<SettingsProps> = ({
                       id="settings-street-ext"
                       type="text"
                       value={settings.streetExtension || ''}
-                      onChange={(e) => setSettings({ ...settings, streetExtension: e.target.value })}
-                      placeholder="bis, ter"
+                      onChange={(e) => updateProfileField({ streetExtension: e.target.value })}
+                      placeholder="ex. bis, ter"
                       className={inputClass}
                     />
                   </div>
@@ -1051,9 +1129,12 @@ export const Settings: React.FC<SettingsProps> = ({
                       id="settings-street-type"
                       testId="settings-street-type-select"
                       ariaLabel="Type de voie"
-                      value={settings.streetType || 'Rue'}
-                      onChange={(val) => setSettings({ ...settings, streetType: val })}
-                      options={STREET_TYPES.map((st) => ({ value: st, label: st }))}
+                      value={settings.streetType || ''}
+                      onChange={(val) => updateProfileField({ streetType: val })}
+                      options={[
+                        { value: '', label: '—' },
+                        ...STREET_TYPES.map((st) => ({ value: st, label: st })),
+                      ]}
                       triggerClassName={inputClass}
                     />
                   </div>
@@ -1067,10 +1148,11 @@ export const Settings: React.FC<SettingsProps> = ({
                       <input
                         id="settings-street-name"
                         type="text"
+                        required
                         value={settings.streetName}
-                        onChange={(e) => setSettings({ ...settings, streetName: e.target.value })}
-                        placeholder="de l’Industrie"
-                        className={`${inputClass} pl-9`}
+                        onChange={(e) => updateProfileField({ streetName: e.target.value })}
+                        placeholder="ex. Avenue de la République"
+                        className={`${inputClass} pl-9${errors.streetName ? ' border-red-500 ring-2 ring-red-500/20' : ''}`}
                       />
                     </div>
                     {errors.streetName && <p className="text-[11px] text-red-400 mt-1">{errors.streetName}</p>}
@@ -1087,8 +1169,8 @@ export const Settings: React.FC<SettingsProps> = ({
                       type="text"
                       maxLength={5}
                       value={settings.postalCode}
-                      onChange={(e) => setSettings({ ...settings, postalCode: e.target.value })}
-                      placeholder="75011"
+                      onChange={(e) => updateProfileField({ postalCode: e.target.value })}
+                      placeholder="ex. 75020"
                       className={`${inputClass} font-mono`}
                     />
                     {errors.postalCode && <p className="text-[11px] text-red-400 mt-1">{errors.postalCode}</p>}
@@ -1102,8 +1184,8 @@ export const Settings: React.FC<SettingsProps> = ({
                       id="settings-city"
                       type="text"
                       value={settings.city}
-                      onChange={(e) => setSettings({ ...settings, city: e.target.value })}
-                      placeholder="Paris"
+                      onChange={(e) => updateProfileField({ city: e.target.value })}
+                      placeholder="ex. Lyon"
                       className={inputClass}
                     />
                     {errors.city && <p className="text-[11px] text-red-400 mt-1">{errors.city}</p>}
@@ -1121,8 +1203,8 @@ export const Settings: React.FC<SettingsProps> = ({
                         id="settings-phone"
                         type="tel"
                         value={settings.phone}
-                        onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
-                        placeholder="01 45 88 90 00"
+                        onChange={(e) => updateProfileField({ phone: e.target.value })}
+                        placeholder="ex. 06 12 34 56 78"
                         className={`${inputClass} pl-9`}
                       />
                     </div>
@@ -1138,8 +1220,8 @@ export const Settings: React.FC<SettingsProps> = ({
                         id="settings-email"
                         type="email"
                         value={settings.email}
-                        onChange={(e) => setSettings({ ...settings, email: e.target.value })}
-                        placeholder="contact@autogarage.fr"
+                        onChange={(e) => updateProfileField({ email: e.target.value })}
+                        placeholder="ex. contact@mongarage.fr"
                         className={`${inputClass} pl-9`}
                       />
                     </div>
@@ -1158,7 +1240,7 @@ export const Settings: React.FC<SettingsProps> = ({
                         id="settings-legal-form"
                         type="text"
                         value={settings.legalForm || ''}
-                        onChange={(e) => setSettings({ ...settings, legalForm: e.target.value })}
+                        onChange={(e) => updateProfileField({ legalForm: e.target.value })}
                         placeholder="ex. Micro-entrepreneur"
                         className={`${inputClass} pl-9`}
                       />
@@ -2230,6 +2312,25 @@ export const Settings: React.FC<SettingsProps> = ({
               </div>
             )}
 
+            {/* 4B. SUBSCRIPTION & PLAN MANAGEMENT */}
+            {activeTab === 'subscription' && (
+              <SubscriptionPlanTab
+                userId={resolvedUserId}
+                userProfile={userProfile}
+                plans={subscriptionPlans}
+                activeVehiclesCount={allVehiclesCount ?? vehicles.length}
+                onPlanUpdated={(updated) => {
+                  onPlanUpdated?.(updated);
+                }}
+                onNotify={(type, text) => {
+                  setStatusMessage({ type, text });
+                  if (type === 'success') {
+                    onSubscriptionToast?.(text);
+                  }
+                }}
+              />
+            )}
+
             {/* 5. SECURITY & ACCOUNT */}
             {activeTab === 'security' && (
               <div className="space-y-4">
@@ -2353,9 +2454,11 @@ export const Settings: React.FC<SettingsProps> = ({
                 <h2 className="text-base sm:text-lg font-extrabold text-[var(--foreground)]">
                   {L('Paramètres du Garage', 'Настройки гаража', 'Ավտոսրահի կարգավորումներ', 'გარაჟის პარამეტრები')}
                 </h2>
-                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[200px]">
-                  {settings.name || 'AutoGarage Manager'}
-                </span>
+                {settings.name?.trim() && (
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--primary)] truncate max-w-[200px]">
+                    {settings.name}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
                 {L(
@@ -2368,32 +2471,36 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            data-testid="settings-page-save-top"
-            onClick={() => handleSaveSettings()}
-            className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
-          </button>
+          {activeTab !== 'subscription' && (
+            <button
+              type="button"
+              data-testid="settings-page-save-top"
+              onClick={() => handleSaveSettings()}
+              className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
+            </button>
+          )}
         </div>
 
         {/* Full-Width Natural-Scrolling Workspace Content */}
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4">
           {mainContent}
 
-          <div className="pt-3 border-t border-[var(--border)] flex items-center justify-end">
-            <button
-              type="button"
-              data-testid="settings-page-save-bottom"
-              onClick={() => handleSaveSettings()}
-              className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 cursor-pointer"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
-            </button>
-          </div>
+          {activeTab !== 'subscription' && (
+            <div className="pt-3 border-t border-[var(--border)] flex items-center justify-end">
+              <button
+                type="button"
+                data-testid="settings-page-save-bottom"
+                onClick={() => handleSaveSettings()}
+                className="h-9 px-4 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm hover:opacity-95 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2423,7 +2530,7 @@ export const Settings: React.FC<SettingsProps> = ({
             </div>
             <div>
               <h2 id="settings-modal-title" className="text-base sm:text-lg font-bold text-white">
-                {L('Paramètres AutoGarage Manager', 'Настройки AutoGarage Manager', 'AutoGarage Manager կարգավորումներ', 'AutoGarage Manager პარამეტრები')}
+                {L('Paramètres du Garage', 'Настройки гаража', 'Ավտոսրահի կարգավորումներ', 'გარაჟის პარამეტრები')}
               </h2>
               <p className="text-[11px] text-slate-400 hidden sm:block">
                 {L(
@@ -2519,7 +2626,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 {L('CONFIGURATION', 'КОНФИГУРАЦИЯ', 'ԿԱՐԳԱՎՈՐՈՒՄ', 'კონფიგურაცია')}
               </p>
               <p className="text-xs font-bold text-white mt-0.5 truncate">
-                {settings.name || 'AutoGarage Manager'}
+                {settings.name || L('Nouvel espace', 'Новый профиль', 'Նոր պրոֆիլ', 'ახალი სივრცე')}
               </p>
             </div>
 
@@ -2561,14 +2668,16 @@ export const Settings: React.FC<SettingsProps> = ({
           >
             {L('Fermer', 'Закрыть', 'Փակել', 'დახურვა')}
           </button>
-          <button
-            type="button"
-            onClick={() => handleSaveSettings()}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
-          </button>
+          {activeTab !== 'subscription' && (
+            <button
+              type="button"
+              onClick={() => handleSaveSettings()}
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{L('Enregistrer les paramètres', 'Сохранить настройки', 'Պահպանել կարգավորումները', 'პარამეტრების შენახვა')}</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

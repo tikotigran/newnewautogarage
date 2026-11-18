@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -42,6 +42,7 @@ import {
   GlobalTextOverrides,
   LayoutMode,
   LegalStatus,
+  PlanModulesConfig,
   SectionGapSize,
   SubscriptionPlan,
   SubscriptionPlanId,
@@ -64,7 +65,10 @@ import {
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
   getContrastForeground,
+  getDefaultPlanModules,
+  getPlanCapabilities,
   getTranslationKeyCategory,
+  normalizeSubscriptionPlans,
   resolveLocalizedColor,
   resolveLocalizedLabel,
   resolveSystemThemeConfig,
@@ -88,6 +92,7 @@ import {
   subscribeDynamicExpenseCategories,
   subscribeFeatureFlags,
   subscribeGlobalTextOverrides,
+  subscribeSubscriptionPlans,
   subscribeSuperAdminTaxDefaults,
   updateUserAccount,
 } from '../services/adminService';
@@ -153,6 +158,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [accounts, setAccounts] = useState<UserProfile[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() => getSubscriptionPlans());
+  const [plansDraft, setPlansDraft] = useState<SubscriptionPlan[]>(() => getSubscriptionPlans());
+  const [isPlansDirty, setIsPlansDirty] = useState(false);
+  const plansDirtyRef = useRef(false);
+  const [isSavingPlans, setIsSavingPlans] = useState(false);
+  const [planFeaturesLang, setPlanFeaturesLang] = useState<'ru' | 'fr'>(() =>
+    lang === 'ru' ? 'ru' : 'fr'
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [draftConfig, setDraftConfig] = useState<SystemThemeConfig>(() =>
     resolveSystemThemeConfig(systemConfig)
@@ -171,6 +183,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Feature Flags state
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagsConfig>(DEFAULT_FEATURE_FLAGS);
+  const [isSavingFeatureFlags, setIsSavingFeatureFlags] = useState(false);
 
   // SuperAdmin Global French Tax Defaults state
   const [taxDefaultsDraft, setTaxDefaultsDraft] = useState<FrenchTaxConfiguration>(() =>
@@ -236,6 +249,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const unsubCerfaCalibration = subscribeCerfaTemplatesCalibration((cal) => {
       setCerfaCalibrationDraft(cal);
     });
+    const unsubPlans = subscribeSubscriptionPlans((nextPlans) => {
+      setPlans(nextPlans);
+      if (!plansDirtyRef.current) {
+        setPlansDraft(nextPlans);
+      }
+    });
     return () => {
       unsubAccounts();
       unsubExpenses();
@@ -243,6 +262,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       unsubTexts();
       unsubTaxDefaults();
       unsubCerfaCalibration();
+      unsubPlans();
     };
   }, [isSuperAdmin]);
 
@@ -508,9 +528,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handlePlanChange = async (uid: string, planId: SubscriptionPlanId) => {
     const plan = plans.find((p) => p.id === planId);
+    const caps = getPlanCapabilities(planId, plans);
     await updateUserAccount(uid, {
       planId,
-      vehicleLimit: plan?.vehicleLimit ?? 5,
+      plan: planId,
+      subscriptionTier: planId,
+      vehicleLimit: caps.vehicleLimit,
       mrrAmount: plan?.priceMonthly ?? 0,
     });
     showSavedFeedback(isRu ? 'Тариф обновлён' : 'Forfait mis à jour');
@@ -527,12 +550,120 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     showSavedFeedback(isRu ? 'Статус оплаты обновлён' : 'Statut de paiement mis à jour');
   };
 
-  const handlePlanPriceUpdate = (planId: SubscriptionPlanId, priceMonthly: number) => {
-    const updated = plans.map((p) =>
-      p.id === planId ? { ...p, priceMonthly: Math.max(0, priceMonthly) } : p
+  const updatePlanDraft = (
+    planId: SubscriptionPlanId,
+    updater: (plan: SubscriptionPlan) => SubscriptionPlan
+  ) => {
+    plansDirtyRef.current = true;
+    setIsPlansDirty(true);
+    setPlansDraft((prev) =>
+      prev.map((p) => (p.id === planId ? updater(p) : p))
     );
-    setPlans(updated);
-    saveSubscriptionPlans(updated);
+  };
+
+  const handleTogglePlanUnlimited = (planId: SubscriptionPlanId, unlimited: boolean) => {
+    updatePlanDraft(planId, (plan) => ({
+      ...plan,
+      vehicleLimit: unlimited ? null : plan.id === 'starter' ? 5 : 15,
+    }));
+  };
+
+  const handleTogglePlanModule = (
+    planId: SubscriptionPlanId,
+    moduleKey: keyof PlanModulesConfig
+  ) => {
+    updatePlanDraft(planId, (plan) => {
+      const currentModules = plan.modules || getDefaultPlanModules(plan.id);
+      return {
+        ...plan,
+        modules: {
+          ...currentModules,
+          [moduleKey]: !currentModules[moduleKey],
+        },
+      };
+    });
+  };
+
+  const handleTogglePlanPopular = (planId: SubscriptionPlanId) => {
+    updatePlanDraft(planId, (plan) => ({
+      ...plan,
+      isPopular: !plan.isPopular,
+    }));
+  };
+
+  const handleUpdatePlanFeature = (
+    planId: SubscriptionPlanId,
+    fieldKey: 'featuresRu' | 'featuresFr',
+    index: number,
+    value: string
+  ) => {
+    updatePlanDraft(planId, (plan) => {
+      const current = [...(plan[fieldKey] || [])];
+      current[index] = value;
+      return { ...plan, [fieldKey]: current };
+    });
+  };
+
+  const handleAddPlanFeature = (
+    planId: SubscriptionPlanId,
+    fieldKey: 'featuresRu' | 'featuresFr'
+  ) => {
+    updatePlanDraft(planId, (plan) => {
+      const current = [...(plan[fieldKey] || [])];
+      const defaultLine =
+        fieldKey === 'featuresRu' ? 'Новая функция тарифа' : 'Nouvelle fonctionnalité';
+      current.push(defaultLine);
+      return { ...plan, [fieldKey]: current };
+    });
+  };
+
+  const handleRemovePlanFeature = (
+    planId: SubscriptionPlanId,
+    fieldKey: 'featuresRu' | 'featuresFr',
+    index: number
+  ) => {
+    updatePlanDraft(planId, (plan) => {
+      const current = [...(plan[fieldKey] || [])];
+      current.splice(index, 1);
+      return { ...plan, [fieldKey]: current };
+    });
+  };
+
+  const handleSaveAllPlans = async () => {
+    setIsSavingPlans(true);
+    try {
+      const saved = await saveSubscriptionPlans(plansDraft, currentUserUid);
+      setPlans(saved);
+      setPlansDraft(saved);
+      plansDirtyRef.current = false;
+      setIsPlansDirty(false);
+      showSavedFeedback(
+        isRu
+          ? 'Тарифы и лимиты сохранены в облаке'
+          : 'Forfaits et limites enregistrés dans le cloud'
+      );
+    } catch (err) {
+      console.error('Failed to save subscription plans:', err);
+      showSavedFeedback(
+        isRu
+          ? 'Ошибка сохранения тарифов в Firestore'
+          : 'Erreur lors de la sauvegarde des forfaits'
+      );
+    } finally {
+      setIsSavingPlans(false);
+    }
+  };
+
+  const handleResetPlansDraft = async () => {
+    const defaults = normalizeSubscriptionPlans(DEFAULT_SUBSCRIPTION_PLANS);
+    setPlansDraft(defaults);
+    plansDirtyRef.current = true;
+    setIsPlansDirty(true);
+    showSavedFeedback(
+      isRu
+        ? 'Сброшено к шаблону — нажмите «Сохранить изменения»'
+        : 'Réinitialisé — cliquez sur « Enregistrer »'
+    );
   };
 
   // Expense Category CRUD & Ordering handlers
@@ -628,21 +759,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     showSavedFeedback(isRu ? 'Категории сброшены' : 'Catégories réinitialisées');
   };
 
-  // Feature Flags handlers
+  // Feature Flags handlers (persisted globally in platform_settings/feature_flags)
+  const persistFeatureFlagsWithFeedback = async (nextFlags: FeatureFlagsConfig) => {
+    setIsSavingFeatureFlags(true);
+    try {
+      await saveFeatureFlags(nextFlags, currentUserUid);
+      showSavedFeedback(
+        isRu
+          ? 'Настройки функций сохранены в облаке'
+          : 'Paramètres des fonctions enregistrés dans le cloud'
+      );
+    } catch (err) {
+      console.error('Failed to save feature flags:', err);
+      showSavedFeedback(
+        isRu
+          ? 'Ошибка сохранения настроек функций в Firestore'
+          : 'Erreur lors de la sauvegarde dans Firestore'
+      );
+    } finally {
+      setIsSavingFeatureFlags(false);
+    }
+  };
+
   const handleToggleFeatureFlag = async (key: keyof FeatureFlagsConfig) => {
     const updated: FeatureFlagsConfig = {
       ...featureFlags,
       [key]: !featureFlags[key],
     };
     setFeatureFlags(updated);
-    await saveFeatureFlags(updated, currentUserUid);
-    showSavedFeedback(isRu ? 'Модуль обновлён' : 'Module mis à jour');
+    await persistFeatureFlagsWithFeedback(updated);
+  };
+
+  const handleSaveFeatureFlags = async () => {
+    await persistFeatureFlagsWithFeedback(featureFlags);
   };
 
   const handleResetFeatureFlags = async () => {
     setFeatureFlags(DEFAULT_FEATURE_FLAGS);
-    await saveFeatureFlags(DEFAULT_FEATURE_FLAGS, currentUserUid);
-    showSavedFeedback(isRu ? 'Все функции включены' : 'Toutes les fonctions activées');
+    await persistFeatureFlagsWithFeedback(DEFAULT_FEATURE_FLAGS);
   };
 
   const handleSaveTaxDefaults = async () => {
@@ -991,7 +1145,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {filteredAccounts.map((acc) => (
                     <tr key={acc.uid} className="hover:bg-slate-800/30 transition-colors">
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-white">{acc.garageName}</div>
+                        <div className="font-semibold text-white">{acc.garageName || acc.displayName || acc.email}</div>
                         <div className="text-[11px] text-slate-400">
                           {acc.displayName} · {acc.email}
                         </div>
@@ -2160,96 +2314,412 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         })()}
 
         {/* 4. SUBSCRIPTION & BILLING */}
-        {activeTab === 'billing' && (
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                {isRu ? 'Подписки и биллинг' : 'Abonnements & Facturation'}
-              </h1>
-              <p className="text-xs text-slate-400 mt-1">
-                {isRu
-                  ? 'Настройка тарифов SaaS и контроль статусов оплаты'
-                  : 'Configuration des plans tarifaires et suivi des statuts de paiement'}
-              </p>
-            </div>
+        {activeTab === 'billing' && (() => {
+          const featuresFieldKey: 'featuresRu' | 'featuresFr' =
+            planFeaturesLang === 'ru' ? 'featuresRu' : 'featuresFr';
+          const moduleToggleDefs: {
+            key: keyof PlanModulesConfig;
+            labelRu: string;
+            labelFr: string;
+          }[] = [
+            {
+              key: 'cerfaAutofill',
+              labelRu: 'Автозаполнение и PDF Cerfa',
+              labelFr: 'Auto-remplissage & PDF Cerfa',
+            },
+            {
+              key: 'suppliers',
+              labelRu: 'Поставщики и запчасти',
+              labelFr: 'Fournisseurs & pièces',
+            },
+            {
+              key: 'analytics',
+              labelRu: 'Аналитика и P&L',
+              labelFr: 'Analytique & P&L',
+            },
+            {
+              key: 'exportsBackup',
+              labelRu: 'Экспорт и бэкап',
+              labelFr: 'Exports & sauvegardes',
+            },
+            {
+              key: 'multiGarage',
+              labelRu: 'Режим Мультигараж',
+              labelFr: 'Mode Multi-garages',
+            },
+          ];
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {plans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-base font-bold text-white">{plan.name}</h2>
-                    <span className="text-xs font-semibold text-amber-400 tabular-nums">
-                      {metrics.planCounts[plan.id] || 0} {isRu ? 'акк.' : 'comptes'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      aria-label={`Monthly price for ${plan.name}`}
-                      value={plan.priceMonthly}
-                      onChange={(e) =>
-                        handlePlanPriceUpdate(plan.id, Number(e.target.value) || 0)
-                      }
-                      className="w-24 bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-lg font-bold text-white tabular-nums"
-                    />
-                    <span className="text-xs text-slate-400">€ / {isRu ? 'мес' : 'mois'}</span>
-                  </div>
-
-                  <ul className="space-y-1.5 text-xs text-slate-300">
-                    {(isRu ? plan.featuresRu : plan.featuresFr).map((feat, idx) => (
-                      <li key={idx} className="flex items-center gap-2">
-                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span>{feat}</span>
-                      </li>
-                    ))}
-                  </ul>
+          return (
+            <div className="space-y-6">
+              {/* Top Header with Global Save Changes CTA */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-bold text-white">
+                    {isRu ? 'Подписки и биллинг' : 'Abonnements & Facturation'}
+                  </h1>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isRu
+                      ? 'Редактируйте названия, цены, лимиты авто, модули и преимущества тарифов (platform_settings/subscription_plans)'
+                      : 'Modifiez noms, tarifs, quotas véhicules, modules et avantages des forfaits (platform_settings/subscription_plans)'}
+                  </p>
                 </div>
-              ))}
-            </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-white">
-                  {isRu ? 'Статусы платежей' : 'Journal des paiements'}
-                </h2>
-                <span className="text-sm font-bold text-emerald-400 tabular-nums">
-                  MRR: {formatEuro(metrics.monthlyRevenueMRR)}
-                </span>
-              </div>
-              <div className="divide-y divide-slate-800 text-xs">
-                {accounts.map((acc) => (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <div
-                    key={acc.uid}
-                    className="py-3 flex flex-wrap items-center justify-between gap-3"
+                    role="group"
+                    aria-label={isRu ? 'Язык списка преимуществ' : 'Langue des avantages'}
+                    className="inline-flex items-center p-0.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px]"
                   >
-                    <div>
-                      <span className="font-semibold text-white">{acc.garageName}</span>
-                      <span className="text-slate-400 ml-2">({acc.planId})</span>
-                    </div>
-                    <div className="flex items-center gap-3 tabular-nums">
-                      <span className="font-bold text-white">{formatEuro(acc.mrrAmount)}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold ${
-                          acc.subscriptionStatus === 'active'
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : acc.subscriptionStatus === 'trial'
-                            ? 'bg-sky-500/15 text-sky-400'
-                            : 'bg-red-500/15 text-red-400'
-                        }`}
-                      >
-                        {acc.subscriptionStatus}
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPlanFeaturesLang('ru')}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                        planFeaturesLang === 'ru'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      RU
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlanFeaturesLang('fr')}
+                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                        planFeaturesLang === 'fr'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      FR
+                    </button>
                   </div>
-                ))}
+
+                  <button
+                    type="button"
+                    data-testid="admin-reset-plans-btn"
+                    onClick={handleResetPlansDraft}
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{isRu ? 'Сбросить' : 'Réinitialiser'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    data-testid="admin-save-plans-btn"
+                    disabled={isSavingPlans}
+                    onClick={handleSaveAllPlans}
+                    className="inline-flex items-center gap-1.5 h-9 px-4 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 transition shadow-sm cursor-pointer"
+                  >
+                    {isSavingPlans ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {isRu ? 'Сохранить изменения' : 'Enregistrer les modifications'}
+                    </span>
+                    {isPlansDirty && (
+                      <span
+                        aria-hidden="true"
+                        className="w-1.5 h-1.5 rounded-full bg-slate-950"
+                      />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* 3-Tier Plan Editor Grid */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-stretch">
+                {plansDraft.map((plan) => {
+                  const isUnlimited = plan.vehicleLimit === null;
+                  const modules = plan.modules || getDefaultPlanModules(plan.id);
+                  const featuresList = plan[featuresFieldKey] || [];
+                  const tierCodeLabel = plan.id === 'enterprise' ? 'business' : plan.id;
+
+                  return (
+                    <div
+                      key={plan.id}
+                      data-testid={`admin-plan-editor-${plan.id}`}
+                      className={`bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between gap-4 transition ${
+                        plan.isPopular ? 'border-amber-500/70' : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-4">
+                        {/* Card Header: Tier Key & Active Subscriber Count */}
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                              {tierCodeLabel}
+                            </span>
+                            {plan.isPopular && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-slate-950">
+                                <Sparkles className="w-3 h-3" />
+                                <span>{isRu ? 'Популярный' : 'Populaire'}</span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs font-semibold text-amber-400 tabular-nums">
+                            {metrics.planCounts[plan.id] || 0} {isRu ? 'акк.' : 'comptes'}
+                          </span>
+                        </div>
+
+                        {/* Plan Name & Monthly Price */}
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                          <div className="sm:col-span-7">
+                            <label
+                              htmlFor={`admin-plan-name-${plan.id}`}
+                              className="block text-[11px] font-semibold text-slate-400 mb-1"
+                            >
+                              {isRu ? 'Название тарифа' : 'Nom du forfait'}
+                            </label>
+                            <input
+                              id={`admin-plan-name-${plan.id}`}
+                              data-testid={`admin-plan-name-${plan.id}`}
+                              type="text"
+                              value={plan.name}
+                              onChange={(e) =>
+                                updatePlanDraft(plan.id, (curr) => ({
+                                  ...curr,
+                                  name: e.target.value,
+                                }))
+                              }
+                              className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-5">
+                            <label
+                              htmlFor={`admin-plan-price-${plan.id}`}
+                              className="block text-[11px] font-semibold text-slate-400 mb-1"
+                            >
+                              {isRu ? 'Цена (€ / мес)' : 'Prix (€ / mois)'}
+                            </label>
+                            <input
+                              id={`admin-plan-price-${plan.id}`}
+                              data-testid={`admin-plan-price-${plan.id}`}
+                              type="number"
+                              min={0}
+                              step="1"
+                              value={plan.priceMonthly}
+                              onChange={(e) =>
+                                updatePlanDraft(plan.id, (curr) => ({
+                                  ...curr,
+                                  priceMonthly: Math.max(0, Number(e.target.value) || 0),
+                                }))
+                              }
+                              className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm font-bold text-white tabular-nums focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Vehicle Limit + Unlimited Toggle */}
+                        <div className="pt-3 border-t border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <label
+                              htmlFor={`admin-plan-limit-${plan.id}`}
+                              className="text-[11px] font-semibold text-slate-400"
+                            >
+                              {isRu ? 'Лимит автомобилей' : 'Limite de véhicules'}
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                data-testid={`admin-plan-unlimited-${plan.id}`}
+                                checked={isUnlimited}
+                                onChange={(e) =>
+                                  handleTogglePlanUnlimited(plan.id, e.target.checked)
+                                }
+                                className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-amber-500 cursor-pointer"
+                              />
+                              <span>{isRu ? 'Безлимит' : 'Illimité'}</span>
+                            </label>
+                          </div>
+
+                          <input
+                            id={`admin-plan-limit-${plan.id}`}
+                            data-testid={`admin-plan-limit-${plan.id}`}
+                            type="number"
+                            min={1}
+                            max={9998}
+                            disabled={isUnlimited}
+                            value={isUnlimited ? '' : (plan.vehicleLimit ?? 5)}
+                            placeholder={isUnlimited ? (isRu ? '∞ Безлимит' : '∞ Illimité') : '5'}
+                            onChange={(e) => {
+                              const parsed = Math.max(1, Math.min(9998, Math.round(Number(e.target.value) || 1)));
+                              updatePlanDraft(plan.id, (curr) => ({
+                                ...curr,
+                                vehicleLimit: parsed,
+                              }));
+                            }}
+                            className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-xs font-bold text-white tabular-nums disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        {/* Popular Badge Switch */}
+                        <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
+                          <span className="text-xs font-semibold text-slate-200">
+                            {isRu ? 'Бейдж «Популярный»' : 'Badge « Populaire »'}
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={Boolean(plan.isPopular)}
+                            aria-label={isRu ? `Популярный тариф ${plan.name}` : `Populaire ${plan.name}`}
+                            data-testid={`admin-plan-popular-${plan.id}`}
+                            onClick={() => handleTogglePlanPopular(plan.id)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                              plan.isPopular ? 'bg-amber-500' : 'bg-slate-700'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                                plan.isPopular ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Plan Feature Module Toggles */}
+                        <div className="pt-3 border-t border-slate-800 space-y-2">
+                          <p className="text-[11px] font-semibold text-slate-400">
+                            {isRu ? 'Доступные функции тарифа' : 'Modules inclus dans le forfait'}
+                          </p>
+                          <div className="space-y-1.5">
+                            {moduleToggleDefs.map((mod) => {
+                              const checked = Boolean(modules[mod.key]);
+                              return (
+                                <label
+                                  key={mod.key}
+                                  className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg hover:bg-slate-800/50 cursor-pointer select-none transition"
+                                >
+                                  <span className="text-xs text-slate-200">
+                                    {isRu ? mod.labelRu : mod.labelFr}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    data-testid={`admin-plan-module-${plan.id}-${mod.key}`}
+                                    checked={checked}
+                                    onChange={() => handleTogglePlanModule(plan.id, mod.key)}
+                                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-amber-500 cursor-pointer shrink-0"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Editable Client Benefit Bullet List */}
+                        <div className="pt-3 border-t border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-semibold text-slate-400">
+                              {isRu
+                                ? `Список преимуществ (${planFeaturesLang.toUpperCase()})`
+                                : `Points affichés (${planFeaturesLang.toUpperCase()})`}
+                            </span>
+                            <button
+                              type="button"
+                              data-testid={`admin-plan-add-feature-${plan.id}`}
+                              onClick={() => handleAddPlanFeature(plan.id, featuresFieldKey)}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>{isRu ? 'Добавить пункт' : 'Ajouter'}</span>
+                            </button>
+                          </div>
+
+                          <div className="space-y-2">
+                            {featuresList.map((feat, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  data-testid={`admin-plan-feature-${plan.id}-${idx}`}
+                                  aria-label={`${plan.name} feature ${idx + 1}`}
+                                  value={feat}
+                                  onChange={(e) =>
+                                    handleUpdatePlanFeature(
+                                      plan.id,
+                                      featuresFieldKey,
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                                />
+                                <button
+                                  type="button"
+                                  data-testid={`admin-plan-remove-feature-${plan.id}-${idx}`}
+                                  aria-label={isRu ? 'Удалить пункт' : 'Supprimer'}
+                                  onClick={() =>
+                                    handleRemovePlanFeature(plan.id, featuresFieldKey, idx)
+                                  }
+                                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition shrink-0 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            {featuresList.length === 0 && (
+                              <p className="text-[11px] text-slate-500">
+                                {isRu
+                                  ? 'Нет добавленных пунктов — нажмите «Добавить пункт».'
+                                  : 'Aucun point — cliquez sur « Ajouter ».'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Payment Statuses & Live MRR */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-bold text-white">
+                    {isRu ? 'Статусы платежей' : 'Journal des paiements'}
+                  </h2>
+                  <span className="text-sm font-bold text-emerald-400 tabular-nums">
+                    MRR: {formatEuro(metrics.monthlyRevenueMRR)}
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-800 text-xs">
+                  {accounts.map((acc) => {
+                    const matchedPlan = plans.find((p) => p.id === acc.planId);
+                    return (
+                      <div
+                        key={acc.uid}
+                        className="py-3 flex flex-wrap items-center justify-between gap-3"
+                      >
+                        <div>
+                          <span className="font-semibold text-white">{acc.garageName || acc.displayName || acc.email}</span>
+                          <span className="text-slate-400 ml-2">
+                            ({matchedPlan?.name || acc.planId})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 tabular-nums">
+                          <span className="font-bold text-white">{formatEuro(acc.mrrAmount)}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold ${
+                              acc.subscriptionStatus === 'active'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : acc.subscriptionStatus === 'trial'
+                                ? 'bg-sky-500/15 text-sky-400'
+                                : 'bg-red-500/15 text-red-400'
+                            }`}
+                          >
+                            {acc.subscriptionStatus}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 5. TEMPLATE & CERFA CONFIGURATOR (Firestore platform_settings/cerfa_templates) */}
         {activeTab === 'cerfa' && (() => {
@@ -2962,50 +3432,88 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
                   {isRu
-                    ? 'Мгновенное включение/отключение модулей для всех пользователей платформы (/system_config/features)'
-                    : 'Activation ou désactivation instantanée des modules pour tous les utilisateurs (/system_config/features)'}
+                    ? 'Мгновенное включение/отключение модулей для всех пользователей платформы (platform_settings/feature_flags)'
+                    : 'Activation ou désactivation instantanée des modules pour tous les utilisateurs (platform_settings/feature_flags)'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleResetFeatureFlags}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition self-start"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>{isRu ? 'Включить все' : 'Tout activer'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 self-start">
+                <button
+                  type="button"
+                  onClick={handleResetFeatureFlags}
+                  disabled={isSavingFeatureFlags}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition disabled:opacity-60"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{isRu ? 'Включить все' : 'Tout activer'}</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="admin-save-feature-flags-btn"
+                  onClick={handleSaveFeatureFlags}
+                  disabled={isSavingFeatureFlags}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition disabled:opacity-60"
+                >
+                  {isSavingFeatureFlags ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isRu ? 'Сохранить изменения' : 'Enregistrer'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {(
                 [
                   {
-                    key: 'cerfaGenerator',
-                    titleRu: 'Генератор Cerfa 15776*02 и Aligner Mode',
-                    titleFr: 'Générateur Cerfa 15776*02 & Aligner Mode',
-                    descRu: 'Скрывает кнопку Cerfa в таблице и блок Cerfa во вкладке Документы.',
-                    descFr: 'Masque le bouton Cerfa dans la liste et la carte Cerfa dans Documents.',
-                  },
-                  {
-                    key: 'pnlCalculator',
-                    titleRu: 'Калькулятор маржи P&L в реальном времени',
-                    titleFr: 'Calculateur P&L & Rentabilité en temps réel',
-                    descRu: 'Скрывает общую маржу в шапке, блоки прибыли на карточках и P&L баннер в досье.',
-                    descFr: 'Masque la marge globale, les blocs P&L sur les cartes et le bandeau P&L.',
+                    key: 'multiGarage',
+                    titleRu: 'Multi-garage / Мультигараж и переключатель пространств',
+                    titleFr: 'Multi-Garage & Sélecteur d’espaces de travail',
+                    descRu: 'При отключении скрывает «+ Создать новый гараж» и «РАБОЧИЙ ГАРАЖ», автоматически загружая основной гараж пользователя.',
+                    descFr: 'Masque la création/sélection multi-garages et charge directement le garage principal.',
                   },
                   {
                     key: 'expenseAnalytics',
-                    titleRu: 'Детальная аналитика и разбивка расходов',
-                    titleFr: 'Analytique détaillée & Répartition des dépenses',
-                    descRu: 'Скрывает вкладку «Аналитика» в навигации и отключает страницу графиков.',
-                    descFr: 'Masque l’onglet « Analytique » dans la barre de navigation.',
+                    titleRu: 'Аналитика и P&L (графики и разбивка расходов)',
+                    titleFr: 'Analytique détaillée & Graphiques P&L',
+                    descRu: 'Скрывает раздел «Аналитика и P&L» в боковом меню и блокирует прямой доступ к графикам.',
+                    descFr: 'Masque l’onglet « Analytique & P&L » et bloque l’accès au module.',
                   },
                   {
-                    key: 'multiGarage',
-                    titleRu: 'Мульти-гараж и переключатель рабочих пространств',
-                    titleFr: 'Multi-Garage & Sélecteur d’espaces de travail',
-                    descRu: 'Отключает экран выбора гаража и выпадающий список переключения в шапке.',
-                    descFr: 'Désactive l’écran de sélection et le sélecteur de garage dans l’en-tête.',
+                    key: 'suppliersModule',
+                    titleRu: 'Поставщики и закупки',
+                    titleFr: 'Fournisseurs & Achats',
+                    descRu: 'Скрывает раздел «Поставщики и закупки» в боковом меню и блокирует доступ к модулю.',
+                    descFr: 'Masque l’onglet « Fournisseurs & Achats » et bloque l’accès au module.',
+                  },
+                  {
+                    key: 'documentsModule',
+                    titleRu: 'Документы (хранилище досье и файлов)',
+                    titleFr: 'Documents (Coffre-fort documentaire)',
+                    descRu: 'Скрывает раздел «Документы» в боковом меню и блокирует доступ к хранилищу документов.',
+                    descFr: 'Masque l’onglet « Documents » et bloque l’accès au coffre-fort.',
+                  },
+                  {
+                    key: 'cerfaGenerator',
+                    titleRu: 'Документы Cerfa (15776*02 / 13750*07) и Aligner Mode',
+                    titleFr: 'Générateur Cerfa 15776*02 & Aligner Mode',
+                    descRu: 'Скрывает генерацию и кнопки Cerfa в карточке автомобиля и разделе Документы.',
+                    descFr: 'Masque le bouton Cerfa dans les fiches véhicules et Documents.',
+                  },
+                  {
+                    key: 'exportsBackup',
+                    titleRu: 'Экспорт и Бэкап (CSV / Excel / Factur-X / Снимки)',
+                    titleFr: 'Exports & Sauvegardes (CSV / Excel / Factur-X)',
+                    descRu: 'Скрывает раздел «Экспорт и Бэкап» в боковом меню и блокирует доступ к модулю.',
+                    descFr: 'Masque l’onglet « Exports & Sauvegardes » et bloque l’accès au module.',
+                  },
+                  {
+                    key: 'pnlCalculator',
+                    titleRu: 'Калькулятор маржи P&L в карточках и досье',
+                    titleFr: 'Calculateur P&L & Rentabilité en temps réel',
+                    descRu: 'Скрывает общую маржу в шапке, блоки прибыли на карточках и P&L баннер в досье.',
+                    descFr: 'Masque la marge globale, les blocs P&L sur les cartes et le bandeau P&L.',
                   },
                   {
                     key: 'repairChecklist',

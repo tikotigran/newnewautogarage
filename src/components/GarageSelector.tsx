@@ -210,6 +210,10 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
           const isParticulier = resolvedProfile === 'particulier';
           const deleteCheck = canDeleteGarage(garages, garage.id);
 
+          const garageDisplayName =
+            garage.name?.trim() ||
+            L('Mon espace', 'Мой профиль', 'Իմ պրոֆիլը', 'ჩემი პროფილი');
+
           return (
             <div
               key={garage.id}
@@ -229,7 +233,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                     </div>
                     <div className="min-w-0">
                       <h2 className="text-sm font-bold text-[var(--foreground)] truncate">
-                        {garage.name}
+                        {garageDisplayName}
                       </h2>
                       <p className="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">
                         {isParticulier
@@ -249,10 +253,10 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                           data-testid={`garage-edit-btn-${garage.id}`}
                           onClick={() => openEditModal(garage)}
                           aria-label={L(
-                            `Modifier ${garage.name}`,
-                            `Редактировать ${garage.name}`,
-                            `Խմբագրել ${garage.name}`,
-                            `რედაქტირება ${garage.name}`
+                            `Modifier ${garageDisplayName}`,
+                            `Редактировать ${garageDisplayName}`,
+                            `Խմբագրել ${garageDisplayName}`,
+                            `რედაქტირება ${garageDisplayName}`
                           )}
                           title={L(
                             'Modifier les informations',
@@ -275,10 +279,10 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                             setDeletingGarage(garage);
                           }}
                           aria-label={L(
-                            `Supprimer ${garage.name}`,
-                            `Удалить ${garage.name}`,
-                            `Ջնջել ${garage.name}`,
-                            `წაშლა ${garage.name}`
+                            `Supprimer ${garageDisplayName}`,
+                            `Удалить ${garageDisplayName}`,
+                            `Ջնջել ${garageDisplayName}`,
+                            `წაშლა ${garageDisplayName}`
                           )}
                           title={
                             deleteCheck.allowed
@@ -513,8 +517,8 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
                   onChange={(e) => setName(e.target.value)}
                   placeholder={
                     profileType === 'micro_entrepreneur'
-                      ? 'ex. Lyon Auto Select'
-                      : 'ex. Jean Dupont'
+                      ? 'ex. Mon Garage Auto'
+                      : 'ex. Jean Martin'
                   }
                   className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)] placeholder-[var(--muted-foreground)] focus:outline-none focus:border-[var(--primary)]"
                 />
@@ -641,7 +645,7 @@ export const GarageSelector: React.FC<GarageSelectorProps> = ({
 
               <div className="p-3 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
                 <p className="font-bold text-sm text-[var(--foreground)]">
-                  {deletingGarage.name}
+                  {deletingGarage.name?.trim() || L('Mon espace', 'Мой профиль', 'Իմ պրոֆիլը', 'ჩემი პროფილი')}
                 </p>
                 <p className="text-[var(--muted-foreground)] mt-0.5">
                   {resolveUserProfileType(deletingGarage) === 'particulier'

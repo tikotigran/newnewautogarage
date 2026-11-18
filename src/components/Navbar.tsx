@@ -416,56 +416,62 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              <button
-                type="button"
-                data-testid="nav-suppliers-btn"
-                onClick={() =>
-                  navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
-                }
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
-                  activeView === 'suppliers'
-                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                    : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
-                }`}
-                title={t('navSuppliers')}
-              >
-                <Handshake className="w-3.5 h-3.5" />
-                <span>{t('navSuppliersShort')}</span>
-              </button>
+              {featureFlags.suppliersModule && (
+                <button
+                  type="button"
+                  data-testid="nav-suppliers-btn"
+                  onClick={() =>
+                    navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
+                  }
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
+                    activeView === 'suppliers'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
+                  }`}
+                  title={t('navSuppliers')}
+                >
+                  <Handshake className="w-3.5 h-3.5" />
+                  <span>{t('navSuppliersShort')}</span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                data-testid="nav-documents-btn"
-                onClick={() =>
-                  navigateView(activeView === 'documents' ? 'desktop' : 'documents')
-                }
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
-                  activeView === 'documents'
-                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                    : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
-                }`}
-                title={t('navDocuments')}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>{t('navDocuments')}</span>
-              </button>
+              {featureFlags.documentsModule && (
+                <button
+                  type="button"
+                  data-testid="nav-documents-btn"
+                  onClick={() =>
+                    navigateView(activeView === 'documents' ? 'desktop' : 'documents')
+                  }
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
+                    activeView === 'documents'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
+                  }`}
+                  title={t('navDocuments')}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>{t('navDocuments')}</span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                data-testid="nav-exports-btn"
-                onClick={() =>
-                  navigateView(activeView === 'exports' ? 'desktop' : 'exports')
-                }
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
-                  activeView === 'exports'
-                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                    : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
-                }`}
-                title={t('navExportsBackup')}
-              >
-                <DatabaseBackup className="w-3.5 h-3.5" />
-                <span>{t('navExportsShort')}</span>
-              </button>
+              {featureFlags.exportsBackup && (
+                <button
+                  type="button"
+                  data-testid="nav-exports-btn"
+                  onClick={() =>
+                    navigateView(activeView === 'exports' ? 'desktop' : 'exports')
+                  }
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all ${
+                    activeView === 'exports'
+                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                      : 'text-[var(--ag-header-text)]/75 hover:text-[var(--ag-header-text)]'
+                  }`}
+                  title={t('navExportsBackup')}
+                >
+                  <DatabaseBackup className="w-3.5 h-3.5" />
+                  <span>{t('navExportsShort')}</span>
+                </button>
+              )}
 
               {hasSecondaryViews && (
                 <span className="w-px h-4 bg-[var(--ag-header-border)] mx-1" aria-hidden="true" />
@@ -753,53 +759,59 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  data-testid="mobile-drawer-suppliers-btn"
-                  onClick={() =>
-                    navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
-                  }
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                    activeView === 'suppliers'
-                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
-                      : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
-                  }`}
-                >
-                  <Handshake className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('navSuppliersShort')}</span>
-                </button>
+                {featureFlags.suppliersModule && (
+                  <button
+                    type="button"
+                    data-testid="mobile-drawer-suppliers-btn"
+                    onClick={() =>
+                      navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
+                    }
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                      activeView === 'suppliers'
+                        ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
+                        : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
+                    }`}
+                  >
+                    <Handshake className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{t('navSuppliersShort')}</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  data-testid="mobile-drawer-documents-btn"
-                  onClick={() =>
-                    navigateView(activeView === 'documents' ? 'desktop' : 'documents')
-                  }
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                    activeView === 'documents'
-                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
-                      : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('navDocuments')}</span>
-                </button>
+                {featureFlags.documentsModule && (
+                  <button
+                    type="button"
+                    data-testid="mobile-drawer-documents-btn"
+                    onClick={() =>
+                      navigateView(activeView === 'documents' ? 'desktop' : 'documents')
+                    }
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                      activeView === 'documents'
+                        ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
+                        : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{t('navDocuments')}</span>
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  data-testid="mobile-drawer-exports-btn"
-                  onClick={() =>
-                    navigateView(activeView === 'exports' ? 'desktop' : 'exports')
-                  }
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
-                    activeView === 'exports'
-                      ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
-                      : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
-                  }`}
-                >
-                  <DatabaseBackup className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('navExportsShort')}</span>
-                </button>
+                {featureFlags.exportsBackup && (
+                  <button
+                    type="button"
+                    data-testid="mobile-drawer-exports-btn"
+                    onClick={() =>
+                      navigateView(activeView === 'exports' ? 'desktop' : 'exports')
+                    }
+                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                      activeView === 'exports'
+                        ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] border-[var(--ag-nav-active-bg)]'
+                        : 'bg-[var(--surface-muted)] text-[var(--foreground)] border-[var(--border)]'
+                    }`}
+                  >
+                    <DatabaseBackup className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{t('navExportsShort')}</span>
+                  </button>
+                )}
 
                 {isSuperAdmin && (
                   <button
@@ -998,53 +1010,59 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              data-testid="mobile-subnav-suppliers-btn"
-              onClick={() =>
-                navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
-              }
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
-                activeView === 'suppliers'
-                  ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                  : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
-              }`}
-            >
-              <Handshake className="w-3.5 h-3.5" />
-              <span>{t('navSuppliersShort')}</span>
-            </button>
+            {featureFlags.suppliersModule && (
+              <button
+                type="button"
+                data-testid="mobile-subnav-suppliers-btn"
+                onClick={() =>
+                  navigateView(activeView === 'suppliers' ? 'desktop' : 'suppliers')
+                }
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
+                  activeView === 'suppliers'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                    : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
+                }`}
+              >
+                <Handshake className="w-3.5 h-3.5" />
+                <span>{t('navSuppliersShort')}</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              data-testid="mobile-subnav-documents-btn"
-              onClick={() =>
-                navigateView(activeView === 'documents' ? 'desktop' : 'documents')
-              }
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
-                activeView === 'documents'
-                  ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                  : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>{t('navDocuments')}</span>
-            </button>
+            {featureFlags.documentsModule && (
+              <button
+                type="button"
+                data-testid="mobile-subnav-documents-btn"
+                onClick={() =>
+                  navigateView(activeView === 'documents' ? 'desktop' : 'documents')
+                }
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
+                  activeView === 'documents'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                    : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{t('navDocuments')}</span>
+              </button>
+            )}
 
-            <button
-              type="button"
-              data-testid="mobile-subnav-exports-btn"
-              onClick={() =>
-                navigateView(activeView === 'exports' ? 'desktop' : 'exports')
-              }
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
-                activeView === 'exports'
-                  ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                  : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
-              }`}
-            >
-              <DatabaseBackup className="w-3.5 h-3.5" />
-              <span>{t('navExportsShort')}</span>
-            </button>
+            {featureFlags.exportsBackup && (
+              <button
+                type="button"
+                data-testid="mobile-subnav-exports-btn"
+                onClick={() =>
+                  navigateView(activeView === 'exports' ? 'desktop' : 'exports')
+                }
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
+                  activeView === 'exports'
+                    ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                    : 'bg-[var(--surface-muted)] text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)]'
+                }`}
+              >
+                <DatabaseBackup className="w-3.5 h-3.5" />
+                <span>{t('navExportsShort')}</span>
+              </button>
+            )}
 
             {isSuperAdmin && (
               <button

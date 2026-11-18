@@ -88,7 +88,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                 Prévisualisation En-Tête Facture & Cession Cerfa
               </span>
               <p className="font-bold text-white text-sm">
-                {settings.name || 'Nom'}
+                {settings.name || 'Nom / Raison sociale'}
               </p>
               {settings.profileType !== 'particulier' && (
                 <p className="text-slate-400 text-xs">
@@ -97,13 +97,20 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                 </p>
               )}
               <p className="text-slate-400 text-xs">
-                {settings.streetNumber ? `${settings.streetNumber} ` : ''}{settings.streetName || 'Rue'}, {settings.postalCode || '75000'} {settings.city || 'Ville'}
+                {[
+                  [settings.streetNumber, settings.streetName].filter(Boolean).join(' '),
+                  [settings.postalCode, settings.city].filter(Boolean).join(' '),
+                ]
+                  .filter(Boolean)
+                  .join(', ') || 'Adresse non renseignée'}
               </p>
             </div>
-            <div className="text-right text-[11px] text-slate-400">
-              <p>{settings.phone || '01 00 00 00 00'}</p>
-              <p>{settings.email || 'contact@garage.fr'}</p>
-            </div>
+            {(settings.phone || settings.email) && (
+              <div className="text-right text-[11px] text-slate-400">
+                {settings.phone && <p>{settings.phone}</p>}
+                {settings.email && <p>{settings.email}</p>}
+              </div>
+            )}
           </div>
 
           {/* Row 1: Raison Sociale & SIRET */}
@@ -119,7 +126,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   required
                   value={settings.name}
                   onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                  placeholder="ex. AutoGarage Manager"
+                  placeholder="ex. Mon Garage Auto"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -136,7 +143,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                     type="text"
                     value={settings.siret}
                     onChange={(e) => setSettings({ ...settings, siret: e.target.value })}
-                    placeholder="894 123 456 00012"
+                    placeholder="ex. 123 456 789 00012"
                     className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -154,7 +161,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                 type="text"
                 value={settings.streetNumber}
                 onChange={(e) => setSettings({ ...settings, streetNumber: e.target.value })}
-                placeholder="12"
+                placeholder="ex. 24"
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -170,7 +177,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   required
                   value={settings.streetName}
                   onChange={(e) => setSettings({ ...settings, streetName: e.target.value })}
-                  placeholder="Rue de l’Industrie"
+                  placeholder="ex. Avenue de la République"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -188,7 +195,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                 required
                 value={settings.postalCode}
                 onChange={(e) => setSettings({ ...settings, postalCode: e.target.value })}
-                placeholder="75011"
+                placeholder="ex. 75020"
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -202,7 +209,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                 required
                 value={settings.city}
                 onChange={(e) => setSettings({ ...settings, city: e.target.value })}
-                placeholder="Paris"
+                placeholder="ex. Lyon"
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -221,7 +228,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   required
                   value={settings.phone}
                   onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
-                  placeholder="01 45 88 90 00"
+                  placeholder="ex. 06 12 34 56 78"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -238,7 +245,7 @@ export const GarageSettingsModal: React.FC<GarageSettingsModalProps> = ({
                   required
                   value={settings.email}
                   onChange={(e) => setSettings({ ...settings, email: e.target.value })}
-                  placeholder="contact@autogarage.fr"
+                  placeholder="ex. contact@mongarage.fr"
                   className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                 />
               </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Sidebar, SidebarNavTarget } from './components/Sidebar';
 import { VehicleList } from './components/VehicleList';
 import { VehicleDetail } from './components/VehicleDetail';
@@ -13,7 +13,8 @@ import { ExportsBackupView } from './components/ExportsBackupView';
 import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
-import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense } from './types/garage';
+import { DemoModeBanner } from './components/DemoModeBanner';
+import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense, SubscriptionPlan } from './types/garage';
 import {
   auth,
   onAuthStateChanged,
@@ -21,6 +22,7 @@ import {
   User,
 } from './services/firebase';
 import {
+  clearLocalGarageCache,
   subscribeVehicles,
   subscribeGarages,
   subscribeAllFleetExpensesAndRepairs,
@@ -34,21 +36,28 @@ import {
   updateVehicle,
   deleteVehicle,
   seedDemoGarageData,
+  getActiveGarageId,
 } from './services/garageService';
 import { buildProfileSettingsPatch, buildTransactionTaxSnapshot, resolveUserProfileType } from './utils/frenchTaxEngine';
 import {
   ensureAndGetUserProfile,
   subscribeCerfaTemplatesCalibration,
   subscribeFeatureFlags,
+  subscribeSubscriptionPlans,
   subscribeSystemThemeConfig,
+  subscribeUserProfile,
   updateUserProfileType,
 } from './services/adminService';
 import {
   applySystemThemeVariables,
   DEFAULT_FEATURE_FLAGS,
+  DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
+  getPlanCapabilities,
   isSuperAdminUser,
+  isViewAllowedByFeatureFlags,
   parseUserLayoutPreference,
+  resolveEffectiveFeatureFlagsForPlan,
   resolveEffectiveLayoutMode,
   SIDEBAR_COLLAPSED_STORAGE_KEY,
   USER_LAYOUT_MODE_STORAGE_KEY,
@@ -62,12 +71,15 @@ import {
   removeGarageFromList,
   removeVehiclesForGarage,
   resolveNextActiveGarageId,
+  resolveSinglePrimaryGarageId,
   upsertGarageInList,
 } from './utils/garageUtils';
 import {
   subscribeSuppliers,
   subscribePurchases,
   seedDemoSuppliersAndPurchases,
+  deleteSupplier,
+  deletePurchase,
 } from './services/supplierService';
 import {
   filterSuppliersByGarage,
@@ -77,7 +89,13 @@ import {
   subscribeDocuments,
   subscribeDocumentHistory,
   seedDemoDocuments,
+  deleteGarageDocument,
 } from './services/documentService';
+import {
+  collectDemoRecordsForCleanup,
+  GUEST_DEMO_STORAGE_KEY,
+  hasActiveDemoFleet,
+} from './utils/demoUtils';
 import {
   filterDocumentsByGarage,
   filterDocumentHistoryByGarage,
@@ -91,7 +109,7 @@ import {
 } from './services/auditAndBackupService';
 import { computeEntityFieldDiffs, filterAuditLogsByGarage } from './utils/exportBackup';
 import { createDemoCerfaVehicle } from './utils/cerfa15776';
-import { ArrowLeft, Loader2, Menu } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Menu } from 'lucide-react';
 import { useI18n } from './i18n/I18nContext';
 import { pickLocalized } from './utils/i18nUtils';
 
@@ -107,16 +125,53 @@ const isAdminUrl = (): boolean => {
   );
 };
 
+const isDemoUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('demo') === '1';
+};
+
+const readGuestDemoStorage = (): boolean => {
+  try {
+    return localStorage.getItem(GUEST_DEMO_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
 export default function App() {
   const { lang, t } = useI18n();
   const [isAdminMode, setIsAdminMode] = useState<boolean>(() => isAdminUrl());
   const [user, setUser] = useState<User | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(
+    () => !auth.currentUser && (isDemoUrl() || readGuestDemoStorage())
+  );
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const guestDemoAutoSeededRef = useRef(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [systemConfig, setSystemConfig] = useState<SystemThemeConfig>(DEFAULT_SYSTEM_THEME_CONFIG);
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagsConfig>(DEFAULT_FEATURE_FLAGS);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(DEFAULT_SUBSCRIPTION_PLANS);
+  const [globalToast, setGlobalToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const showGlobalToast = useCallback((message: string) => {
+    setGlobalToast(message);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setGlobalToast(null);
+      toastTimerRef.current = null;
+    }, 3500);
+  }, []);
   const [authReady, setAuthReady] = useState(false);
   const [garages, setGarages] = useState<GarageWorkspace[]>([]);
-  const [activeGarageId, setActiveGarageId] = useState<string | null>(null);
+  const [activeGarageId, setActiveGarageId] = useState<string | null>(() => {
+    if (!auth.currentUser && (isDemoUrl() || readGuestDemoStorage())) {
+      return getActiveGarageId() || DEFAULT_GARAGE_ID;
+    }
+    return null;
+  });
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [fleetRepairs, setFleetRepairs] = useState<RepairTask[]>([]);
   const [fleetExpenses, setFleetExpenses] = useState<GeneralExpense[]>([]);
@@ -217,26 +272,69 @@ export default function App() {
     }
   }, [theme, systemConfig]);
 
+  const isSuperAdmin = isSuperAdminUser({
+    email: user?.email,
+    emailVerified: user?.emailVerified,
+    profile: userProfile,
+  });
+
+  const activePlanId = userProfile?.planId || (isSuperAdmin ? 'enterprise' : 'starter');
+  const currentPlanObj = useMemo(
+    () =>
+      subscriptionPlans.find((p) => p.id === activePlanId) ||
+      subscriptionPlans[0],
+    [subscriptionPlans, activePlanId]
+  );
+  const upgradePlanObj = useMemo(() => {
+    const nextId = activePlanId === 'starter' ? 'pro' : 'enterprise';
+    return (
+      subscriptionPlans.find((p) => p.id === nextId) ||
+      subscriptionPlans[1] ||
+      subscriptionPlans[0]
+    );
+  }, [subscriptionPlans, activePlanId]);
+  const planCapabilities = useMemo(
+    () => getPlanCapabilities(activePlanId, subscriptionPlans),
+    [activePlanId, subscriptionPlans]
+  );
+  const effectiveFeatureFlags = useMemo(
+    () =>
+      resolveEffectiveFeatureFlagsForPlan(
+        featureFlags,
+        activePlanId,
+        isSuperAdmin,
+        subscriptionPlans
+      ),
+    [featureFlags, activePlanId, isSuperAdmin, subscriptionPlans]
+  );
+
   // Sync /admin or ?view=admin URL path
   const handleSetActiveView = (view: ActiveAppView) => {
-    if (view === 'settings' && activeView !== 'settings') {
+    const safeView = isViewAllowedByFeatureFlags(view, effectiveFeatureFlags) ? view : 'desktop';
+    if (safeView === 'settings' && activeView !== 'settings') {
       setPreviousViewBeforeSettings(activeView as Exclude<ActiveAppView, 'settings'>);
     }
-    if (view !== 'documents') {
+    if (safeView !== 'documents') {
       setDocumentsAlignerMode(false);
     }
-    setIsAdminMode(view === 'admin');
-    setActiveView(view);
+    setIsAdminMode(safeView === 'admin');
+    setActiveView(safeView);
     if (typeof window !== 'undefined') {
-      const targetUrl = view === 'admin' ? `${window.location.origin}/?view=admin` : '/';
+      const targetUrl = safeView === 'admin' ? `${window.location.origin}/?view=admin` : '/';
       const currentFull = `${window.location.pathname}${window.location.search}`;
       if (
-        (view === 'admin' && !isAdminUrl()) ||
-        (view !== 'admin' && (currentFull !== '/' || isAdminUrl()))
+        (safeView === 'admin' && !isAdminUrl()) ||
+        (safeView !== 'admin' && (currentFull !== '/' || isAdminUrl()))
       ) {
         window.history.pushState({}, '', targetUrl);
       }
     }
+  };
+
+  const handleOpenUpgradePlan = () => {
+    setSelectedVehicle(null);
+    setActiveSettingsTab('subscription');
+    handleSetActiveView('settings');
   };
 
   const handleBackToGarageFromAdmin = () => {
@@ -262,10 +360,13 @@ export default function App() {
     return () => {
       window.removeEventListener('popstate', onPopState);
       window.removeEventListener('autogarage_settings_updated', onSettingsUpdated);
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
     };
   }, []);
 
-  // Subscribe to global system theme config, feature flags, and Cerfa field calibration
+  // Subscribe to global system theme config, feature flags, subscription plans, and Cerfa field calibration
   useEffect(() => {
     const unsubTheme = subscribeSystemThemeConfig((cfg) => {
       setSystemConfig(cfg);
@@ -273,29 +374,57 @@ export default function App() {
     const unsubFlags = subscribeFeatureFlags((flags) => {
       setFeatureFlags(flags);
     });
+    const unsubPlans = subscribeSubscriptionPlans((plans) => {
+      setSubscriptionPlans(plans);
+    });
     const unsubCerfa = subscribeCerfaTemplatesCalibration(() => {});
     return () => {
       unsubTheme();
       unsubFlags();
+      unsubPlans();
       unsubCerfa();
     };
   }, []);
 
-  // Enforce multiGarage & expenseAnalytics guards
+  // Enforce multiGarage & module feature flag guards globally across all users
   useEffect(() => {
-    if (!featureFlags.multiGarage && !activeGarageId) {
-      setActiveGarageId(DEFAULT_GARAGE_ID);
-      persistActiveGarageId(DEFAULT_GARAGE_ID);
+    if (!authReady || (!user && !isDemoMode)) return;
+    if (!effectiveFeatureFlags.multiGarage) {
+      const primaryGarageId = resolveSinglePrimaryGarageId(garages, activeGarageId);
+      if (activeGarageId !== primaryGarageId) {
+        setActiveGarageId(primaryGarageId);
+        persistActiveGarageId(primaryGarageId);
+      }
     }
-    if (!featureFlags.expenseAnalytics && activeView === 'analytics') {
+    if (!isViewAllowedByFeatureFlags(activeView, effectiveFeatureFlags)) {
+      setDocumentsAlignerMode(false);
       setActiveView('desktop');
     }
-  }, [featureFlags.multiGarage, featureFlags.expenseAnalytics, activeGarageId, activeView]);
+    if (!effectiveFeatureFlags.documentsModule && documentsAlignerMode) {
+      setDocumentsAlignerMode(false);
+    }
+  }, [authReady, user, isDemoMode, effectiveFeatureFlags, garages, activeGarageId, activeView, documentsAlignerMode]);
 
   // Initialize Auth & RBAC Profile
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        try {
+          const prevUid = localStorage.getItem('autogarage_last_uid');
+          if (prevUid !== currentUser.uid) {
+            clearLocalGarageCache();
+            localStorage.setItem('autogarage_last_uid', currentUser.uid);
+          }
+          localStorage.removeItem(GUEST_DEMO_STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+        setIsDemoMode(false);
+        if (typeof window !== 'undefined' && isDemoUrl()) {
+          window.history.replaceState({}, '', '/');
+        }
+      }
       const profile = await ensureAndGetUserProfile(currentUser);
       setUserProfile(profile);
       setAuthReady(true);
@@ -304,11 +433,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const isSuperAdmin = isSuperAdminUser({
-    email: user?.email,
-    emailVerified: user?.emailVerified,
-    profile: userProfile,
-  });
+  // Real-time sync of current user's subscription & profile document
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsubProfile = subscribeUserProfile(user.uid, (profile) => {
+      if (profile) setUserProfile(profile);
+    });
+    return () => unsubProfile();
+  }, [user?.uid]);
 
   const handleDevSuperAdminLogin = (profile: UserProfile) => {
     try {
@@ -320,12 +452,34 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
-    try {
-      localStorage.removeItem('autogarage_current_user_profile');
-    } catch {
-      // ignore
-    }
+    clearLocalGarageCache();
+    persistActiveGarageId(null);
+    setActiveGarageId(null);
+    setSelectedVehicle(null);
+    setGarages([]);
+    setVehicles([]);
+    setFleetRepairs([]);
+    setFleetExpenses([]);
+    setSuppliers([]);
+    setPurchases([]);
+    setDocuments([]);
+    setDocumentHistory([]);
+    setActivityLogs([]);
+    setChangeLogs([]);
+    setBackupSnapshots([]);
     setUserProfile(null);
+    setMobileSidebarOpen(false);
+    setIsAuthModalOpen(false);
+    setDocumentsAlignerMode(false);
+    setIsDemoMode(false);
+    setAuthInitialMode('login');
+    guestDemoAutoSeededRef.current = false;
+    setActiveView('desktop');
+    setIsAdminMode(false);
+    setUser(null);
+    if (typeof window !== 'undefined' && (isAdminUrl() || isDemoUrl())) {
+      window.history.replaceState({}, '', '/');
+    }
     if (auth.currentUser) {
       await signOut(auth);
     }
@@ -333,14 +487,17 @@ export default function App() {
 
   const effectiveUserId = user?.uid || 'garage_pro_dealer';
 
-  // Subscribe to garages (main garage workspace only)
+  // Subscribe to garages (authenticated main garage workspace or active guest demo)
   useEffect(() => {
-    if (!authReady || isAdminMode) return;
+    if (!authReady || (!user && !isDemoMode) || isAdminMode) {
+      setGarages([]);
+      return;
+    }
     const unsubscribe = subscribeGarages(effectiveUserId, (list) => {
       setGarages(list);
     });
     return () => unsubscribe();
-  }, [authReady, isAdminMode, effectiveUserId]);
+  }, [authReady, user, isDemoMode, isAdminMode, effectiveUserId]);
 
   // Sync activeGarageId with garageService for per-garage Cerfa & Settings isolation
   const handleSelectGarage = (garageId: string | null) => {
@@ -376,7 +533,7 @@ export default function App() {
   }) => {
     const created = await createGarage(effectiveUserId, input);
     setGarages((prev) => upsertGarageInList(prev, created));
-    if (!featureFlags.multiGarage) {
+    if (!effectiveFeatureFlags.multiGarage) {
       handleSelectGarage(created.id);
     }
   };
@@ -421,7 +578,7 @@ export default function App() {
       remaining,
       garageId,
       activeGarageId,
-      featureFlags.multiGarage
+      effectiveFeatureFlags.multiGarage
     );
 
     setGarages(remaining);
@@ -468,9 +625,13 @@ export default function App() {
     return resolveUserProfileType(getGarageSettings());
   }, [activeGarageId, garages, userProfile?.profileType, settingsVersion]);
 
-  // Subscribe to real-time vehicles (main garage workspace only)
+  // Subscribe to real-time vehicles (authenticated workspace or active guest demo)
   useEffect(() => {
-    if (!authReady || isAdminMode) return;
+    if (!authReady || (!user && !isDemoMode) || isAdminMode) {
+      setVehicles([]);
+      setSelectedVehicle(null);
+      return;
+    }
 
     const unsubscribe = subscribeVehicles(effectiveUserId, (data) => {
       setVehicles(data);
@@ -483,11 +644,11 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [authReady, isAdminMode, effectiveUserId]);
+  }, [authReady, user, isDemoMode, isAdminMode, effectiveUserId]);
 
   // Subscribe to all fleet repair tasks and general expenses for accurate Active Inventory financial totals
   useEffect(() => {
-    if (!authReady || isAdminMode || vehicles.length === 0) {
+    if (!authReady || (!user && !isDemoMode) || isAdminMode || vehicles.length === 0) {
       setFleetRepairs([]);
       setFleetExpenses([]);
       return;
@@ -500,11 +661,20 @@ export default function App() {
       }
     );
     return () => unsub();
-  }, [authReady, isAdminMode, vehicles]);
+  }, [authReady, user, isDemoMode, isAdminMode, vehicles]);
 
   // Subscribe to real-time suppliers, purchases, documents & document history
   useEffect(() => {
-    if (!authReady || isAdminMode) return;
+    if (!authReady || (!user && !isDemoMode) || isAdminMode) {
+      setSuppliers([]);
+      setPurchases([]);
+      setDocuments([]);
+      setDocumentHistory([]);
+      setActivityLogs([]);
+      setChangeLogs([]);
+      setBackupSnapshots([]);
+      return;
+    }
     const unsubSuppliers = subscribeSuppliers(effectiveUserId, setSuppliers);
     const unsubPurchases = subscribePurchases(effectiveUserId, setPurchases);
     const unsubDocuments = subscribeDocuments(effectiveUserId, setDocuments);
@@ -521,7 +691,7 @@ export default function App() {
       unsubChanges();
       unsubSnapshots();
     };
-  }, [authReady, isAdminMode, effectiveUserId]);
+  }, [authReady, user, isDemoMode, isAdminMode, effectiveUserId]);
 
   // Strictly isolated vehicles for the active garage
   const garageVehicles = useMemo(() => {
@@ -575,6 +745,7 @@ export default function App() {
       targetGarageId,
       scopedVehicles
     );
+    setIsDemoMode(true);
   };
 
   const handleSeedDocuments = async () => {
@@ -589,6 +760,7 @@ export default function App() {
       scopedVehicles,
       userProfile?.email || user?.email || undefined
     );
+    setIsDemoMode(true);
   };
 
   // Seed demo data handler (scoped to active garage)
@@ -596,6 +768,10 @@ export default function App() {
     try {
       setIsSeeding(true);
       const targetGarageId = activeGarageId || DEFAULT_GARAGE_ID;
+      if (!activeGarageId) {
+        setActiveGarageId(targetGarageId);
+        persistActiveGarageId(targetGarageId);
+      }
       const seededVehicles = await seedDemoGarageData(effectiveUserId, targetGarageId);
       if (garageSuppliers.length === 0) {
         await seedDemoSuppliersAndPurchases(
@@ -612,12 +788,154 @@ export default function App() {
           userProfile?.email || user?.email || undefined
         );
       }
+      setIsDemoMode(true);
     } catch (err) {
       console.error('Seed demo error:', err);
     } finally {
       setIsSeeding(false);
     }
   };
+
+  const handleEnterGuestDemo = async () => {
+    clearLocalGarageCache();
+    try {
+      localStorage.setItem(GUEST_DEMO_STORAGE_KEY, 'true');
+    } catch {
+      // ignore
+    }
+    guestDemoAutoSeededRef.current = true;
+    persistActiveGarageId(DEFAULT_GARAGE_ID);
+    setActiveGarageId(DEFAULT_GARAGE_ID);
+    setSelectedVehicle(null);
+    setDocumentsAlignerMode(false);
+    setActiveView('desktop');
+    setIsAdminMode(false);
+    setAuthInitialMode('login');
+    setIsDemoMode(true);
+    try {
+      setIsSeeding(true);
+      const seededVehicles = await seedDemoGarageData(effectiveUserId, DEFAULT_GARAGE_ID);
+      await seedDemoSuppliersAndPurchases(effectiveUserId, DEFAULT_GARAGE_ID, seededVehicles);
+      await seedDemoDocuments(effectiveUserId, DEFAULT_GARAGE_ID, seededVehicles);
+    } catch (err) {
+      console.error('Guest demo seed error:', err);
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const handleExitGuestDemo = (targetMode: 'login' | 'register' = 'login') => {
+    clearLocalGarageCache();
+    persistActiveGarageId(null);
+    guestDemoAutoSeededRef.current = false;
+    setActiveGarageId(null);
+    setSelectedVehicle(null);
+    setGarages([]);
+    setVehicles([]);
+    setFleetRepairs([]);
+    setFleetExpenses([]);
+    setSuppliers([]);
+    setPurchases([]);
+    setDocuments([]);
+    setDocumentHistory([]);
+    setActivityLogs([]);
+    setChangeLogs([]);
+    setBackupSnapshots([]);
+    setMobileSidebarOpen(false);
+    setIsAuthModalOpen(false);
+    setDocumentsAlignerMode(false);
+    setIsAdminMode(false);
+    setActiveView('desktop');
+    setAuthInitialMode(targetMode);
+    setIsDemoMode(false);
+    if (typeof window !== 'undefined' && isDemoUrl()) {
+      window.history.replaceState({}, '', '/');
+    }
+  };
+
+  const handleClearAuthenticatedDemo = async () => {
+    const plan = collectDemoRecordsForCleanup({
+      activeGarageId,
+      vehicles,
+      suppliers,
+      purchases,
+      documents,
+    });
+    const actor = userProfile?.email || user?.email || undefined;
+    await Promise.all([
+      ...plan.purchaseIds.map((pid) => deletePurchase(pid)),
+      ...plan.supplierIds.map((sid) => deleteSupplier(sid)),
+      ...plan.documents.map((docItem) => deleteGarageDocument(docItem, actor)),
+      ...plan.vehicleIds.map((vid) => deleteVehicle(vid)),
+    ]);
+
+    const deletedVehicleIds = new Set(plan.vehicleIds);
+    const deletedSupplierIds = new Set(plan.supplierIds);
+    const deletedPurchaseIds = new Set(plan.purchaseIds);
+    const deletedDocumentIds = new Set(plan.documents.map((d) => d.id));
+
+    if (deletedVehicleIds.size > 0) {
+      setVehicles((prev) => prev.filter((v) => !deletedVehicleIds.has(v.id)));
+    }
+    if (deletedSupplierIds.size > 0) {
+      setSuppliers((prev) => prev.filter((s) => !deletedSupplierIds.has(s.id)));
+    }
+    if (deletedPurchaseIds.size > 0) {
+      setPurchases((prev) => prev.filter((p) => !deletedPurchaseIds.has(p.id)));
+    }
+    if (deletedDocumentIds.size > 0) {
+      setDocuments((prev) => prev.filter((d) => !deletedDocumentIds.has(d.id)));
+    }
+
+    try {
+      localStorage.removeItem(GUEST_DEMO_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setSelectedVehicle(null);
+    setDocumentsAlignerMode(false);
+    setIsDemoMode(false);
+    if (activeView !== 'desktop') {
+      handleSetActiveView('desktop');
+    }
+    showGlobalToast(
+      pickLocalized(lang, {
+        fr: 'Mode démo quitté — données de démonstration supprimées.',
+        ru: 'Вы вышли из демо-режима. Демо-данные удалены.',
+        hy: 'Դուրս եկաք դեմո ռեժիմից։ Դեմո տվյալները ջնջված են։',
+        ka: 'გახვედით დემო რეჟიმიდან. დემო მონაცემები წაშლილია.',
+      })
+    );
+  };
+
+  useEffect(() => {
+    if (!authReady || user || !isDemoMode || guestDemoAutoSeededRef.current) return;
+    guestDemoAutoSeededRef.current = true;
+    if (!activeGarageId) {
+      setActiveGarageId(DEFAULT_GARAGE_ID);
+      persistActiveGarageId(DEFAULT_GARAGE_ID);
+    }
+    let hasLocalVehicles = false;
+    try {
+      const raw = localStorage.getItem('autogarage_vehicles_store');
+      const parsed = raw ? (JSON.parse(raw) as Vehicle[]) : [];
+      hasLocalVehicles = Array.isArray(parsed) && parsed.length > 0;
+    } catch {
+      hasLocalVehicles = false;
+    }
+    if (!hasLocalVehicles) {
+      void (async () => {
+        try {
+          setIsSeeding(true);
+          const seededVehicles = await seedDemoGarageData(effectiveUserId, DEFAULT_GARAGE_ID);
+          await seedDemoSuppliersAndPurchases(effectiveUserId, DEFAULT_GARAGE_ID, seededVehicles);
+          await seedDemoDocuments(effectiveUserId, DEFAULT_GARAGE_ID, seededVehicles);
+        } finally {
+          setIsSeeding(false);
+        }
+      })();
+    }
+  }, [authReady, user, isDemoMode, activeGarageId, effectiveUserId]);
 
   // Quick status change
   const handleQuickStatusChange = async (vehicleId: string, newStatus: VehicleStatus) => {
@@ -798,6 +1116,24 @@ export default function App() {
       }
       setEditingVehicle(null);
     } else {
+      if (
+        !planCapabilities.isUnlimitedVehicles &&
+        vehicles.length >= planCapabilities.vehicleLimit
+      ) {
+        const curName = currentPlanObj?.name || 'Starter';
+        const nextName = upgradePlanObj?.name || 'Pro';
+        setIsVehicleModalOpen(false);
+        handleOpenUpgradePlan();
+        showGlobalToast(
+          pickLocalized(lang, {
+            fr: `Limite atteinte (${planCapabilities.vehicleLimit} véhicules sur ${curName}). Passez à ${nextName}.`,
+            ru: `Достигнут лимит тарифа ${curName} (${planCapabilities.vehicleLimit} авто). Перейдите на ${nextName}.`,
+            hy: `${curName} սակագնի սահմանաչափը սպառվել է (${planCapabilities.vehicleLimit} մեքենա)։`,
+            ka: `${curName} ტარიფის ლიმიტი ამოწურულია (${planCapabilities.vehicleLimit} ავტო).`,
+          })
+        );
+        return;
+      }
       const targetGarage = activeGarageId || DEFAULT_GARAGE_ID;
       const newId = await createVehicle({
         ...data,
@@ -865,14 +1201,32 @@ export default function App() {
     setSelectedVehicle(null);
   };
 
-  if (!authReady) {
+  const authLoading = !authReady;
+
+  if (authLoading) {
     return (
-      <div className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-[var(--foreground)] space-y-4">
+      <div
+        data-testid="auth-loading-screen"
+        className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-[var(--foreground)] space-y-4 p-4"
+      >
         <Loader2 className="w-8 h-8 animate-spin text-[var(--primary)]" />
         <p className="text-sm font-semibold text-[var(--muted-foreground)]">
           Initialisation sécurisée d'AutoGarage Manager...
         </p>
       </div>
+    );
+  }
+
+  if (!user && !isDemoMode) {
+    return (
+      <AuthModal
+        variant="page"
+        isOpen={true}
+        initialMode={authInitialMode}
+        onClose={() => {}}
+        onDevSuperAdminLogin={handleDevSuperAdminLogin}
+        onEnterDemoMode={handleEnterGuestDemo}
+      />
     );
   }
 
@@ -921,14 +1275,14 @@ export default function App() {
     if (target === 'inventory') {
       setSelectedVehicle(null);
       handleSetActiveView('desktop');
-    } else if (target === 'analytics') {
+    } else if (target === 'analytics' && effectiveFeatureFlags.expenseAnalytics) {
       handleSetActiveView('analytics');
-    } else if (target === 'suppliers') {
+    } else if (target === 'suppliers' && effectiveFeatureFlags.suppliersModule) {
       handleSetActiveView('suppliers');
-    } else if (target === 'documents') {
+    } else if (target === 'documents' && effectiveFeatureFlags.documentsModule) {
       setDocumentsAlignerMode(false);
       handleSetActiveView('documents');
-    } else if (target === 'exports') {
+    } else if (target === 'exports' && effectiveFeatureFlags.exportsBackup) {
       handleSetActiveView('exports');
     } else if (target === 'settings') {
       handleSetActiveView('settings');
@@ -940,7 +1294,7 @@ export default function App() {
   const showInlineMobileNavTrigger =
     activeView !== 'desktop' ||
     Boolean(selectedVehicle) ||
-    Boolean(featureFlags.multiGarage && !activeGarageId);
+    Boolean(effectiveFeatureFlags.multiGarage && !activeGarageId);
 
   return (
     <div
@@ -961,7 +1315,7 @@ export default function App() {
         garages={garages}
         activeGarageId={activeGarageId}
         onSelectGarage={handleSelectGarage}
-        featureFlags={featureFlags}
+        featureFlags={effectiveFeatureFlags}
         isSuperAdmin={isSuperAdmin}
         theme={theme}
         onThemeChange={setTheme}
@@ -970,10 +1324,27 @@ export default function App() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onSignOut={handleSignOut}
         profileType={activeProfileType}
+        planId={activePlanId}
+        plans={subscriptionPlans}
+        onOpenSubscription={handleOpenUpgradePlan}
       />
 
       {/* Workspace Column */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {hasActiveDemoFleet({
+          isDemoModeFlag: isDemoMode,
+          isAuthenticated: Boolean(user),
+          vehicles: activeGarageId ? garageVehicles : vehicles,
+          suppliers: activeGarageId ? garageSuppliers : suppliers,
+          documents: activeGarageId ? garageDocuments : documents,
+        }) && (
+          <DemoModeBanner
+            isAuthenticated={Boolean(user)}
+            onExitGuestDemo={() => handleExitGuestDemo('login')}
+            onExitAuthenticatedDemo={handleClearAuthenticatedDemo}
+          />
+        )}
+
         {/* Main App Container */}
         <main className="flex-1 max-w-6xl w-full mx-auto p-3.5 md:p-5">
           {showInlineMobileNavTrigger && (
@@ -1019,12 +1390,12 @@ export default function App() {
             </div>
           )}
 
-          {hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
+          {hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
           activeView === 'analytics' &&
-          featureFlags.expenseAnalytics ? (
+          effectiveFeatureFlags.expenseAnalytics ? (
             <AnalyticsView
               vehicles={activeGarageId ? garageVehicles : vehicles}
-              featureFlags={featureFlags}
+              featureFlags={effectiveFeatureFlags}
               activeGarageId={activeGarageId}
               profileType={activeProfileType}
               onSelectVehicle={(v) => {
@@ -1032,8 +1403,9 @@ export default function App() {
                 handleSetActiveView('desktop');
               }}
             />
-          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
-            activeView === 'suppliers' ? (
+          ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
+            activeView === 'suppliers' &&
+            effectiveFeatureFlags.suppliersModule ? (
             <SuppliersView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               suppliers={garageSuppliers}
@@ -1046,9 +1418,10 @@ export default function App() {
               }}
               onSeedSuppliers={handleSeedSuppliers}
             />
-          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
-            activeView === 'documents' ? (
-            documentsAlignerMode && featureFlags.cerfaGenerator ? (
+          ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
+            activeView === 'documents' &&
+            effectiveFeatureFlags.documentsModule ? (
+            documentsAlignerMode && effectiveFeatureFlags.cerfaGenerator ? (
               <Cerfa15776Modal
                 variant="page"
                 isOpen={true}
@@ -1065,9 +1438,11 @@ export default function App() {
                 userId={effectiveUserId}
                 isSuperAdmin={isSuperAdmin}
                 initialAlignerMode={false}
+                canUseCerfaAutofill={planCapabilities.canUseCerfaAutofillAll}
                 onSaveVehicleFields={async (vehicleId, patch) => {
                   await updateVehicle(vehicleId, patch);
                 }}
+                onValidationToast={showGlobalToast}
               />
             ) : (
               <DocumentsView
@@ -1084,7 +1459,7 @@ export default function App() {
                 }}
                 onSeedDocuments={handleSeedDocuments}
                 onOpenCerfaGenerator={
-                  featureFlags.cerfaGenerator
+                  effectiveFeatureFlags.cerfaGenerator
                     ? (v) => {
                         if (v) setSelectedVehicle(v);
                         setDocumentsAlignerMode(true);
@@ -1093,8 +1468,9 @@ export default function App() {
                 }
               />
             )
-          ) : hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId) &&
-            activeView === 'exports' ? (
+          ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
+            activeView === 'exports' &&
+            effectiveFeatureFlags.exportsBackup ? (
             <ExportsBackupView
               vehicles={activeGarageId ? garageVehicles : vehicles}
               suppliers={garageSuppliers}
@@ -1119,12 +1495,17 @@ export default function App() {
               onTabChange={setActiveSettingsTab}
               onClose={() => handleSetActiveView(previousViewBeforeSettings)}
               userId={effectiveUserId}
+              userProfile={userProfile}
+              subscriptionPlans={subscriptionPlans}
+              allVehiclesCount={vehicles.length}
               activeGarageId={activeGarageId}
               vehicles={garageVehicles}
               theme={theme}
               onThemeChange={setTheme}
+              onPlanUpdated={(updated) => setUserProfile(updated)}
+              onSubscriptionToast={showGlobalToast}
               onOpenAlignerMode={() => {
-                if (featureFlags.cerfaGenerator) {
+                if (effectiveFeatureFlags.cerfaGenerator) {
                   setDocumentsAlignerMode(true);
                   handleSetActiveView('documents');
                 } else {
@@ -1145,7 +1526,7 @@ export default function App() {
                 void updateUserProfileType(effectiveUserId, nextProfile);
               }}
             />
-          ) : featureFlags.multiGarage && !activeGarageId ? (
+          ) : effectiveFeatureFlags.multiGarage && !activeGarageId ? (
             <GarageSelector
               garages={garages}
               allVehicles={vehicles}
@@ -1165,8 +1546,9 @@ export default function App() {
               onOpenSellModal={handleOpenSellModal}
               onDeleteVehicle={handleDeleteVehicle}
               userId={effectiveUserId}
-              featureFlags={featureFlags}
+              featureFlags={effectiveFeatureFlags}
               profileType={activeProfileType}
+              onValidationToast={showGlobalToast}
             />
           ) : (
             <VehicleList
@@ -1179,16 +1561,28 @@ export default function App() {
                 setIsVehicleModalOpen(true);
               }}
               onNewVehicle={() => {
+                if (
+                  !planCapabilities.isUnlimitedVehicles &&
+                  vehicles.length >= planCapabilities.vehicleLimit
+                ) {
+                  handleOpenUpgradePlan();
+                  return;
+                }
                 setEditingVehicle(null);
                 setIsVehicleModalOpen(true);
               }}
               onQuickStatusChange={handleQuickStatusChange}
               onOpenSellModal={handleOpenSellModal}
-              onOpenCerfa={featureFlags.cerfaGenerator ? (v) => setCerfaVehicle(v) : undefined}
+              onOpenCerfa={effectiveFeatureFlags.cerfaGenerator ? (v) => setCerfaVehicle(v) : undefined}
               onSeedData={handleSeedData}
               isSeeding={isSeeding}
-              featureFlags={featureFlags}
+              featureFlags={effectiveFeatureFlags}
               onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+              vehicleLimit={planCapabilities.isUnlimitedVehicles ? 9999 : planCapabilities.vehicleLimit}
+              totalOwnedVehiclesCount={vehicles.length}
+              currentPlanName={currentPlanObj?.name}
+              upgradePlanName={upgradePlanObj?.name}
+              onOpenUpgradePlan={handleOpenUpgradePlan}
             />
           )}
         </main>
@@ -1204,6 +1598,7 @@ export default function App() {
         onSubmit={handleSaveVehicle}
         initialVehicle={editingVehicle}
         userId={effectiveUserId}
+        onValidationToast={showGlobalToast}
       />
 
       {/* Buyer Info & Sale Closing Modal */}
@@ -1217,6 +1612,7 @@ export default function App() {
         garageSettings={getGarageSettings(sellingVehicle?.garageId || activeGarageId || undefined)}
         profileType={activeProfileType}
         onConfirmSale={handleConfirmSale}
+        onValidationToast={showGlobalToast}
       />
 
       {/* Quick Cerfa Preview Modal fallback when Documents page mode is off */}
@@ -1226,6 +1622,7 @@ export default function App() {
         vehicle={selectedVehicle || vehicles[0] || createDemoCerfaVehicle(effectiveUserId)}
         userId={effectiveUserId}
         isSuperAdmin={isSuperAdmin}
+        onValidationToast={showGlobalToast}
       />
 
       {/* Quick Cerfa 15776*02 Modal from List View */}
@@ -1236,6 +1633,8 @@ export default function App() {
           vehicle={cerfaVehicle}
           userId={effectiveUserId}
           isSuperAdmin={isSuperAdmin}
+          canUseCerfaAutofill={planCapabilities.canUseCerfaAutofillAll}
+          onValidationToast={showGlobalToast}
         />
       )}
 
@@ -1245,6 +1644,33 @@ export default function App() {
         onClose={() => setIsAuthModalOpen(false)}
         onDevSuperAdminLogin={handleDevSuperAdminLogin}
       />
+
+      {/* Global Confirmation & Validation Toast */}
+      {globalToast && (() => {
+        const isValidationAlert =
+          /Cerfa|обязательн|obligatoires|պարտադիր|სავალდებულო|Limite atteinte|Достигнут лимит/i.test(
+            globalToast
+          );
+        return (
+          <div
+            role={isValidationAlert ? 'alert' : 'status'}
+            aria-live={isValidationAlert ? 'assertive' : 'polite'}
+            data-testid="app-global-toast"
+            className={`fixed bottom-4 right-4 z-[60] max-w-md bg-[var(--card)] text-[var(--foreground)] rounded-[var(--ag-card-radius)] px-4 py-3 shadow-2xl flex items-center gap-2.5 text-xs font-semibold border ${
+              isValidationAlert
+                ? 'border-red-500/80 ring-2 ring-red-500/20'
+                : 'border-[var(--primary)]/50'
+            }`}
+          >
+            {isValidationAlert ? (
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-[var(--success)] shrink-0" />
+            )}
+            <span>{globalToast}</span>
+          </div>
+        );
+      })()}
     </div>
   );
 }

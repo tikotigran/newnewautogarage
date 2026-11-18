@@ -1,5 +1,7 @@
-import { GarageSettings, Vehicle } from '../types/garage';
+import { AppUserProfileType, GarageSettings, StatusProfileData, Vehicle } from '../types/garage';
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
+import { Language } from './i18nUtils';
+import { formatCerfaMissingToast } from './vehicleFormUtils';
 export { CERFA_15776_CONFIG } from './cerfaConfig';
 
 export interface Cerfa15776VehicleStep {
@@ -131,6 +133,65 @@ export function sanitizeWinAnsi(input: string): string {
 }
 
 /**
+ * Builds Step 2 (Seller / Cédant) fields directly from the garage's separated profile slots
+ * (`proProfile` for Micro-entrepreneur vs `particulierProfile` for Particulier), ensuring zero
+ * cross-status data bleed and clearing SIRET when Particulier is selected.
+ */
+export function buildCerfaSellerFromProfile(
+  garageSettings: GarageSettings = DEFAULT_GARAGE_SETTINGS,
+  targetMode: AppUserProfileType = 'micro_entrepreneur',
+  baseSeller?: Partial<Cerfa15776SellerStep>
+): Cerfa15776SellerStep {
+  const isParticulier = targetMode === 'particulier';
+  const sourceSlot: Partial<StatusProfileData> = isParticulier
+    ? garageSettings.particulierProfile || garageSettings
+    : garageSettings.proProfile || garageSettings;
+
+  const sellerStreet = sourceSlot.streetType?.trim()
+    ? {
+        streetType: sourceSlot.streetType.trim(),
+        streetName: (sourceSlot.streetName || '').trim(),
+      }
+    : splitStreetTypeAndName(sourceSlot.streetName || '');
+
+  const formattedPhysiqueName = [sourceSlot.lastName, sourceSlot.firstName]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+    .toUpperCase();
+
+  const cleanSiret = isParticulier ? '' : (sourceSlot.siret || '').replace(/\s+/g, '');
+  const cityVal = (sourceSlot.city || '').trim();
+  const todayIso = new Date().toISOString().split('T')[0];
+  const saleDate = baseSeller?.saleDate || todayIso;
+
+  return {
+    entityType: isParticulier ? 'physique' : 'morale',
+    sex: isParticulier ? (sourceSlot.sex || '') : '',
+    nameOrCompany: isParticulier
+      ? formattedPhysiqueName || (sourceSlot.name || '').trim().toUpperCase()
+      : (sourceSlot.name || '').trim() || formattedPhysiqueName,
+    siret: cleanSiret,
+    streetNumber: (sourceSlot.streetNumber || '').trim(),
+    streetExtension: (sourceSlot.streetExtension || '').trim(),
+    streetType: sellerStreet.streetType,
+    streetName: sellerStreet.streetName,
+    postalCode: (sourceSlot.postalCode || '').trim(),
+    city: cityVal,
+    saleType: baseSeller?.saleType || 'cession',
+    saleDate,
+    saleTime: baseSeller?.saleTime || '14:00',
+    signingCity: cityVal,
+    signingDate: baseSeller?.signingDate || saleDate,
+    certifyAdminSituation: baseSeller?.certifyAdminSituation ?? true,
+    certifyNoTransformation: baseSeller?.certifyNoTransformation ?? true,
+    certifyVhuDestruction: baseSeller?.certifyVhuDestruction ?? false,
+    vhuAgreementNumber: baseSeller?.vhuAgreementNumber || '',
+    opposeProspecting: baseSeller?.opposeProspecting ?? false,
+  };
+}
+
+/**
  * Builds pre-filled Cerfa 15776*02 form data from Vehicle + GarageSettings
  */
 export function buildInitialCerfaData(
@@ -138,13 +199,6 @@ export function buildInitialCerfaData(
   garageSettings: GarageSettings = DEFAULT_GARAGE_SETTINGS
 ): Cerfa15776FormData {
   const todayIso = new Date().toISOString().split('T')[0];
-  const sellerStreet = garageSettings.streetType?.trim()
-    ? {
-        streetType: garageSettings.streetType.trim(),
-        streetName: (garageSettings.streetName || '').trim(),
-      }
-    : splitStreetTypeAndName(garageSettings.streetName);
-
   const buyer = vehicle.buyerInfo;
   const rawAddress = buyer?.address || '';
   const addrNumMatch = rawAddress.match(/^\s*(\d+[a-zA-Z]?)\s+/);
@@ -167,6 +221,21 @@ export function buildInitialCerfaData(
   const saleDate = buyer?.saleDate || todayIso;
   const saleTime = buyer?.saleTime || '14:00';
 
+  const initialSellerMode: AppUserProfileType =
+    buyer?.sellerProfileType === 'particulier' || buyer?.sellerProfileType === 'micro_entrepreneur'
+      ? buyer.sellerProfileType
+      : garageSettings.profileType
+      ? garageSettings.profileType
+      : garageSettings.entityType === 'physique'
+      ? 'particulier'
+      : 'micro_entrepreneur';
+
+  const sellerStep = buildCerfaSellerFromProfile(garageSettings, initialSellerMode, {
+    saleDate,
+    saleTime,
+    signingDate: saleDate,
+  });
+
   return {
     vehicle: {
       registrationNumber: (
@@ -176,60 +245,18 @@ export function buildInitialCerfaData(
       vin: (vehicle.vin || '').toUpperCase(),
       make: (vehicle.make || '').toUpperCase(),
       typeVariantVersion: vehicle.typeVariantVersion || vehicle.trim || vehicle.model || '',
-      commercialDesignation: (vehicle.model || '').toUpperCase(),
-      firstRegistrationDate: vehicle.year ? `${vehicle.year}-01-01` : '',
+      commercialDesignation: (vehicle.commercialDesignation || vehicle.model || '').toUpperCase(),
+      firstRegistrationDate:
+        vehicle.firstRegistrationDate || (vehicle.year ? `${vehicle.year}-01-01` : ''),
       nationalGenre: vehicle.nationalGenre || 'VP',
       bodywork: (vehicle.bodyType || 'CI').toUpperCase(),
       mileage: vehicle.mileage ?? 0,
-      hasRegistrationCertificate: true,
+      hasRegistrationCertificate: vehicle.hasRegistrationCertificate ?? true,
       formulaNumber: (vehicle.formulaNumber || '').toUpperCase(),
       certificateDate: vehicle.certificateDate || '',
-      absenceReason: '',
+      absenceReason: vehicle.absenceReason || '',
     },
-    seller: (() => {
-      const explicitDealProfile = buyer?.sellerProfileType;
-      const cleanSiret = (garageSettings.siret || '').replace(/\s+/g, '');
-      const sellerEntityType: 'physique' | 'morale' =
-        explicitDealProfile === 'particulier'
-          ? 'physique'
-          : explicitDealProfile === 'micro_entrepreneur'
-          ? cleanSiret.length > 0 || garageSettings.entityType !== 'physique'
-            ? 'morale'
-            : 'physique'
-          : garageSettings.entityType === 'physique'
-          ? 'physique'
-          : 'morale';
-      const formattedPhysiqueName = [garageSettings.lastName, garageSettings.firstName]
-        .filter(Boolean)
-        .join(' ')
-        .trim()
-        .toUpperCase();
-      return {
-        entityType: sellerEntityType,
-        sex: sellerEntityType === 'physique' ? (garageSettings.sex || '') : '',
-        nameOrCompany:
-          sellerEntityType === 'physique'
-            ? formattedPhysiqueName || (garageSettings.name || '').toUpperCase()
-            : garageSettings.name || formattedPhysiqueName || '',
-        siret: sellerEntityType === 'morale' ? cleanSiret : '',
-        streetNumber: garageSettings.streetNumber || '',
-        streetExtension: garageSettings.streetExtension || '',
-        streetType: sellerStreet.streetType,
-        streetName: sellerStreet.streetName,
-        postalCode: garageSettings.postalCode || '',
-        city: garageSettings.city || '',
-        saleType: 'cession',
-        saleDate,
-        saleTime,
-        signingCity: garageSettings.city || '',
-        signingDate: saleDate,
-        certifyAdminSituation: true,
-        certifyNoTransformation: true,
-        certifyVhuDestruction: false,
-        vhuAgreementNumber: '',
-        opposeProspecting: false,
-      };
-    })(),
+    seller: sellerStep,
     buyer: {
       entityType: buyer?.isCompany ? 'morale' : 'physique',
       sex: '',
@@ -254,7 +281,7 @@ export function buildInitialCerfaData(
 
 /**
  * Validates a specific step of the Cerfa 15776*02 wizard.
- * Returns an object mapping field keys to French error messages (empty object = valid).
+ * Returns an object mapping field keys to validation labels/messages (empty object = valid).
  */
 export function validateCerfaStep(
   step: 1 | 2 | 3,
@@ -264,53 +291,108 @@ export function validateCerfaStep(
 
   if (step === 1) {
     if (!data.vehicle.registrationNumber.trim()) {
-      errors.registrationNumber = 'Le numéro d’immatriculation (A) est requis.';
+      errors.registrationNumber = "(A) N° d'immatriculation";
     }
     if (!data.vehicle.vin.trim()) {
-      errors.vin = 'Le numéro d’identification VIN (E) est requis.';
+      errors.vin = 'VIN (E)';
+    }
+    if (!data.vehicle.firstRegistrationDate.trim()) {
+      errors.firstRegistrationDate = '(B) 1re immatriculation';
     }
     if (!data.vehicle.make.trim()) {
-      errors.make = 'La marque (D.1) est requise.';
+      errors.make = '(D.1) Marque';
+    }
+    if (!data.vehicle.commercialDesignation.trim()) {
+      errors.commercialDesignation = '(D.3) Dénomination commerciale';
     }
     if (data.vehicle.mileage === '' || Number(data.vehicle.mileage) < 0) {
-      errors.mileage = 'Le kilométrage est requis.';
+      errors.mileage = 'Kilométrage au compteur';
     }
-    if (!data.vehicle.hasRegistrationCertificate && !data.vehicle.absenceReason.trim()) {
-      errors.absenceReason = 'Veuillez indiquer le motif d’absence du certificat.';
+    if (typeof data.vehicle.hasRegistrationCertificate !== 'boolean') {
+      errors.hasRegistrationCertificate = "Présence du certificat d'immatriculation";
+    } else if (data.vehicle.hasRegistrationCertificate) {
+      if (!data.vehicle.formulaNumber.trim() && !data.vehicle.certificateDate.trim()) {
+        errors.formulaOrCertificateDate = 'Numéro de formule ou (I) Date du certificat';
+      }
+    } else if (!data.vehicle.absenceReason.trim()) {
+      errors.absenceReason = "Motif d'absence du certificat";
     }
   }
 
   if (step === 2) {
     if (!data.seller.nameOrCompany.trim()) {
-      errors.sellerName = 'Le nom ou la raison sociale du cédant est requis.';
+      errors.sellerName =
+        data.seller.entityType === 'morale' ? 'Raison sociale (cédant)' : 'Nom et Prénom (cédant)';
     }
     if (data.seller.entityType === 'morale' && !data.seller.siret.trim()) {
-      errors.sellerSiret = 'Le numéro SIRET est requis pour une personne morale.';
+      errors.sellerSiret = 'N° SIRET (cédant)';
+    }
+    if (!data.seller.streetNumber.trim()) {
+      errors.sellerStreetNumber = 'N° de voie (vendeur / propriétaire)';
+    }
+    if (!data.seller.streetName.trim()) {
+      errors.sellerStreetName = 'Nom de la voie (vendeur / propriétaire)';
     }
     if (!data.seller.postalCode.trim() || !data.seller.city.trim()) {
-      errors.sellerCity = 'Le code postal et la commune du cédant sont requis.';
+      errors.sellerCity = 'Code postal et commune (cédant)';
     }
     if (!data.seller.saleDate.trim()) {
-      errors.saleDate = 'La date de cession est requise.';
+      errors.saleDate = 'Date de cession';
     }
     if (!data.seller.signingCity.trim()) {
-      errors.sellerSigningCity = 'Le lieu de signature (Fait à) est requis.';
+      errors.sellerSigningCity = 'Lieu de signature (Fait à)';
     }
   }
 
   if (step === 3) {
     if (!data.buyer.nameOrCompany.trim()) {
-      errors.buyerName = 'Le nom ou la raison sociale de l’acquéreur est requis.';
+      errors.buyerName = 'Nom ou raison sociale (acquéreur)';
     }
     if (data.buyer.entityType === 'physique' && !data.buyer.birthDate.trim()) {
-      errors.buyerBirthDate = 'La date de naissance est requise pour une personne physique.';
+      errors.buyerBirthDate = 'Date de naissance (acquéreur)';
+    }
+    if (!data.buyer.streetNumber.trim()) {
+      errors.buyerStreetNumber = 'N° de voie (acheteur)';
+    }
+    if (!data.buyer.streetName.trim()) {
+      errors.buyerStreetName = 'Nom de la voie (acheteur)';
     }
     if (!data.buyer.postalCode.trim() || !data.buyer.city.trim()) {
-      errors.buyerCity = 'Le code postal et la commune de l’acquéreur sont requis.';
+      errors.buyerCity = 'Code postal et commune (acquéreur)';
     }
   }
 
   return errors;
+}
+
+export interface CerfaFullValidationResult {
+  firstInvalidStep: 1 | 2 | 3 | null;
+  errors: Record<string, string>;
+  missingLabels: string[];
+  toastMessage: string | null;
+}
+
+export function validateAllCerfaSteps(
+  data: Cerfa15776FormData,
+  lang: Language = 'ru'
+): CerfaFullValidationResult {
+  const s1 = validateCerfaStep(1, data);
+  const s2 = validateCerfaStep(2, data);
+  const s3 = validateCerfaStep(3, data);
+  const combined: Record<string, string> = { ...s1, ...s2, ...s3 };
+  const missingLabels = Object.values(combined);
+
+  let firstInvalidStep: 1 | 2 | 3 | null = null;
+  if (Object.keys(s1).length > 0) firstInvalidStep = 1;
+  else if (Object.keys(s2).length > 0) firstInvalidStep = 2;
+  else if (Object.keys(s3).length > 0) firstInvalidStep = 3;
+
+  return {
+    firstInvalidStep,
+    errors: combined,
+    missingLabels,
+    toastMessage: missingLabels.length > 0 ? formatCerfaMissingToast(missingLabels, lang) : null,
+  };
 }
 
 export interface CerfaTemplateOption {
@@ -390,7 +472,7 @@ export function createCalibrationDummyCerfaData(): Cerfa15776FormData {
     seller: {
       entityType: 'morale',
       sex: '',
-      nameOrCompany: 'AUTOGARAGE MANAGER SARL',
+      nameOrCompany: 'MON GARAGE AUTO',
       siret: '89412345600012',
       streetNumber: '12',
       streetExtension: '',

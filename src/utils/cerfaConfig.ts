@@ -266,7 +266,7 @@ export const CALIBRATION_DUMMY_TEMPLATE_VALUES: Record<string, string> = {
   holderPostalCode: '69003',
   holderCity: 'LYON',
   sellerName: 'DUPONT JEAN-MARC (45 AVENUE DE LA REPUBLIQUE, 69003 LYON)',
-  dealerName: 'AUTOGARAGE MANAGER SARL',
+  dealerName: 'MON GARAGE AUTO',
   dealerSiret: '89412345600012',
   dealerAddress: "12 RUE DE L'INDUSTRIE",
   dealerPostalCode: '75011',

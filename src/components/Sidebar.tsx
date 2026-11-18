@@ -17,10 +17,17 @@ import {
   Coins,
   Palette,
   ExternalLink,
+  Crown,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { AppUserProfileType, FeatureFlagsConfig, GarageWorkspace } from '../types/garage';
-import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
+import {
+  AppUserProfileType,
+  FeatureFlagsConfig,
+  GarageWorkspace,
+  SubscriptionPlan,
+  SubscriptionPlanId,
+} from '../types/garage';
+import { DEFAULT_FEATURE_FLAGS, getPlanBadgeLabel } from '../utils/adminUtils';
 import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { hasOpenGarageWorkspace } from '../utils/garageUtils';
 import { useI18n } from '../i18n/I18nContext';
@@ -59,6 +66,9 @@ interface SidebarProps {
   onSelectSettingsTab?: (tab: SettingsTab) => void;
   onExitSettings?: () => void;
   profileType?: AppUserProfileType;
+  planId?: SubscriptionPlanId;
+  plans?: SubscriptionPlan[];
+  onOpenSubscription?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -83,6 +93,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSettingsTab,
   onExitSettings,
   profileType,
+  planId = 'starter',
+  plans,
+  onOpenSubscription,
 }) => {
   const { lang, t, getTextStyle } = useI18n();
   const [desktopProfileOpen, setDesktopProfileOpen] = useState(false);
@@ -176,6 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     resolvedProfileType === 'particulier'
       ? t('profileBadgeParticulier')
       : t('profileBadgeMicro');
+  const planBadgeLabel = getPlanBadgeLabel(planId, lang, plans);
 
   const signedInEmail = user?.email || activeSessionEmail || null;
   const displayName = user?.displayName || signedInEmail || t('signIn');
@@ -210,21 +224,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: t('navSuppliers'),
       icon: <Handshake className="w-4 h-4 shrink-0" />,
       active: activeView === 'suppliers',
-      visible: hasOpenedGarage,
+      visible: hasOpenedGarage && featureFlags.suppliersModule,
     },
     {
       id: 'documents',
       label: t('navDocuments'),
       icon: <FileText className="w-4 h-4 shrink-0" />,
       active: activeView === 'documents',
-      visible: hasOpenedGarage,
+      visible: hasOpenedGarage && featureFlags.documentsModule,
     },
     {
       id: 'exports',
       label: t('navExportsBackup'),
       icon: <DatabaseBackup className="w-4 h-4 shrink-0" />,
       active: activeView === 'exports',
-      visible: hasOpenedGarage,
+      visible: hasOpenedGarage && featureFlags.exportsBackup,
     },
     {
       id: 'admin',
@@ -340,6 +354,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             icon: <Palette className="w-4 h-4 shrink-0" />,
           },
           {
+            id: 'subscription',
+            label: pickLocalized(lang, {
+              fr: 'Abonnement & Forfait',
+              ru: 'Тариф и подписка',
+              hy: 'Սակագին և բաժանորդագրություն',
+              ka: 'ტარიფი და გამოწერა',
+            }),
+            icon: <Crown className="w-4 h-4 shrink-0" />,
+          },
+          {
             id: 'security',
             label: pickLocalized(lang, {
               fr: 'Sécurité & Compte',
@@ -356,6 +380,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const backHoverClass =
       theme === 'light' ? 'hover:bg-black/5' : 'hover:bg-white/5';
 
+    const handleOpenSubscriptionFromPopover = () => {
+      setProfileOpen(false);
+      if (onOpenSubscription) {
+        onOpenSubscription();
+      } else {
+        onSelectSettingsTab?.('subscription');
+        onNavigate('settings');
+      }
+      if (isMobileDrawer) {
+        onCloseMobile();
+      }
+    };
+
     const renderProfilePopover = (positionClass: string) => (
       <div
         role="menu"
@@ -364,15 +401,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
         className={`${positionClass} rounded-xl border border-[var(--border)]/60 bg-[var(--card)] text-[var(--foreground)] shadow-xl p-2 w-60 z-50`}
       >
-        {/* Header: Full email + Subscription badge */}
+        {/* Header: Clickable Subscription Plan Badge + Profile Type + Email */}
         <div className="px-2 py-1.5 space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <span
+            <button
+              type="button"
               data-testid={
                 isMobileDrawer ? 'sidebar-mobile-profile-badge' : 'sidebar-profile-badge'
               }
-              className="text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/15 px-2 py-0.5 rounded-md whitespace-nowrap"
+              onClick={handleOpenSubscriptionFromPopover}
+              title={pickLocalized(lang, {
+                fr: 'Gérer mon abonnement',
+                ru: 'Управление тарифом и подпиской',
+                hy: 'Կառավարել սակագինը',
+                ka: 'ტარიფის მართვა',
+              })}
+              className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--primary)] bg-[var(--primary)]/15 hover:bg-[var(--primary)]/25 px-2 py-0.5 rounded-md whitespace-nowrap transition cursor-pointer"
             >
+              <Crown className="w-3 h-3 shrink-0" />
+              <span>{planBadgeLabel}</span>
+            </button>
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)] truncate">
               {profileBadgeLabel}
             </span>
           </div>
@@ -564,7 +613,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onMouseEnter={(e) =>
                   showCollapsedTooltip(
                     e,
-                    activeGarage ? activeGarage.name : t('allGarages'),
+                    activeGarage
+                      ? activeGarage.name?.trim() ||
+                        pickLocalized(lang, {
+                          fr: 'Mon espace',
+                          ru: 'Мой профиль',
+                          hy: 'Իմ պրոֆիլը',
+                          ka: 'ჩემი პროფილი',
+                        })
+                      : t('allGarages'),
                     collapsed
                   )
                 }
@@ -572,12 +629,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onFocus={(e) =>
                   showCollapsedTooltip(
                     e,
-                    activeGarage ? activeGarage.name : t('allGarages'),
+                    activeGarage
+                      ? activeGarage.name?.trim() ||
+                        pickLocalized(lang, {
+                          fr: 'Mon espace',
+                          ru: 'Мой профиль',
+                          hy: 'Իմ պրոֆիլը',
+                          ka: 'ჩემი პროფილი',
+                        })
+                      : t('allGarages'),
                     collapsed
                   )
                 }
                 onBlur={hideCollapsedTooltip}
-                aria-label={activeGarage ? activeGarage.name : t('allGarages')}
+                aria-label={
+                  activeGarage
+                    ? activeGarage.name?.trim() ||
+                      pickLocalized(lang, {
+                        fr: 'Mon espace',
+                        ru: 'Мой профиль',
+                        hy: 'Իմ պրոֆիլը',
+                        ka: 'ჩემი პროფილი',
+                      })
+                    : t('allGarages')
+                }
                 className={`w-9 h-9 rounded-full flex items-center justify-center text-[var(--primary)] ${iconHoverClass} transition`}
               >
                 <Building2 className="w-4 h-4" />
@@ -617,7 +692,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   options={[
                     { value: '', label: t('allGarages') },
-                    ...garages.map((g) => ({ value: g.id, label: g.name })),
+                    ...garages.map((g) => ({
+                      value: g.id,
+                      label:
+                        g.name?.trim() ||
+                        pickLocalized(lang, {
+                          fr: 'Mon espace',
+                          ru: 'Мой профиль',
+                          hy: 'Իմ պրոֆիլը',
+                          ka: 'ჩემი პროფილი',
+                        }),
+                    })),
                   ]}
                   triggerClassName="w-full bg-[var(--card)] text-xs font-semibold text-[var(--foreground)] border border-[var(--border)] rounded-lg px-2.5 py-1.5"
                 />

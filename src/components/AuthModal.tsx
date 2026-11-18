@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Mail,
@@ -10,6 +10,8 @@ import {
   UserPlus,
   User as UserIcon,
   Briefcase,
+  Car,
+  Sparkles,
 } from 'lucide-react';
 import {
   auth,
@@ -22,21 +24,28 @@ import { SUPERADMIN_BOOTSTRAP_EMAIL } from '../utils/adminUtils';
 import { getPendingProfileType, setPendingProfileType } from '../services/adminService';
 import { AppUserProfileType, UserProfile } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDevSuperAdminLogin: (profile: UserProfile) => void;
+  variant?: 'modal' | 'page';
+  initialMode?: 'login' | 'register';
+  onEnterDemoMode?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   onDevSuperAdminLogin,
+  variant = 'modal',
+  initialMode = 'login',
+  onEnterDemoMode,
 }) => {
-  const { t } = useI18n();
+  const { lang, t } = useI18n();
 
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [selectedProfileType, setSelectedProfileType] = useState<AppUserProfileType>(
     () => getPendingProfileType() || 'micro_entrepreneur'
   );
@@ -44,6 +53,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    setMode(initialMode);
+    setError(null);
+  }, [initialMode]);
 
   if (!isOpen) return null;
 
@@ -125,18 +139,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     onClose();
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="auth-modal-title"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
+  const isFullPage = variant === 'page';
+
+  const cardContent = (
+    <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden">
+      {/* Header */}
+      {isFullPage ? (
+        <div className="px-6 pt-6 pb-4 border-b border-slate-800 text-center space-y-2.5">
+          <div className="mx-auto w-12 h-12 rounded-2xl bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-lg">
+            <Car className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="text-lg font-extrabold tracking-tight text-white">
+              {t('appName')}
+            </div>
+            <h1 id="auth-modal-title" className="text-sm font-bold text-slate-200 mt-1">
+              {mode === 'login' ? t('authSignInTitle') : t('authRegisterTitle')}
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">{t('authSubtitle')}</p>
+          </div>
+        </div>
+      ) : (
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
@@ -159,6 +182,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
 
         {/* Body */}
         <div className="p-5 space-y-3.5">
@@ -328,8 +352,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </div>
 
-          {/* Dev / Preview SuperAdmin Fallback */}
-          {isDevEnv && (
+          {isFullPage && onEnterDemoMode && (
+            <div className="pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                data-testid="auth-enter-demo-btn"
+                onClick={onEnterDemoMode}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition disabled:opacity-60"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>
+                  {pickLocalized(lang, {
+                    fr: 'Découvrir le mode démo',
+                    ru: 'Попробовать демо-режим',
+                    hy: 'Փորձել դեմո ռեժիմը',
+                    ka: 'სცადეთ დემო რეჟიმი',
+                  })}
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* Dev / Preview SuperAdmin Fallback (modal only) */}
+          {!isFullPage && isDevEnv && (
             <div className="pt-3 border-t border-slate-800">
               <button
                 type="button"
@@ -345,6 +391,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
         </div>
       </div>
+  );
+
+  if (isFullPage) {
+    return (
+      <div
+        data-testid="full-screen-auth"
+        className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--foreground)] p-4"
+      >
+        {cardContent}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {cardContent}
     </div>
   );
 };

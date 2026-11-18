@@ -205,4 +205,17 @@ export function hasOpenGarageWorkspace(
   return Boolean(activeGarageId);
 }
 
+export function resolveSinglePrimaryGarageId(
+  garages: GarageWorkspace[],
+  currentActiveGarageId: string | null | undefined
+): string {
+  if (garages.length > 0) {
+    if (currentActiveGarageId && garages.some((g) => g.id === currentActiveGarageId)) {
+      return currentActiveGarageId;
+    }
+    return garages[0].id;
+  }
+  return currentActiveGarageId || DEFAULT_GARAGE_ID;
+}
+
 

@@ -100,6 +100,7 @@ export async function createSupplier(input: {
   address?: string;
   siret?: string;
   notes?: string;
+  isDemo?: boolean;
 }): Promise<Supplier> {
   const id = generateId('sup');
   const now = new Date().toISOString();
@@ -116,6 +117,7 @@ export async function createSupplier(input: {
     address: input.address?.trim() || undefined,
     siret: input.siret?.trim() || undefined,
     notes: input.notes?.trim() || undefined,
+    isDemo: input.isDemo ? true : undefined,
     createdAt: now,
     updatedAt: now,
   });
@@ -262,6 +264,7 @@ export async function createPurchase(input: {
   invoiceProofUrl?: string;
   vehicleDocuments?: PurchaseDocument[];
   notes?: string;
+  isDemo?: boolean;
 }): Promise<Purchase> {
   const id = generateId('pur');
   const now = new Date().toISOString();
@@ -284,6 +287,7 @@ export async function createPurchase(input: {
     invoiceProofUrl: input.invoiceProofUrl || undefined,
     vehicleDocuments: input.vehicleDocuments || [],
     notes: input.notes?.trim() || undefined,
+    isDemo: input.isDemo ? true : undefined,
     createdAt: now,
     updatedAt: now,
   });
@@ -386,6 +390,7 @@ export async function seedDemoSuppliersAndPurchases(
     city: 'Paris / Mitry-Mory',
     siret: '412 890 123 00041',
     notes: 'Ventes hebdomadaires véhicules de flotte et reprises concessions',
+    isDemo: true,
   });
 
   const sDealership = await createSupplier({
@@ -399,6 +404,7 @@ export async function seedDemoSuppliersAndPurchases(
     city: 'Lyon',
     siret: '528 331 045 00018',
     notes: 'Partenaire reprise VO multi-marques',
+    isDemo: true,
   });
 
   const sPrivate = await createSupplier({
@@ -410,6 +416,7 @@ export async function seedDemoSuppliersAndPurchases(
     phone: '06 18 44 72 19',
     city: 'Versailles',
     notes: 'Rachat direct particulier 1ère main',
+    isDemo: true,
   });
 
   const sParts = await createSupplier({
@@ -421,6 +428,7 @@ export async function seedDemoSuppliersAndPurchases(
     phone: '01 76 49 20 20',
     email: 'commandes@oscaro-pro.fr',
     city: 'Gennevilliers',
+    isDemo: true,
   });
 
   const sWorkshop = await createSupplier({
@@ -432,6 +440,7 @@ export async function seedDemoSuppliersAndPurchases(
     phone: '01 43 22 19 88',
     city: 'Montreuil',
     siret: '811 452 901 00015',
+    isDemo: true,
   });
 
   const sTransport = await createSupplier({
@@ -442,6 +451,7 @@ export async function seedDemoSuppliersAndPurchases(
     contactPerson: 'Nicolas Bernard',
     phone: '06 72 11 40 55',
     city: 'Orléans',
+    isDemo: true,
   });
 
   // Vehicle Purchases
@@ -465,6 +475,7 @@ export async function seedDemoSuppliersAndPurchases(
       { id: 'doc_a2', name: 'Certificat_Cession_Achat_BCA.pdf', url: '', date: '2026-07-05', kind: 'vehicle_doc' },
       { id: 'doc_a3', name: 'Histovec_Audi_A3.pdf', url: '', date: '2026-07-05', kind: 'vehicle_doc' },
     ],
+    isDemo: true,
   });
 
   await createPurchase({
@@ -486,6 +497,7 @@ export async function seedDemoSuppliersAndPurchases(
       { id: 'doc_p1', name: 'Carte_Grise_Peugeot_208.pdf', url: '', date: '2026-10-15', kind: 'vehicle_doc' },
       { id: 'doc_p2', name: 'Declaration_Achat_SIV_208.pdf', url: '', date: '2026-10-15', kind: 'vehicle_doc' },
     ],
+    isDemo: true,
   });
 
   await createPurchase({
@@ -507,6 +519,7 @@ export async function seedDemoSuppliersAndPurchases(
       { id: 'doc_r1', name: 'Cerfa_15776_Rachat_Delacroix.pdf', url: '', date: '2026-09-28', kind: 'vehicle_doc' },
       { id: 'doc_r2', name: 'Controle_Technique_Clio_V.pdf', url: '', date: '2026-09-28', kind: 'vehicle_doc' },
     ],
+    isDemo: true,
   });
 
   await createPurchase({
@@ -527,6 +540,7 @@ export async function seedDemoSuppliersAndPurchases(
     vehicleDocuments: [
       { id: 'doc_g1', name: 'Carte_Grise_Golf_VII.pdf', url: '', date: '2026-08-10', kind: 'vehicle_doc' },
     ],
+    isDemo: true,
   });
 
   // Parts, Workshop & Transport Purchases
@@ -546,6 +560,7 @@ export async function seedDemoSuppliersAndPurchases(
     invoiceNumber: 'OSC-884920',
     invoiceProofName: 'Facture_Oscaro_884920.pdf',
     vehicleDocuments: [],
+    isDemo: true,
   });
 
   await createPurchase({
@@ -564,6 +579,7 @@ export async function seedDemoSuppliersAndPurchases(
     invoiceNumber: 'MECA-2026-74',
     invoiceProofName: 'Facture_Meca_Express_74.pdf',
     vehicleDocuments: [],
+    isDemo: true,
   });
 
   await createPurchase({
@@ -582,5 +598,6 @@ export async function seedDemoSuppliersAndPurchases(
     invoiceNumber: 'TR-419',
     invoiceProofName: 'Bon_Transport_419.pdf',
     vehicleDocuments: [],
+    isDemo: true,
   });
 }
