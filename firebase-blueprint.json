@@ -83,8 +83,10 @@
         "userId": { "type": "string", "description": "Owner user UID" },
         "category": {
           "type": "string",
-          "enum": ["transport", "fuel", "controle_technique", "detailing", "admin", "insurance", "other"],
-          "description": "Category of the expense"
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Category identifier (built-in or custom slug from system_config/expenses)"
         },
         "description": { "type": "string", "maxLength": 200, "description": "Detailed description of expense" },
         "amount": { "type": "number", "description": "Expense amount in Euros" },
@@ -470,24 +472,22 @@
     },
     "CerfaTemplatesCalibration": {
       "title": "CerfaTemplatesCalibration",
-      "description": "Global PDF field calibration coordinates (x, y, font size, stepX, offsets) for Cerfa 15776*02, Cerfa 13750*07, and Déclaration d'Achat.",
+      "description": "Global PDF field calibration coordinates (x, y, font size, stepX, offsets) for Cerfa 15776*02.",
       "type": "object",
       "properties": {
         "cerfa_15776_02": { "type": "object", "description": "Offsets and full section coordinate tree for Cerfa 15776*02" },
-        "cerfa_13750_07": { "type": "object", "description": "Offsets and field coordinate map for Cerfa 13750*07" },
-        "declaration_achat": { "type": "object", "description": "Offsets and field coordinate map for Déclaration d'Achat" },
         "updatedAtIso": { "type": "string", "maxLength": 50, "description": "ISO timestamp of last calibration update" },
         "updatedBy": { "type": "string", "maxLength": 128, "description": "SuperAdmin UID" },
         "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
       },
-      "required": ["cerfa_15776_02", "cerfa_13750_07", "declaration_achat"]
+      "required": ["cerfa_15776_02"]
     },
     "FeatureFlagsConfig": {
       "title": "FeatureFlagsConfig",
       "description": "Global platform module feature flags managed by SuperAdmin and enforced across all users.",
       "type": "object",
       "properties": {
-        "cerfaGenerator": { "type": "boolean", "description": "Enable Cerfa 15776*02 / 13750*07 generator" },
+        "cerfaGenerator": { "type": "boolean", "description": "Enable Cerfa 15776*02 generator" },
         "pnlCalculator": { "type": "boolean", "description": "Enable real-time P&L margin calculator" },
         "expenseAnalytics": { "type": "boolean", "description": "Enable Analytics & P&L charts module" },
         "multiGarage": { "type": "boolean", "description": "Enable multi-garage workspaces and switcher" },

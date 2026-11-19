@@ -9,6 +9,7 @@ import {
   formatFrenchDate,
   pickCerfaTargetVehicle,
   resolveCerfaSellerModeForVehicle,
+  resolveCerfaTargetGarageId,
   sanitizeWinAnsi,
   splitFrenchDateDigits,
   splitStreetTypeAndName,
@@ -18,12 +19,10 @@ import {
 } from './cerfa15776';
 import {
   applyOffsetsToCerfa15776Config,
-  CALIBRATION_DUMMY_TEMPLATE_VALUES,
   createDefaultCerfaTemplatesCalibration,
-  DEFAULT_CERFA_13750_07_FIELDS,
-  DEFAULT_DECLARATION_ACHAT_FIELDS,
   getCerfa15776FieldAtPath,
   getEffectiveCerfa15776Config,
+  normalizeCerfaTemplateId,
   resolveCerfaTemplatesCalibration,
   setCachedCerfaTemplatesCalibration,
   updateCerfa15776FieldAtPath,
@@ -241,7 +240,13 @@ test('pickCerfaTargetVehicle prioritizes preferred ID, then selected, then first
   });
   assert.equal(pickedDemo.isDemo, true);
   assert.equal(pickedDemo.vehicle.id, createDemoCerfaVehicle('usr_99').id);
-  assert.ok(CERFA_TEMPLATE_OPTIONS.some((opt) => opt.id === 'cerfa_15776_02'));
+  assert.deepEqual(
+    CERFA_TEMPLATE_OPTIONS.map((opt) => opt.id),
+    ['cerfa_15776_02']
+  );
+  assert.equal(normalizeCerfaTemplateId('cerfa_13750_07'), 'cerfa_15776_02');
+  assert.equal(normalizeCerfaTemplateId('declaration_achat'), 'cerfa_15776_02');
+  assert.equal(normalizeCerfaTemplateId(undefined), 'cerfa_15776_02');
 });
 
 test('buildVehicleCerfaPatch returns only modified plate, vin, or mileage', () => {
@@ -299,10 +304,11 @@ test('buildInitialCerfaData pre-fills Carte Grise codes (D.2, J.1, formulaNumber
   assert.equal(data.vehicle.certificateDate, '2022-03-15');
 });
 
-test('resolveCerfaTemplatesCalibration merges partial cloud data with defaults safely', () => {
+test('resolveCerfaTemplatesCalibration merges partial cloud data with defaults safely and strips unsupported templates', () => {
   const defaults = createDefaultCerfaTemplatesCalibration();
-  assert.ok(defaults.cerfa_13750_07.fields.registrationNumber);
-  assert.ok(defaults.declaration_achat.fields.dealerSiret);
+  assert.ok(defaults.cerfa_15776_02.config.section1Vehicle.vin);
+  assert.equal('cerfa_13750_07' in defaults, false);
+  assert.equal('declaration_achat' in defaults, false);
 
   const resolved = resolveCerfaTemplatesCalibration({
     cerfa_15776_02: {
@@ -313,20 +319,14 @@ test('resolveCerfaTemplatesCalibration merges partial cloud data with defaults s
         { x: 42, y: 725 }
       ),
     },
-    cerfa_13750_07: {
-      offsets: { offsetX: 1, offsetY: 2, fontSizeDelta: 0 },
-      fields: {
-        registrationNumber: { label: '(A) Immatriculation', x: 60, y: 715, size: 9.5, stepX: 14 },
-      },
-    },
+    ...( { cerfa_13750_07: { offsets: { offsetX: 1, offsetY: 2, fontSizeDelta: 0 }, fields: {} } } as Record<string, unknown> ),
   });
 
   assert.equal(resolved.cerfa_15776_02.offsets.offsetX, 3.5);
   assert.equal(resolved.cerfa_15776_02.config.section1Vehicle.registrationNumber.x, 42);
   assert.equal(resolved.cerfa_15776_02.config.section1Vehicle.vin.maxChars, 17);
-  assert.equal(resolved.cerfa_13750_07.fields.registrationNumber.x, 60);
-  assert.ok(resolved.cerfa_13750_07.fields.vin.x > 0);
-  assert.equal(resolved.declaration_achat.offsets.offsetX, 0);
+  assert.equal('cerfa_13750_07' in resolved, false);
+  assert.equal('declaration_achat' in resolved, false);
 });
 
 test('applyOffsetsToCerfa15776Config shifts nested field coordinates and clamps min font size', () => {
@@ -397,7 +397,7 @@ test('createCalibrationDummyCerfaData populates 100% of Cerfa fields with indepe
   assert.equal(dummy.vehicle.certificateDate, '2021-09-20');
 
   assert.equal(dummy.seller.entityType, 'morale');
-  assert.equal(dummy.seller.nameOrCompany, 'AUTOGARAGE MANAGER SARL');
+  assert.equal(dummy.seller.nameOrCompany, 'MON GARAGE AUTO');
   assert.equal(dummy.seller.siret, '89412345600012');
   assert.equal(dummy.seller.postalCode, '75011');
   assert.equal(dummy.seller.city, 'PARIS');
@@ -416,19 +416,6 @@ test('createCalibrationDummyCerfaData populates 100% of Cerfa fields with indepe
   assert.deepEqual(validateCerfaStep(1, dummy), {});
   assert.deepEqual(validateCerfaStep(2, dummy), {});
   assert.deepEqual(validateCerfaStep(3, dummy), {});
-
-  for (const key of Object.keys(DEFAULT_CERFA_13750_07_FIELDS)) {
-    assert.ok(
-      CALIBRATION_DUMMY_TEMPLATE_VALUES[key]?.trim().length,
-      `Missing dummy value for 13750*07 field ${key}`
-    );
-  }
-  for (const key of Object.keys(DEFAULT_DECLARATION_ACHAT_FIELDS)) {
-    assert.ok(
-      CALIBRATION_DUMMY_TEMPLATE_VALUES[key]?.trim().length,
-      `Missing dummy value for Déclaration d'Achat field ${key}`
-    );
-  }
 });
 
 test('getEffectiveCerfa15776Config() resolves saved Superadmin calibration & offsets as single source of truth', () => {
@@ -656,3 +643,72 @@ test('vehicle saved without (B), (D.3), or certificate presence prompts for them
   assert.equal(fullValidation.firstInvalidStep, 1);
   assert.ok(fullValidation.toastMessage?.startsWith('Заполните обязательные поля бланка Cerfa:'));
 });
+
+test('resolveCerfaTargetGarageId prioritizes vehicle.garageId and isolates seller SIRET/address per garage', () => {
+  assert.equal(
+    resolveCerfaTargetGarageId({ garageId: 'garage_a' }, 'garage_b'),
+    'garage_a'
+  );
+  assert.equal(
+    resolveCerfaTargetGarageId({ garageId: undefined }, 'garage_b'),
+    'garage_b'
+  );
+  assert.equal(resolveCerfaTargetGarageId(null, null), undefined);
+
+  const settingsByGarage: Record<string, GarageSettings> = {
+    garage_a: {
+      ...mockGarage,
+      garageId: 'garage_a',
+      profileType: 'micro_entrepreneur',
+      name: 'GARAGE ALPHA LYON',
+      siret: '11122233300011',
+      streetNumber: '12',
+      streetName: 'Rue Garibaldi',
+      postalCode: '69006',
+      city: 'Lyon',
+    },
+    garage_b: {
+      ...mockGarage,
+      garageId: 'garage_b',
+      profileType: 'micro_entrepreneur',
+      name: 'GARAGE BETA MARSEILLE',
+      siret: '99988877700022',
+      streetNumber: '88',
+      streetName: 'Avenue du Prado',
+      postalCode: '13008',
+      city: 'Marseille',
+    },
+  };
+
+  const vehicleInA: Vehicle = {
+    ...mockVehicle,
+    id: 'veh_a',
+    garageId: 'garage_a',
+    registrationNumber: 'AA-100-AA',
+    purchaseStatus: 'micro',
+  };
+  const vehicleWithoutGarage: Vehicle = {
+    ...mockVehicle,
+    id: 'veh_fallback',
+    garageId: undefined,
+    registrationNumber: 'BB-200-BB',
+    purchaseStatus: 'micro',
+  };
+
+  // Vehicle belonging to Garage A keeps Garage A SIRET & address even if activeGarageId is Garage B
+  const resolvedA = resolveCerfaTargetGarageId(vehicleInA, 'garage_b')!;
+  const cerfaA = buildInitialCerfaData(vehicleInA, settingsByGarage[resolvedA]);
+  assert.equal(cerfaA.seller.nameOrCompany, 'GARAGE ALPHA LYON');
+  assert.equal(cerfaA.seller.siret, '11122233300011');
+  assert.equal(cerfaA.seller.postalCode, '69006');
+  assert.equal(cerfaA.seller.city, 'Lyon');
+
+  // Vehicle missing garageId falls back strictly to activeGarageId (Garage B)
+  const resolvedFallback = resolveCerfaTargetGarageId(vehicleWithoutGarage, 'garage_b')!;
+  const cerfaB = buildInitialCerfaData(vehicleWithoutGarage, settingsByGarage[resolvedFallback]);
+  assert.equal(cerfaB.seller.nameOrCompany, 'GARAGE BETA MARSEILLE');
+  assert.equal(cerfaB.seller.siret, '99988877700022');
+  assert.equal(cerfaB.seller.postalCode, '13008');
+  assert.equal(cerfaB.seller.city, 'Marseille');
+});
+

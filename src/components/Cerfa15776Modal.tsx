@@ -30,13 +30,19 @@ import {
   buildInitialCerfaData,
   buildVehicleCerfaPatch,
   createCalibrationDummyCerfaData,
+  normalizeCerfaTemplateId,
   pickCerfaTargetVehicle,
   resolveCerfaSellerModeForVehicle,
+  resolveCerfaTargetGarageId,
   validateAllCerfaSteps,
   validateCerfaStep,
 } from '../utils/cerfa15776';
 import { formatCerfaMissingToast } from '../utils/vehicleFormUtils';
-import { Cerfa15776Config, CerfaTemplatesCalibrationPayload } from '../utils/cerfaConfig';
+import {
+  Cerfa15776Config,
+  CerfaTemplateKey,
+  CerfaTemplatesCalibrationPayload,
+} from '../utils/cerfaConfig';
 import {
   getCerfaTemplatesCalibration,
   saveCerfaTemplatesCalibration,
@@ -55,6 +61,7 @@ interface Cerfa15776ModalProps {
   vehicle: Vehicle;
   vehicles?: Vehicle[];
   userId?: string;
+  activeGarageId?: string | null;
   isSuperAdmin?: boolean;
   initialAlignerMode?: boolean;
   calibrationDummyMode?: boolean;
@@ -73,6 +80,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   vehicle,
   vehicles = [],
   userId,
+  activeGarageId,
   isSuperAdmin = false,
   initialAlignerMode = false,
   calibrationDummyMode = false,
@@ -82,12 +90,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   onValidationToast,
 }) => {
   const { lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
   const isPage = variant === 'page';
+  const initialTargetGarageId = resolveCerfaTargetGarageId(vehicle, activeGarageId);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>(vehicle.id);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
-    () => getGarageSettings().defaultCerfaTemplate || 'cerfa_15776_02'
+  const [selectedTemplateId, setSelectedTemplateId] = useState<CerfaTemplateKey>(
+    () => normalizeCerfaTemplateId(getGarageSettings(initialTargetGarageId).defaultCerfaTemplate)
   );
 
   const availableVehicles = useMemo(() => {
@@ -106,15 +116,18 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     [isPage, selectedVehicleId, vehicle, availableVehicles, userId]
   );
 
+  const targetVehicle = isPage ? activePick.vehicle : vehicle;
+  const targetGarageId = resolveCerfaTargetGarageId(targetVehicle, activeGarageId);
+
   const [latestGarageSettings, setLatestGarageSettings] = useState<GarageSettings>(() =>
-    getGarageSettings()
+    getGarageSettings(targetGarageId)
   );
   const hasSellerEditsRef = useRef(false);
 
   const [formData, setFormData] = useState<Cerfa15776FormData>(() =>
     calibrationDummyMode
       ? createCalibrationDummyCerfaData()
-      : buildInitialCerfaData(activePick.vehicle, getGarageSettings())
+      : buildInitialCerfaData(activePick.vehicle, getGarageSettings(targetGarageId))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isGenerating, setIsGenerating] = useState(false);
@@ -152,18 +165,20 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   useEffect(() => {
     if (!isOpen && !isPage) return;
     let isCancelled = false;
+    const currentVehicle = isPage ? activePick.vehicle : vehicle;
+    const resolvedGarageId = resolveCerfaTargetGarageId(currentVehicle, activeGarageId);
     const syncLocal = () => {
-      setLatestGarageSettings(getGarageSettings());
+      setLatestGarageSettings(getGarageSettings(resolvedGarageId));
     };
     syncLocal();
     window.addEventListener('autogarage_settings_updated', syncLocal);
     if (userId) {
-      fetchGarageSettingsFromCloud(userId).then((cloud) => {
+      fetchGarageSettingsFromCloud(userId, resolvedGarageId).then((cloud) => {
         if (isCancelled) return;
         setLatestGarageSettings(cloud);
+        setSelectedTemplateId(normalizeCerfaTemplateId(cloud.defaultCerfaTemplate));
         if (!hasSellerEditsRef.current && !calibrationDummyMode) {
-          const targetVehicle = isPage ? activePick.vehicle : vehicle;
-          const mode = resolveCerfaSellerModeForVehicle(targetVehicle, cloud);
+          const mode = resolveCerfaSellerModeForVehicle(currentVehicle, cloud);
           setFormData((prev) => ({
             ...prev,
             seller: buildCerfaSellerFromProfile(cloud, mode, prev.seller),
@@ -175,13 +190,15 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       isCancelled = true;
       window.removeEventListener('autogarage_settings_updated', syncLocal);
     };
-  }, [isOpen, isPage, userId, calibrationDummyMode, activePick.vehicle, vehicle]);
+  }, [isOpen, isPage, userId, calibrationDummyMode, activePick.vehicle, vehicle, activeGarageId]);
 
   useEffect(() => {
     if (isOpen && !isPage) {
       hasSellerEditsRef.current = false;
-      const freshSettings = getGarageSettings();
+      const resolvedGarageId = resolveCerfaTargetGarageId(vehicle, activeGarageId);
+      const freshSettings = getGarageSettings(resolvedGarageId);
       setLatestGarageSettings(freshSettings);
+      setSelectedTemplateId(normalizeCerfaTemplateId(freshSettings.defaultCerfaTemplate));
       setStep(1);
       setSelectedVehicleId(vehicle.id);
       setFormData(
@@ -200,7 +217,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       setIsAlignerDirty(false);
       setAlignerSaveNotice(null);
     }
-  }, [isOpen, isPage, vehicle, initialAlignerMode, calibrationDummyMode, allowCalibrationEditor]);
+  }, [isOpen, isPage, vehicle, activeGarageId, initialAlignerMode, calibrationDummyMode, allowCalibrationEditor]);
 
   useEffect(() => {
     if (isPage) {
@@ -211,8 +228,10 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   useEffect(() => {
     if (!isPage) return;
     hasSellerEditsRef.current = false;
-    const freshSettings = getGarageSettings();
+    const resolvedGarageId = resolveCerfaTargetGarageId(activePick.vehicle, activeGarageId);
+    const freshSettings = getGarageSettings(resolvedGarageId);
     setLatestGarageSettings(freshSettings);
+    setSelectedTemplateId(normalizeCerfaTemplateId(freshSettings.defaultCerfaTemplate));
     setFormData(
       calibrationDummyMode
         ? createCalibrationDummyCerfaData()
@@ -222,7 +241,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     setGenerationError(null);
     setGeneratedSuccess(false);
     setSaveSuccess(null);
-  }, [isPage, activePick.vehicle.id, calibrationDummyMode]);
+  }, [isPage, activePick.vehicle.id, activePick.vehicle.garageId, activeGarageId, calibrationDummyMode]);
 
   const showAlignerView = allowCalibrationEditor && isAlignerMode;
 
@@ -254,7 +273,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       vehicles: availableVehicles,
       userId,
     });
-    setFormData(buildInitialCerfaData(picked.vehicle, getGarageSettings()));
+    const pickedGarageId = resolveCerfaTargetGarageId(picked.vehicle, activeGarageId);
+    const pickedSettings = getGarageSettings(pickedGarageId);
+    hasSellerEditsRef.current = false;
+    setLatestGarageSettings(pickedSettings);
+    setSelectedTemplateId(normalizeCerfaTemplateId(pickedSettings.defaultCerfaTemplate));
+    setFormData(buildInitialCerfaData(picked.vehicle, pickedSettings));
     setErrors({});
     setGenerationError(null);
     setGeneratedSuccess(false);
@@ -294,9 +318,22 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   const handleSelectSellerProfileType = (targetMode: AppUserProfileType) => {
     hasSellerEditsRef.current = true;
     setSaveSuccess(null);
-    const currentSettings = getGarageSettings();
+    const resolvedGarageId = resolveCerfaTargetGarageId(
+      isPage ? activePick.vehicle : vehicle,
+      activeGarageId
+    );
+    const currentSettings = getGarageSettings(resolvedGarageId);
+    const hasCurrentProfileContent = Boolean(
+      currentSettings.particulierProfile?.lastName ||
+        currentSettings.particulierProfile?.firstName ||
+        currentSettings.proProfile?.name ||
+        currentSettings.proProfile?.siret ||
+        currentSettings.name ||
+        currentSettings.siret
+    );
     const resolvedSettings =
-      currentSettings.particulierProfile || currentSettings.proProfile
+      hasCurrentProfileContent ||
+      (resolvedGarageId && latestGarageSettings.garageId !== resolvedGarageId)
         ? currentSettings
         : latestGarageSettings;
 
@@ -361,7 +398,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   };
 
   const handleNext = () => {
-    const stepErrors = validateCerfaStep(step, formData);
+    const stepErrors = validateCerfaStep(step, formData, lang);
     setErrors(stepErrors);
     const missing = Object.values(stepErrors);
     if (missing.length === 0) {
@@ -381,13 +418,19 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     setGenerationError(null);
     setSaveSuccess(null);
     try {
-      const currentSettings = getGarageSettings();
+      const resolvedGarageId = resolveCerfaTargetGarageId(
+        isPage ? activePick.vehicle : vehicle,
+        activeGarageId
+      );
+      const currentSettings = getGarageSettings(resolvedGarageId);
       await saveGarageSettings(
         {
           ...currentSettings,
-          defaultCerfaTemplate: selectedTemplateId,
+          garageId: resolvedGarageId || currentSettings.garageId,
+          defaultCerfaTemplate: normalizeCerfaTemplateId(selectedTemplateId),
         },
-        userId
+        userId,
+        resolvedGarageId
       );
 
       let syncedVehicle = false;
@@ -461,7 +504,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       setGenerationError(
         err instanceof Error
           ? err.message
-          : 'Erreur lors de la génération du formulaire Cerfa 15776*02.'
+          : L(
+              'Erreur lors de la génération du formulaire Cerfa 15776*02.',
+              'Ошибка при создании формы Cerfa 15776*02.',
+              'Cerfa 15776*02 ձևաթղթի ձևավորման սխալ։',
+              'Cerfa 15776*02 ფორმის გენერირების შეცდომა.'
+            )
       );
     } finally {
       setIsGenerating(false);
@@ -484,13 +532,25 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         userId
       );
       setIsAlignerDirty(false);
-      setAlignerSaveNotice('Калибровка полей Cerfa сохранена в облаке');
+      setAlignerSaveNotice(
+        L(
+          'Calibration Cerfa enregistrée dans le cloud',
+          'Калибровка полей Cerfa сохранена в облаке',
+          'Cerfa դաշտերի կարգավորումը պահպանվեց ամպում',
+          'Cerfa ველების კალიბრაცია შენახულია ღრუბელში'
+        )
+      );
       setTimeout(() => setAlignerSaveNotice(null), 3500);
     } catch (err) {
       setGenerationError(
         err instanceof Error
           ? err.message
-          : 'Не удалось сохранить калибровку Cerfa в облаке.'
+          : L(
+              'Impossible d’enregistrer la calibration Cerfa dans le cloud.',
+              'Не удалось сохранить калибровку Cerfa в облаке.',
+              'Հնարավոր չեղավ պահպանել Cerfa կարգավորումը ամպում։',
+              'Cerfa კალიბრაციის ღრუბელში შენახვა ვერ მოხერხდა.'
+            )
       );
     } finally {
       setIsSavingCalibration(false);
@@ -618,7 +678,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="cerfa-reg" className={labelClass}>
-                (A) N° d'immatriculation *
+                {L(
+                  "(A) N° d'immatriculation *",
+                  '(A) Госномер *',
+                  '(A) Պետհամարանիշ *',
+                  '(A) სახელმწიფო ნომერი *'
+                )}
               </label>
               <input
                 id="cerfa-reg"
@@ -634,7 +699,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-vin" className={labelClass}>
-                (E) Numéro d'identification (VIN) *
+                {L(
+                  "(E) Numéro d'identification (VIN) *",
+                  '(E) VIN номер *',
+                  '(E) VIN համար *',
+                  '(E) VIN კოდი *'
+                )}
               </label>
               <input
                 id="cerfa-vin"
@@ -647,7 +717,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-first-reg" className={labelClass}>
-                (B) 1re immatriculation *
+                {L(
+                  '(B) 1re immatriculation *',
+                  '(B) 1-я регистрация *',
+                  '(B) Առաջին գրանցում *',
+                  '(B) პირველი რეგისტრაცია *'
+                )}
               </label>
               <input
                 id="cerfa-first-reg"
@@ -663,7 +738,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="cerfa-make" className={labelClass}>
-                (D.1) Marque *
+                {L('(D.1) Marque *', '(D.1) Марка *', '(D.1) Մակնիշ *', '(D.1) მარკა *')}
               </label>
               <input
                 id="cerfa-make"
@@ -676,7 +751,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-d2" className={labelClass}>
-                (D.2) Type, variante, version
+                {L(
+                  '(D.2) Type, variante, version',
+                  '(D.2) Тип, вариант, версия',
+                  '(D.2) Տիպ, տարբերակ',
+                  '(D.2) ტიპი, ვარიანტი, ვერსია'
+                )}
               </label>
               <input
                 id="cerfa-d2"
@@ -691,27 +771,77 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="cerfa-j1" className={labelClass}>
-                (J.1) Genre national
+                {L(
+                  '(J.1) Genre national',
+                  '(J.1) Категория ТС',
+                  '(J.1) Տրանսպորտային միջոցի տեսակ',
+                  '(J.1) ტრანსპორტის კატეგორია'
+                )}
               </label>
               <ThemedSelect
                 id="cerfa-j1"
                 testId="cerfa-j1-select"
-                ariaLabel="(J.1) Genre national"
+                ariaLabel={L(
+                  '(J.1) Genre national',
+                  '(J.1) Категория ТС',
+                  '(J.1) Տրանսպորտային միջոցի տեսակ',
+                  '(J.1) ტრანსპორტის კატეგორია'
+                )}
                 value={formData.vehicle.nationalGenre}
                 onChange={(val) => updateVehicleField('nationalGenre', val)}
                 options={[
-                  { value: 'VP', label: 'VP (Voiture particulière)' },
-                  { value: 'CTTE', label: 'CTTE (Camionnette)' },
-                  { value: 'MTT1', label: 'MTT1 / MTT2 (Moto)' },
-                  { value: 'CAM', label: 'CAM (Camion)' },
-                  { value: 'VASP', label: 'VASP (Véhicule spécialisé)' },
+                  {
+                    value: 'VP',
+                    label: L(
+                      'VP (Voiture particulière)',
+                      'VP (Легковой авто)',
+                      'VP (Մարդատար ավտո)',
+                      'VP (მსუბუქი ავტო)'
+                    ),
+                  },
+                  {
+                    value: 'CTTE',
+                    label: L(
+                      'CTTE (Camionnette)',
+                      'CTTE (Фургон / LCV)',
+                      'CTTE (Ֆուրգոն)',
+                      'CTTE (ფურგონი)'
+                    ),
+                  },
+                  {
+                    value: 'MTT1',
+                    label: L(
+                      'MTT1 / MTT2 (Moto)',
+                      'MTT1 / MTT2 (Мотоцикл)',
+                      'MTT1 / MTT2 (Մոտոցիկլ)',
+                      'MTT1 / MTT2 (მოტოციკლი)'
+                    ),
+                  },
+                  {
+                    value: 'CAM',
+                    label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
+                  },
+                  {
+                    value: 'VASP',
+                    label: L(
+                      'VASP (Véhicule spécialisé)',
+                      'VASP (Спецтехника)',
+                      'VASP (Հատուկ տեխնիկա)',
+                      'VASP (სპეცტექნიკა)'
+                    ),
+                  },
                 ]}
                 triggerClassName={inputClass}
               />
             </div>
             <div>
               <label htmlFor="cerfa-d3" className={labelClass}>
-                (D.3) Dénomination commerciale *
+                {L(
+                  '(D.3) Dénomination commerciale *',
+                  '(D.3) Модель / Коммерч. назв. *',
+                  '(D.3) Առևտրային անվանում *',
+                  '(D.3) კომერციული დასახელება *'
+                )}
               </label>
               <input
                 id="cerfa-d3"
@@ -726,7 +856,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-mileage" className={labelClass}>
-                Kilométrage au compteur *
+                {L(
+                  'Kilométrage au compteur *',
+                  'Пробег по одометру *',
+                  'Վազքը (կմ) *',
+                  'ოდომეტრის გარბენი *'
+                )}
               </label>
               <input
                 id="cerfa-mileage"
@@ -754,7 +889,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             }`}
           >
             <span className="block text-xs font-bold text-[var(--foreground)]">
-              Présence du certificat d'immatriculation *
+              {L(
+                "Présence du certificat d'immatriculation *",
+                'Наличие техпаспорта / СТС (Carte Grise) *',
+                'Գրանցման վկայականի (Carte Grise) առկայություն *',
+                'სარეგისტრაციო მოწმობის (Carte Grise) არსებობა *'
+              )}
             </span>
             <div className="flex flex-wrap gap-3">
               <button
@@ -767,7 +907,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                     : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)]'
                 }`}
               >
-                OUI — Certificat présent
+                {L(
+                  'OUI — Certificat présent',
+                  'ДА — СТС в наличии',
+                  'ԱՅՈ — Վկայականը առկա է',
+                  'დიახ — მოწმობა არსებობს'
+                )}
               </button>
               <button
                 type="button"
@@ -779,7 +924,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                     : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)]'
                 }`}
               >
-                NON — Absent
+                {L(
+                  'NON — Absent',
+                  'НЕТ — Отсутствует',
+                  'ՈՉ — Բացակայում է',
+                  'არა — არ არის'
+                )}
               </button>
             </div>
 
@@ -787,7 +937,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                 <div>
                   <label htmlFor="cerfa-formula" className={labelClass}>
-                    Numéro de formule (ex: 2019AB12345) *
+                    {L(
+                      'Numéro de formule (ex: 2019AB12345) *',
+                      'Номер формулы СТС (напр. 2019AB12345) *',
+                      'Ձևի համար (օր.՝ 2019AB12345) *',
+                      'ფორმულის ნომერი (მაგ. 2019AB12345) *'
+                    )}
                   </label>
                   <input
                     id="cerfa-formula"
@@ -802,7 +957,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 </div>
                 <div>
                   <label htmlFor="cerfa-cert-date" className={labelClass}>
-                    ou (I) Date du certificat (ancien format) *
+                    {L(
+                      'ou (I) Date du certificat (ancien format) *',
+                      'или (I) Дата выдачи СТС (старый формат) *',
+                      'կամ (I) Վկայականի ամսաթիվ (հին ձևաչափ) *',
+                      'ან (I) მოწმობის თარიღი (ძველი ფორმატი) *'
+                    )}
                   </label>
                   <input
                     id="cerfa-cert-date"
@@ -818,13 +978,23 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             {formData.vehicle.hasRegistrationCertificate === false && (
               <div className="pt-1">
                 <label htmlFor="cerfa-absence-reason" className={labelClass}>
-                  Motif d'absence du certificat d'immatriculation *
+                  {L(
+                    "Motif d'absence du certificat d'immatriculation *",
+                    'Причина отсутствия СТС *',
+                    'Վկայականի բացակայության պատճառը *',
+                    'მოწმობის არქონის მიზეზი *'
+                  )}
                 </label>
                 <input
                   id="cerfa-absence-reason"
                   type="text"
                   required
-                  placeholder="Ex: Déclaration de perte jointe..."
+                  placeholder={L(
+                    'Ex: Déclaration de perte jointe...',
+                    'Напр.: Приложено заявление об утере...',
+                    'Օր.՝ Կցված է կորստի հայտարարությունը...',
+                    'მაგ.: თან ერთვის დაკარგვის განცხადება...'
+                  )}
                   value={formData.vehicle.absenceReason}
                   onChange={(e) => updateVehicleField('absenceReason', e.target.value)}
                   className={getInputClass(Boolean(errors.absenceReason))}
@@ -849,7 +1019,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
               }`}
             >
-              Micro-entrepreneur
+              {L(
+                'Micro-entrepreneur',
+                'Micro-entrepreneur (Бизнес)',
+                'Micro-entrepreneur (Բիզնես)',
+                'Micro-entrepreneur (ბიზნესი)'
+              )}
             </button>
             <button
               type="button"
@@ -861,12 +1036,19 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
               }`}
             >
-              Particulier (Частное лицо)
+              {L(
+                'Particulier',
+                'Particulier (Частное лицо)',
+                'Particulier (Անհատ)',
+                'Particulier (ფიზიკური პირი)'
+              )}
             </button>
 
             {formData.seller.entityType === 'physique' && (
               <div className="flex items-center gap-2 ml-auto">
-                <span className="text-xs text-[var(--muted-foreground)]">Sexe :</span>
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  {L('Sexe :', 'Пол:', 'Սեռ՝', 'სქესი:')}
+                </span>
                 {(['M', 'F'] as const).map((sx) => (
                   <button
                     key={sx}
@@ -923,8 +1105,8 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             <div>
               <label htmlFor="cerfa-seller-name" className={labelClass}>
                 {formData.seller.entityType === 'morale'
-                  ? 'Raison sociale *'
-                  : 'Nom et Prénom *'}
+                  ? L('Raison sociale *', 'Название компании *', 'Կազմակերպության անվանում *', 'კომპანიის დასახელება *')
+                  : L('Nom et Prénom *', 'Фамилия и имя *', 'Ազգանուն, անուն *', 'სახელი და გვარი *')}
               </label>
               <input
                 id="cerfa-seller-name"
@@ -934,18 +1116,23 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 onChange={(e) => updateSellerField('nameOrCompany', e.target.value)}
                 placeholder={
                   formData.seller.entityType === 'morale'
-                    ? 'ex. Mon Garage Auto'
-                    : 'ex. MARTIN Jean'
+                    ? L('ex. Mon Garage Auto', 'напр. Mon Garage Auto', 'օր.՝ Mon Garage Auto', 'მაგ. Mon Garage Auto')
+                    : L('ex. MARTIN Jean', 'напр. MARTIN Jean', 'օր.՝ MARTIN Jean', 'მაგ. MARTIN Jean')
                 }
                 className={getInputClass(Boolean(errors.sellerName))}
               />
             </div>
             <div>
               <label htmlFor="cerfa-seller-siret" className={labelClass}>
-                N° SIRET{' '}
+                {L('N° SIRET', '№ SIRET', 'SIRET №', 'SIRET №')}{' '}
                 {formData.seller.entityType === 'morale'
                   ? '*'
-                  : '(нет для частного лица)'}
+                  : L(
+                      '(non applicable)',
+                      '(нет для частного лица)',
+                      '(անհատի համար չկա)',
+                      '(ფიზ. პირისთვის არ არის)'
+                    )}
               </label>
               <input
                 id="cerfa-seller-siret"
@@ -957,7 +1144,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 placeholder={
                   formData.seller.entityType === 'physique'
                     ? '—'
-                    : 'ex. 12345678900012'
+                    : L('ex. 12345678900012', 'напр. 12345678900012', 'օր.՝ 12345678900012', 'მაგ. 12345678900012')
                 }
                 className={getInputClass(
                   Boolean(errors.sellerSiret),
@@ -972,7 +1159,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <label htmlFor="cerfa-seller-num" className={labelClass}>
-                N° de voie *
+                {L('N° de voie *', 'Номер дома *', 'Տան համար *', 'ქუჩის № *')}
               </label>
               <input
                 id="cerfa-seller-num"
@@ -985,7 +1172,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-ext" className={labelClass}>
-                Extension (bis, ter)
+                {L('Extension (bis, ter)', 'Корпус / лит.', 'Կցորդ (bis, ter)', 'დამატ. (bis, ter)')}
               </label>
               <input
                 id="cerfa-seller-ext"
@@ -997,7 +1184,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-type" className={labelClass}>
-                Type de voie
+                {L('Type de voie', 'Тип улицы', 'Փողոցի տիպ', 'ქუჩის ტიპი')}
               </label>
               <input
                 id="cerfa-seller-type"
@@ -1010,7 +1197,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-street" className={labelClass}>
-                Nom de la voie *
+                {L('Nom de la voie *', 'Улица *', 'Փողոց *', 'ქუჩა *')}
               </label>
               <input
                 id="cerfa-seller-street"
@@ -1026,7 +1213,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="cerfa-seller-zip" className={labelClass}>
-                Code postal *
+                {L('Code postal *', 'Почтовый индекс *', 'Փոստային ինդեքս *', 'საფოსტო ინდექსი *')}
               </label>
               <input
                 id="cerfa-seller-zip"
@@ -1039,7 +1226,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-city" className={labelClass}>
-                Commune *
+                {L('Commune *', 'Город / Коммуна *', 'Քաղաք *', 'ქალაქი *')}
               </label>
               <input
                 id="cerfa-seller-city"
@@ -1055,7 +1242,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div>
               <label htmlFor="cerfa-sale-date" className={labelClass}>
-                Cédé le *
+                {L('Cédé le *', 'Дата продажи *', 'Վաճառքի ամսաթիվ *', 'გაყიდვის თარიღი *')}
               </label>
               <input
                 id="cerfa-sale-date"
@@ -1068,7 +1255,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-sale-time" className={labelClass}>
-                à (heure)
+                {L('à (heure)', 'Время продажи', 'Ժամը', 'დრო')}
               </label>
               <input
                 id="cerfa-sale-time"
@@ -1080,7 +1267,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-fait-a" className={labelClass}>
-                Fait à (Commune) *
+                {L('Fait à (Commune) *', 'Место (Fait à) *', 'Կազմվել է (Fait à) *', 'ადგილი (Fait à) *')}
               </label>
               <input
                 id="cerfa-seller-fait-a"
@@ -1093,7 +1280,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-seller-fait-le" className={labelClass}>
-                Le (Date signature)
+                {L('Le (Date signature)', 'Дата подписи (Le)', 'Ստորագրման ամսաթիվ', 'ხელმოწერის თარიღი')}
               </label>
               <input
                 id="cerfa-seller-fait-le"
@@ -1115,7 +1302,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
               <span>
-                Avoir remis au nouveau propriétaire un certificat de situation administrative de moins de 15 jours
+                {L(
+                  'Avoir remis au nouveau propriétaire un certificat de situation administrative de moins de 15 jours',
+                  'Подтверждаю передачу новому владельцу справки о статусе авто (Certificat de non-gage) не старше 15 дней',
+                  'Հաստատում եմ, որ նոր սեփականատիրոջը հանձնվել է վարչական կարգավիճակի տեղեկանք (15 օրից ոչ հին)',
+                  'ვადასტურებ ახალ მფლობელზე ადმინისტრაციული სტატუსის ცნობის (< 15 დღე) გადაცემას'
+                )}
               </span>
             </label>
             <label className="flex items-start gap-2.5 cursor-pointer">
@@ -1126,7 +1318,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
               <span>
-                Que ce véhicule n'a pas subi de transformation notable susceptible de modifier ses indications
+                {L(
+                  "Que ce véhicule n'a pas subi de transformation notable susceptible de modifier ses indications",
+                  'Автомобиль не подвергался существенным конструктивным изменениям, меняющим данные ПТС/СТС',
+                  'Ավտոմեքենան չի ենթարկվել էական փոփոխությունների, որոնք փոխում են գրանցման տվյալները',
+                  'ავტომობილს არ განუცდია მნიშვნელოვანი კონსტრუქციული ცვლილებები'
+                )}
               </span>
             </label>
             <label className="flex items-start gap-2.5 cursor-pointer pt-1 border-t border-[var(--border)]">
@@ -1137,7 +1334,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
               <span>
-                Je m'oppose à la réutilisation de mes données personnelles à des fins de prospection commerciale
+                {L(
+                  "Je m'oppose à la réutilisation de mes données personnelles à des fins de prospection commerciale",
+                  'Запрещаю использование моих персональных данных в целях коммерческого маркетинга',
+                  'Արգելում եմ իմ անձնական տվյալների օգտագործումը առևտրային մարքեթինգի նպատակով',
+                  'ვეწინააღმდეგები ჩემი პერსონალური მონაცემების კომერციულ მარკეტინგში გამოყენებას'
+                )}
               </span>
             </label>
           </div>
@@ -1157,7 +1359,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)]'
               }`}
             >
-              Personne physique
+              {L(
+                'Personne physique',
+                'Физическое лицо',
+                'Ֆիզիկական անձ',
+                'ფიზიკური პირი'
+              )}
             </button>
             <button
               type="button"
@@ -1168,12 +1375,19 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)]'
               }`}
             >
-              Personne morale (Société)
+              {L(
+                'Personne morale (Société)',
+                'Юридическое лицо (Компания)',
+                'Իրավաբանական անձ (Ընկերություն)',
+                'იურიდიული პირი (კომპანია)'
+              )}
             </button>
 
             {formData.buyer.entityType === 'physique' && (
               <div className="flex items-center gap-2 ml-auto">
-                <span className="text-xs text-[var(--muted-foreground)]">Sexe :</span>
+                <span className="text-xs text-[var(--muted-foreground)]">
+                  {L('Sexe :', 'Пол:', 'Սեռ՝', 'სქესი:')}
+                </span>
                 {(['M', 'F'] as const).map((sx) => (
                   <button
                     key={sx}
@@ -1196,8 +1410,8 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             <div>
               <label htmlFor="cerfa-buyer-name" className={labelClass}>
                 {formData.buyer.entityType === 'morale'
-                  ? 'Raison sociale *'
-                  : 'NOM et PRÉNOM *'}
+                  ? L('Raison sociale *', 'Название компании *', 'Կազմակերպության անվանում *', 'კომპანიის დასახელება *')
+                  : L('NOM et PRÉNOM *', 'ФИО *', 'ԱՆՈՒՆ, ԱԶԳԱՆՈՒՆ *', 'სახელი და გვარი *')}
               </label>
               <input
                 id="cerfa-buyer-name"
@@ -1211,7 +1425,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             {formData.buyer.entityType === 'morale' ? (
               <div>
                 <label htmlFor="cerfa-buyer-siret" className={labelClass}>
-                  N° SIRET
+                  {L('N° SIRET', '№ SIRET', 'SIRET №', 'SIRET №')}
                 </label>
                 <input
                   id="cerfa-buyer-siret"
@@ -1225,7 +1439,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="cerfa-buyer-birth-date" className={labelClass}>
-                    Né(e) le *
+                    {L('Né(e) le *', 'Дата рождения *', 'Ծննդյան ամսաթիվ *', 'დაბადების თარიღი *')}
                   </label>
                   <input
                     id="cerfa-buyer-birth-date"
@@ -1238,7 +1452,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 </div>
                 <div>
                   <label htmlFor="cerfa-buyer-birth-place" className={labelClass}>
-                    À (Lieu de naissance)
+                    {L('À (Lieu de naissance)', 'Место рождения', 'Ծննդավայր', 'დაბადების ადგილი')}
                   </label>
                   <input
                     id="cerfa-buyer-birth-place"
@@ -1255,7 +1469,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <label htmlFor="cerfa-buyer-num" className={labelClass}>
-                N° de voie *
+                {L('N° de voie *', 'Номер дома *', 'Տան համար *', 'ქუჩის № *')}
               </label>
               <input
                 id="cerfa-buyer-num"
@@ -1268,7 +1482,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-buyer-ext" className={labelClass}>
-                Extension
+                {L('Extension', 'Корпус', 'Կցորդ', 'დამატ.')}
               </label>
               <input
                 id="cerfa-buyer-ext"
@@ -1280,7 +1494,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-buyer-type" className={labelClass}>
-                Type de voie
+                {L('Type de voie', 'Тип улицы', 'Փողոցի տիպ', 'ქუჩის ტიპი')}
               </label>
               <input
                 id="cerfa-buyer-type"
@@ -1293,7 +1507,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-buyer-street" className={labelClass}>
-                Nom de la voie *
+                {L('Nom de la voie *', 'Улица *', 'Փողոց *', 'ქუჩა *')}
               </label>
               <input
                 id="cerfa-buyer-street"
@@ -1309,7 +1523,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="cerfa-buyer-zip" className={labelClass}>
-                Code postal *
+                {L('Code postal *', 'Почтовый индекс *', 'Փոստային ինդեքս *', 'საფოსტო ინდექსი *')}
               </label>
               <input
                 id="cerfa-buyer-zip"
@@ -1322,7 +1536,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-buyer-city" className={labelClass}>
-                Commune *
+                {L('Commune *', 'Город / Коммуна *', 'Քաղաք *', 'ქალაქი *')}
               </label>
               <input
                 id="cerfa-buyer-city"
@@ -1338,7 +1552,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="cerfa-buyer-fait-a" className={labelClass}>
-                Fait à (Commune)
+                {L('Fait à (Commune)', 'Место (Fait à)', 'Կազմվել է (Fait à)', 'ადგილი (Fait à)')}
               </label>
               <input
                 id="cerfa-buyer-fait-a"
@@ -1350,7 +1564,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <label htmlFor="cerfa-buyer-fait-le" className={labelClass}>
-                Le (Date)
+                {L('Le (Date)', 'Дата подписи (Le)', 'Ամսաթիվ', 'თარიღი')}
               </label>
               <input
                 id="cerfa-buyer-fait-le"
@@ -1371,7 +1585,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
               <span>
-                Acquérir le véhicule désigné ci-dessus aux dates et heures indiquées par l'ancien propriétaire
+                {L(
+                  "Acquérir le véhicule désigné ci-dessus aux dates et heures indiquées par l'ancien propriétaire",
+                  'Подтверждаю приобретение указанного ТС в дату и время, указанные прежним владельцем',
+                  'Հաստատում եմ վերը նշված ավտոմեքենայի ձեռքբերումը նախկին սեփականատիրոջ նշած ամսաթվով և ժամով',
+                  'ვადასტურებ ზემოაღნიშნული ავტომობილის შეძენას წინა მფლობელის მიერ მითითებულ თარიღსა და დროს'
+                )}
               </span>
             </label>
             <label className="flex items-start gap-2.5 cursor-pointer">
@@ -1381,7 +1600,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 onChange={(e) => updateBuyerField('certifyInformedAdmin', e.target.checked)}
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
-              <span>Avoir été informé de la situation administrative du véhicule</span>
+              <span>
+                {L(
+                  'Avoir été informé de la situation administrative du véhicule',
+                  'Ознакомлен с административным статусом автомобиля (Certificat de non-gage)',
+                  'Տեղեկացված եմ ավտոմեքենայի վարչական կարգավիճակի մասին',
+                  'ინფორმირებული ვარ ავტომობილის ადმინისტრაციული სტატუსის შესახებ'
+                )}
+              </span>
             </label>
             <label className="flex items-start gap-2.5 cursor-pointer pt-1 border-t border-[var(--border)]">
               <input
@@ -1391,7 +1617,12 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="mt-0.5 rounded border-[var(--border)] bg-[var(--card)] text-blue-500"
               />
               <span>
-                Je m'oppose à la réutilisation de mes données personnelles à des fins de prospection commerciale
+                {L(
+                  "Je m'oppose à la réutilisation de mes données personnelles à des fins de prospection commerciale",
+                  'Запрещаю использование моих персональных данных в целях коммерческого маркетинга',
+                  'Արգելում եմ իմ անձնական տվյալների օգտագործումը առևտրային մարքեթինգի նպատակով',
+                  'ვეწინააღმდეგები ჩემი პერსონალური მონაცემების კომერციულ მარკეტინგში გამოყენებას'
+                )}
               </span>
             </label>
           </div>
@@ -1575,21 +1806,18 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   hy: 'Փաստաթղթի ձևանմուշ',
                   ka: 'დოკუმენტის შაბლონი',
                 })}
-                value={canUseCerfaAutofill ? selectedTemplateId : 'cerfa_15776_02'}
+                value={selectedTemplateId}
                 onChange={(val) => {
-                  setSelectedTemplateId(val);
+                  setSelectedTemplateId(normalizeCerfaTemplateId(val));
                   setSaveSuccess(null);
                 }}
-                options={(canUseCerfaAutofill
-                  ? CERFA_TEMPLATE_OPTIONS
-                  : CERFA_TEMPLATE_OPTIONS.filter((tpl) => tpl.id === 'cerfa_15776_02')
-                ).map((tpl) => ({
+                options={CERFA_TEMPLATE_OPTIONS.map((tpl) => ({
                   value: tpl.id,
                   label: pickLocalized(lang, {
                     fr: tpl.labelFr,
                     ru: tpl.labelRu,
-                    hy: tpl.labelFr,
-                    ka: tpl.labelFr,
+                    hy: tpl.labelHy,
+                    ka: tpl.labelKa,
                   }),
                 }))}
                 triggerClassName={inputClass}
@@ -1645,10 +1873,10 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                     className={`${inputClass} opacity-70 flex items-center text-[var(--muted-foreground)]`}
                   >
                     {pickLocalized(lang, {
-                      fr: 'Auto-remplissage & modèles 13750/DA désactivés sur ce forfait',
-                      ru: 'Автозаполнение и бланки 13750/DA недоступны на текущем тарифе',
-                      hy: 'Ավտոլրացումն անջատված է ընթացիկ սակագնում',
-                      ka: 'ავტოშევსება გამორთულია მიმდინარე ტარიფზე',
+                      fr: 'Auto-remplissage Cerfa 15776*02 désactivé sur ce forfait',
+                      ru: 'Автозаполнение Cerfa 15776*02 недоступно на текущем тарифе',
+                      hy: 'Cerfa 15776*02 ավտոլրացումն անջատված է ընթացիկ սակագնում',
+                      ka: 'Cerfa 15776*02 ავტოშევსება გამორთულია მიმდინარე ტარიფზე',
                     })}
                   </div>
                 )}
@@ -1807,10 +2035,20 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
             </div>
             <div>
               <h2 id="cerfa-wizard-title" className="text-lg font-bold text-[var(--foreground)]">
-                Cerfa N° 15776*02 — Certificat de cession
+                {L(
+                  'Cerfa N° 15776*02 — Certificat de cession',
+                  'Cerfa N° 15776*02 — Акт передачи ТС (Cession)',
+                  'Cerfa N° 15776*02 — Փոխանցման վկայագիր (Cession)',
+                  'Cerfa N° 15776*02 — გადაცემის სერტიფიკატი (Cession)'
+                )}
               </h2>
               <p className="text-xs text-[var(--muted-foreground)]">
-                Remplissage officiel sur le modèle gouvernemental (Exemplaires 1 & 2)
+                {L(
+                  'Remplissage officiel sur le modèle gouvernemental (Exemplaires 1 & 2)',
+                  'Официальное заполнение государственного бланка (экземпляры 1 и 2)',
+                  'Պաշտոնական ձևաթղթի լրացում (1-ին և 2-րդ օրինակներ)',
+                  'ოფიციალური ბლანკის შევსება (1-ლი და მე-2 ეგზემპლარი)'
+                )}
               </p>
             </div>
           </div>
@@ -1826,13 +2064,26 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                     : 'bg-[var(--surface-muted)] hover:opacity-90 text-amber-400 border-[var(--border)]'
                 }`}
               >
-                <span>🔧 Aligner Mode</span>
+                <span>
+                  🔧{' '}
+                  {L(
+                    'Aligner Mode',
+                    'Выравнивание (Aligner)',
+                    'Հավասարեցում (Aligner)',
+                    'გასწორება (Aligner)'
+                  )}
+                </span>
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              aria-label="Fermer l'assistant Cerfa 15776"
+              aria-label={L(
+                "Fermer l'assistant Cerfa 15776",
+                'Закрыть мастер Cerfa 15776',
+                'Փակել Cerfa 15776 օգնականը',
+                'Cerfa 15776 ფანჯრის დახურვა'
+              )}
               className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] bg-[var(--surface-muted)] hover:opacity-90 rounded-xl transition"
             >
               <X className="w-5 h-5" />
@@ -1909,7 +2160,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 text-[var(--foreground)] transition flex items-center gap-1.5"
               >
                 <ChevronLeft className="w-4 h-4" />
-                <span>Précédent</span>
+                <span>{L('Précédent', 'Назад', 'Նախորդ', 'წინა')}</span>
               </button>
             )}
           </div>
@@ -1922,7 +2173,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 onClick={handleNext}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow"
               >
-                <span>Suivant</span>
+                <span>{L('Suivant', 'Далее', 'Հաջորդ', 'შემდეგი')}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             ) : (
@@ -1934,7 +2185,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   className="px-4 py-2.5 rounded-xl text-xs font-bold bg-[var(--surface-muted)] hover:opacity-90 disabled:opacity-50 text-[var(--foreground)] transition flex items-center gap-2"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimer</span>
+                  <span>{L('Imprimer', 'Печать', 'Տպել', 'ბეჭდვა')}</span>
                 </button>
                 <button
                   type="button"
@@ -1948,7 +2199,14 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                   ) : (
                     <Download className="w-4 h-4" />
                   )}
-                  <span>Télécharger le formulaire n° 15776*02 [PDF]</span>
+                  <span>
+                    {L(
+                      'Télécharger le formulaire n° 15776*02 [PDF]',
+                      'Скачать бланк Cerfa 15776*02 [PDF]',
+                      'Ներբեռնել Cerfa 15776*02 ձևաթուղթը [PDF]',
+                      'ჩამოტვირთეთ Cerfa 15776*02 ფორმა [PDF]'
+                    )}
+                  </span>
                 </button>
               </>
             )}

@@ -19,9 +19,6 @@ export interface VehicleDocument {
   type: string;
 }
 
-export type LayoutMode = 'classic' | 'sidebar';
-export type UserLayoutPreference = 'global' | LayoutMode;
-
 export type AppUserProfileType = 'particulier' | 'micro_entrepreneur';
 
 export type VehiclePurchaseStatus = 'micro' | 'particulier';
@@ -175,7 +172,6 @@ export interface GarageSettings {
   proProfile?: StatusProfileData;
   defaultCerfaTemplate?: string;
   theme?: 'dark' | 'light';
-  layoutMode?: UserLayoutPreference;
   defaultMarginPercent?: number;
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
@@ -495,6 +491,10 @@ export interface PlanModulesConfig {
 export interface SubscriptionPlan {
   id: SubscriptionPlanId;
   name: string;
+  nameFr?: string;
+  nameRu?: string;
+  nameHy?: string;
+  nameKa?: string;
   priceMonthly: number;
   vehicleLimit: number | null;
   isPopular?: boolean;
@@ -557,7 +557,6 @@ export interface SystemThemeConfig {
   cardPadding?: CardPaddingDensity;
   sectionGap?: SectionGapSize;
   defaultInventoryViewMode: 'grid' | 'list';
-  layoutMode?: LayoutMode;
   cerfaAdjustments: CerfaGlobalAdjustments;
   lightPalette?: ThemePaletteTokens;
   darkPalette?: ThemePaletteTokens;

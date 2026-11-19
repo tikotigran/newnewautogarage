@@ -64,7 +64,10 @@ service cloud.firestore {
       return data.userId is string &&
              data.userId == request.auth.uid &&
              data.vehicleId is string &&
-             data.category in ['transport', 'fuel', 'controle_technique', 'detailing', 'admin', 'insurance', 'other'] &&
+             data.category is string &&
+             data.category.size() >= 1 &&
+             data.category.size() <= 64 &&
+             data.category.matches('^[a-zA-Z0-9_\\-]+$') &&
              data.description is string && data.description.size() > 0 && data.description.size() <= 200 &&
              data.amount is number && data.amount >= 0 &&
              data.date is string;
@@ -106,12 +109,8 @@ service cloud.firestore {
              ('cerfa_15776_02' in data) && data.cerfa_15776_02 is map &&
              ('offsets' in data.cerfa_15776_02) && data.cerfa_15776_02.offsets is map &&
              ('config' in data.cerfa_15776_02) && data.cerfa_15776_02.config is map &&
-             ('cerfa_13750_07' in data) && data.cerfa_13750_07 is map &&
-             ('offsets' in data.cerfa_13750_07) && data.cerfa_13750_07.offsets is map &&
-             ('fields' in data.cerfa_13750_07) && data.cerfa_13750_07.fields is map &&
-             ('declaration_achat' in data) && data.declaration_achat is map &&
-             ('offsets' in data.declaration_achat) && data.declaration_achat.offsets is map &&
-             ('fields' in data.declaration_achat) && data.declaration_achat.fields is map &&
+             (!('cerfa_13750_07' in data) || data.cerfa_13750_07 is map) &&
+             (!('declaration_achat' in data) || data.declaration_achat is map) &&
              (!('updatedAtIso' in data) || (data.updatedAtIso is string && data.updatedAtIso.size() <= 50)) &&
              (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 128));
     }

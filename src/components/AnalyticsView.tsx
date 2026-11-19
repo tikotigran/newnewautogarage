@@ -22,16 +22,31 @@ import {
   PiggyBank,
   Scale,
   AlertCircle,
+  FileCheck,
+  ShieldCheck,
+  Tag,
+  Activity,
+  Car,
 } from 'lucide-react';
-import { AppUserProfileType, Vehicle, RepairTask, GeneralExpense, FeatureFlagsConfig, GarageSettings } from '../types/garage';
+import {
+  AppUserProfileType,
+  DynamicExpenseCategory,
+  FeatureFlagsConfig,
+  GarageSettings,
+  GeneralExpense,
+  RepairTask,
+  Vehicle,
+} from '../types/garage';
 import { getGarageSettings, subscribeAllFleetExpensesAndRepairs } from '../services/garageService';
+import { getDynamicExpenseCategories, subscribeDynamicExpenseCategories } from '../services/adminService';
 import {
   AgingTier,
   AnalyticsExpenseCategoryId,
   AnalyticsTimeRange,
+  CategoryBreakdown,
   computeDealershipAnalytics,
 } from '../utils/analytics';
-import { DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
+import { DEFAULT_DYNAMIC_EXPENSE_CATEGORIES, DEFAULT_FEATURE_FLAGS } from '../utils/adminUtils';
 import { formatEuro } from '../utils/finance';
 import { createDefaultFrenchTaxConfig, resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
@@ -45,7 +60,7 @@ interface AnalyticsViewProps {
   profileType?: AppUserProfileType;
 }
 
-const CATEGORY_ICONS: Record<AnalyticsExpenseCategoryId, React.ReactNode> = {
+const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   parts_labor: <Wrench className="w-4 h-4" />,
   fuel: <Fuel className="w-4 h-4" />,
   detailing: <Sparkles className="w-4 h-4" />,
@@ -53,6 +68,27 @@ const CATEGORY_ICONS: Record<AnalyticsExpenseCategoryId, React.ReactNode> = {
   transport: <Truck className="w-4 h-4" />,
   other: <Coins className="w-4 h-4" />,
 };
+
+const DYNAMIC_ICON_MAP: Record<string, React.ReactNode> = {
+  Truck: <Truck className="w-4 h-4" />,
+  Fuel: <Fuel className="w-4 h-4" />,
+  FileCheck: <FileCheck className="w-4 h-4" />,
+  Sparkles: <Sparkles className="w-4 h-4" />,
+  FileText: <FileText className="w-4 h-4" />,
+  ShieldCheck: <ShieldCheck className="w-4 h-4" />,
+  Wrench: <Wrench className="w-4 h-4" />,
+  Activity: <Activity className="w-4 h-4" />,
+  Package: <Package className="w-4 h-4" />,
+  Car: <Car className="w-4 h-4" />,
+  Coins: <Coins className="w-4 h-4" />,
+  Tag: <Tag className="w-4 h-4" />,
+};
+
+function resolveCategoryIcon(cat: Pick<CategoryBreakdown, 'id' | 'icon'>): React.ReactNode {
+  if (CATEGORY_ICONS[cat.id]) return CATEGORY_ICONS[cat.id];
+  if (cat.icon && DYNAMIC_ICON_MAP[cat.icon]) return DYNAMIC_ICON_MAP[cat.icon];
+  return <Tag className="w-4 h-4" />;
+}
 
 function getDefaultCustomDates(): { startDate: string; endDate: string } {
   const end = new Date();
@@ -97,6 +133,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     repairs: RepairTask[];
     expenses: GeneralExpense[];
   }>({ repairs: [], expenses: [] });
+  const [dynamicCategories, setDynamicCategories] = useState<DynamicExpenseCategory[]>(() => {
+    const initial = getDynamicExpenseCategories();
+    return initial.length > 0 ? initial : DEFAULT_DYNAMIC_EXPENSE_CATEGORIES;
+  });
 
   useEffect(() => {
     const syncSettings = () => setGarageSettings(getGarageSettings(activeGarageId || undefined));
@@ -111,6 +151,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     });
     return () => unsub();
   }, [vehicles]);
+
+  useEffect(() => {
+    const unsubCats = subscribeDynamicExpenseCategories((cats) => {
+      if (cats && cats.length > 0) {
+        setDynamicCategories(cats);
+      }
+    });
+    return () => unsubCats();
+  }, []);
 
   const activeProfileType: AppUserProfileType =
     propProfileType === 'particulier'
@@ -131,6 +180,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         timeRange === 'custom'
           ? { startDate: customStartDate, endDate: customEndDate }
           : undefined,
+      dynamicCategories,
       taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
       taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
       frenchTaxConfig: effectiveTaxConfig,
@@ -142,6 +192,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     timeRange,
     customStartDate,
     customEndDate,
+    dynamicCategories,
     isParticulier,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
@@ -1215,7 +1266,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
                           style={{ backgroundColor: `${cat.barColorHex}22`, color: cat.barColorHex }}
                         >
-                          {CATEGORY_ICONS[cat.id]}
+                          {resolveCategoryIcon(cat)}
                         </span>
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-[var(--foreground)] truncate">

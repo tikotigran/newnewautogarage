@@ -22,6 +22,7 @@ import {
   resolveEffectiveSettingsForDeal,
 } from './frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
+import { Language, pickLocalized } from './i18nUtils';
 
 export interface VehicleExportRow {
   ID: string;
@@ -567,8 +568,11 @@ function toCiiDate102(isoDate?: string): string {
 
 export function validateFacturXReadiness(
   vehicle: Vehicle,
-  settings: GarageSettings
+  settings: GarageSettings,
+  lang: Language = 'fr'
 ): FacturXReadinessResult {
+  const L = (fr: string, ru: string, hy: string, ka: string) =>
+    pickLocalized(lang, { fr, ru, hy, ka });
   const cleanSiret = (settings.siret || '').replace(/\s+/g, '');
   const cleanZip = (settings.postalCode || '').replace(/\s+/g, '');
   const sellerName =
@@ -614,7 +618,7 @@ export function validateFacturXReadiness(
       passed: sellerAddressOk,
       valuePreview: sellerAddressOk
         ? `${settings.streetNumber || ''} ${settings.streetName}, ${cleanZip} ${settings.city}`.trim()
-        : 'Incomplète',
+        : L('Incomplète', 'Неполный адрес', 'Անավարտ է', 'არასრული'),
     },
     {
       id: 'invoice_meta',
@@ -632,7 +636,14 @@ export function validateFacturXReadiness(
       labelHy: 'Գնորդի տվյալները և հասցեն (BG-7)',
       labelKa: 'მყიდველის მონაცემები და მისამართი (BG-7)',
       passed: Boolean(buyerName) && Boolean(buyerAddress),
-      valuePreview: buyerName ? `${buyerName} — ${buyerAddress || 'sans adresse'}` : 'Non vendu / Acheteur manquant',
+      valuePreview: buyerName
+        ? `${buyerName} — ${buyerAddress || L('sans adresse', 'без адреса', 'առանց հասցեի', 'მისამართის გარეშე')}`
+        : L(
+            'Non vendu / Acheteur manquant',
+            'Не продано / Нет покупателя',
+            'Վաճառված չէ / Գնորդը նշված չէ',
+            'არ არის გაყიდული / მყიდველი აკლია'
+          ),
     },
     {
       id: 'amount_valid',
@@ -648,12 +659,22 @@ export function validateFacturXReadiness(
   const warnings: string[] = [];
   if (vehicle.status !== 'sold') {
     warnings.push(
-      'Le véhicule n’est pas encore au statut « Vendu » — export généré à titre de pro-forma / préparation.'
+      L(
+        'Le véhicule n’est pas encore au statut « Vendu » — export généré à titre de pro-forma / préparation.',
+        'Автомобиль ещё не в статусе «Продано» — экспорт сформирован в режиме предпросмотра / проформы.',
+        'Մեքենան դեռ «Վաճառված» կարգավիճակում չէ — արտահանումը ձևավորվել է որպես նախահաշիվ (pro-forma)։',
+        'ავტომობილი ჯერ არ არის სტატუსში «გაყიდული» — ექსპორტი შექმნილია პროფორმის სახით.'
+      )
     );
   }
   if (vehicle.buyerInfo?.isCompany && !vehicle.buyerInfo?.siret?.replace(/\s+/g, '').match(/^\d{14}$/)) {
     warnings.push(
-      'Acheteur professionnel (B2B) : le SIRET 14 chiffres de l’acheteur est requis pour le routage PPF / PDP.'
+      L(
+        'Acheteur professionnel (B2B) : le SIRET 14 chiffres de l’acheteur est requis pour le routage PPF / PDP.',
+        'Корпоративный покупатель (B2B): для маршрутизации PPF / PDP требуется 14-значный SIRET покупателя.',
+        'Բիզնես գնորդ (B2B). PPF / PDP երթուղավորման համար անհրաժեշտ է գնորդի 14-նիշ SIRET-ը։',
+        'ბიზნეს მყიდველი (B2B): PPF / PDP მარშრუტიზაციისთვის საჭიროა მყიდველის 14-ნიშნა SIRET.'
+      )
     );
   }
 

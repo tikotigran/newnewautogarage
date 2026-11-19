@@ -27,10 +27,17 @@ import {
   Moon,
   Sparkles,
   Eye,
-  PanelLeft,
-  PanelTop,
   Save,
   Loader2,
+  Truck,
+  Fuel,
+  FileCheck,
+  ShieldCheck,
+  Wrench,
+  Coins,
+  Activity,
+  Package,
+  Tag,
 } from 'lucide-react';
 import { ThemedSelect } from './ThemedSelect';
 import {
@@ -40,7 +47,6 @@ import {
   FeatureFlagsConfig,
   FrenchTaxConfiguration,
   GlobalTextOverrides,
-  LayoutMode,
   LegalStatus,
   PlanModulesConfig,
   SectionGapSize,
@@ -64,13 +70,16 @@ import {
   DEFAULT_LIGHT_PALETTE,
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
+  EXPENSE_CATEGORY_ICON_OPTIONS,
   getContrastForeground,
   getDefaultPlanModules,
   getPlanCapabilities,
   getTranslationKeyCategory,
+  normalizeExpenseCategorySlug,
   normalizeSubscriptionPlans,
   resolveLocalizedColor,
   resolveLocalizedLabel,
+  resolveNewExpenseCategoryId,
   resolveSystemThemeConfig,
   sortExpenseCategories,
   TRANSLATION_CATEGORIES,
@@ -98,18 +107,13 @@ import {
 } from '../services/adminService';
 import {
   CERFA_ALIGNER_FIELDS,
-  CerfaCalibrationFieldEntry,
-  CerfaTemplateKey,
   CerfaTemplatesCalibrationPayload,
   createDefaultCerfaTemplatesCalibration,
   getCerfa15776FieldAtPath,
   updateCerfa15776FieldAtPath,
 } from '../utils/cerfaConfig';
 import { createCalibrationDummyCerfaData } from '../utils/cerfa15776';
-import {
-  buildCerfa15776PdfBytes,
-  buildCerfaTemplatePreviewPdfBytes,
-} from '../utils/pdfGenerator';
+import { buildCerfa15776PdfBytes } from '../utils/pdfGenerator';
 import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
 import {
   createDefaultFrenchTaxConfig,
@@ -138,7 +142,6 @@ interface AdminPanelProps {
   onBackToApp: () => void;
   onSignIn: () => void;
   onOpenAlignerMode: () => void;
-  onGlobalLayoutChanged?: (mode: LayoutMode) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -150,7 +153,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBackToApp,
   onSignIn,
   onOpenAlignerMode,
-  onGlobalLayoutChanged,
 }) => {
   const { lang, t } = useI18n();
   const isRu = lang === 'ru';
@@ -176,10 +178,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     DEFAULT_DYNAMIC_EXPENSE_CATEGORIES
   );
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [catFormId, setCatFormId] = useState('');
   const [catFormFr, setCatFormFr] = useState('');
   const [catFormRu, setCatFormRu] = useState('');
+  const [catFormHy, setCatFormHy] = useState('');
+  const [catFormKa, setCatFormKa] = useState('');
   const [catFormIcon, setCatFormIcon] = useState('Truck');
   const [catFormDefaultAmount, setCatFormDefaultAmount] = useState<number>(0);
+  const [catFormError, setCatFormError] = useState<string | null>(null);
 
   // Feature Flags state
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagsConfig>(DEFAULT_FEATURE_FLAGS);
@@ -196,15 +202,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [onlyModifiedTexts, setOnlyModifiedTexts] = useState(false);
   const [selectedTextCategory, setSelectedTextCategory] = useState<TranslationCategoryId>('all');
 
-  // Cerfa Templates Field Calibration state (persisted in platform_settings/cerfa_templates)
+  // Cerfa 15776*02 Field Calibration state (persisted in platform_settings/cerfa_templates)
   const [cerfaCalibrationDraft, setCerfaCalibrationDraft] =
     useState<CerfaTemplatesCalibrationPayload>(() => getCerfaTemplatesCalibration());
-  const [selectedCerfaTemplate, setSelectedCerfaTemplate] =
-    useState<CerfaTemplateKey>('cerfa_15776_02');
   const [selectedCerfa15776Path, setSelectedCerfa15776Path] = useState<string>(
     CERFA_ALIGNER_FIELDS[0].path
   );
-  const [selectedOtherFieldKey, setSelectedOtherFieldKey] = useState<string>('registrationNumber');
   const [isSavingCerfa, setIsSavingCerfa] = useState(false);
 
   // Design Studio section & multi-page preview state (must stay above early return)
@@ -326,29 +329,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Independent 100% French dummy dataset for Superadmin Cerfa calibration (no real garage inventory or profile)
   const calibrationDummy15776Data = useMemo(() => createCalibrationDummyCerfaData(), []);
 
-  const resolvedAdminOtherFieldKey = useMemo(() => {
-    if (selectedCerfaTemplate === 'cerfa_15776_02') return '';
-    const fieldsMap = cerfaCalibrationDraft[selectedCerfaTemplate].fields;
-    if (selectedOtherFieldKey in fieldsMap) return selectedOtherFieldKey;
-    return Object.keys(fieldsMap)[0] || '';
-  }, [cerfaCalibrationDraft, selectedCerfaTemplate, selectedOtherFieldKey]);
+  const activeCerfaPreviewLabel = useMemo(
+    () => CERFA_ALIGNER_FIELDS.find((f) => f.path === selectedCerfa15776Path)?.label,
+    [selectedCerfa15776Path]
+  );
 
-  const activeCerfaPreviewLabel = useMemo(() => {
-    if (selectedCerfaTemplate === 'cerfa_15776_02') {
-      return CERFA_ALIGNER_FIELDS.find((f) => f.path === selectedCerfa15776Path)?.label;
-    }
-    const fieldsMap = cerfaCalibrationDraft[selectedCerfaTemplate].fields;
-    return resolvedAdminOtherFieldKey ? fieldsMap[resolvedAdminOtherFieldKey]?.label : undefined;
-  }, [
-    cerfaCalibrationDraft,
-    selectedCerfaTemplate,
-    selectedCerfa15776Path,
-    resolvedAdminOtherFieldKey,
-  ]);
-
-  const generateAdminCerfaPreviewBytes = useCallback(() => {
-    if (selectedCerfaTemplate === 'cerfa_15776_02') {
-      return buildCerfa15776PdfBytes(
+  const generateAdminCerfaPreviewBytes = useCallback(
+    () =>
+      buildCerfa15776PdfBytes(
         calibrationDummy15776Data,
         cerfaCalibrationDraft.cerfa_15776_02.config,
         {
@@ -356,37 +344,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           highlightedFieldPath: selectedCerfa15776Path,
           showCalibrationPlaceholderForSelected: true,
         }
-      );
-    }
-    const tpl = cerfaCalibrationDraft[selectedCerfaTemplate];
-    return buildCerfaTemplatePreviewPdfBytes({
-      templateKey: selectedCerfaTemplate,
-      fields: tpl.fields,
-      offsets: tpl.offsets,
-      highlightedFieldKey: resolvedAdminOtherFieldKey,
-    });
-  }, [
-    selectedCerfaTemplate,
-    calibrationDummy15776Data,
-    cerfaCalibrationDraft,
-    selectedCerfa15776Path,
-    resolvedAdminOtherFieldKey,
-  ]);
+      ),
+    [calibrationDummy15776Data, cerfaCalibrationDraft, selectedCerfa15776Path]
+  );
 
   const adminCerfaPreviewDepKey = useMemo(
     () =>
       JSON.stringify({
-        tpl: selectedCerfaTemplate,
-        draft: cerfaCalibrationDraft[selectedCerfaTemplate],
+        draft: cerfaCalibrationDraft.cerfa_15776_02,
         path15776: selectedCerfa15776Path,
-        otherKey: resolvedAdminOtherFieldKey,
       }),
-    [
-      selectedCerfaTemplate,
-      cerfaCalibrationDraft,
-      selectedCerfa15776Path,
-      resolvedAdminOtherFieldKey,
-    ]
+    [cerfaCalibrationDraft, selectedCerfa15776Path]
   );
 
   // Strict RBAC Gate for /admin
@@ -667,55 +635,123 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Expense Category CRUD & Ordering handlers
+  const renderExpenseCategoryIcon = (iconKey?: string, className = 'w-4 h-4') => {
+    switch (iconKey) {
+      case 'Truck':
+        return <Truck className={className} />;
+      case 'Fuel':
+        return <Fuel className={className} />;
+      case 'FileCheck':
+        return <FileCheck className={className} />;
+      case 'Sparkles':
+        return <Sparkles className={className} />;
+      case 'FileText':
+        return <FileText className={className} />;
+      case 'ShieldCheck':
+        return <ShieldCheck className={className} />;
+      case 'Wrench':
+        return <Wrench className={className} />;
+      case 'Activity':
+        return <Activity className={className} />;
+      case 'Package':
+        return <Package className={className} />;
+      case 'Car':
+        return <Car className={className} />;
+      case 'Tag':
+        return <Tag className={className} />;
+      case 'Coins':
+      default:
+        return <Coins className={className} />;
+    }
+  };
+
   const resetCategoryForm = () => {
     setEditingCategoryId(null);
+    setCatFormId('');
     setCatFormFr('');
     setCatFormRu('');
+    setCatFormHy('');
+    setCatFormKa('');
     setCatFormIcon('Truck');
     setCatFormDefaultAmount(0);
+    setCatFormError(null);
   };
 
   const handleEditCategory = (cat: DynamicExpenseCategory) => {
     setEditingCategoryId(cat.id);
+    setCatFormId(cat.id);
     setCatFormFr(cat.labelFr);
     setCatFormRu(cat.labelRu);
+    setCatFormHy(cat.labelHy || '');
+    setCatFormKa(cat.labelKa || '');
     setCatFormIcon(cat.icon || 'Coins');
     setCatFormDefaultAmount(cat.defaultAmount || 0);
+    setCatFormError(null);
   };
 
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCatFormError(null);
     if (!catFormFr.trim() && !catFormRu.trim()) return;
 
     const labelFr = catFormFr.trim() || catFormRu.trim();
     const labelRu = catFormRu.trim() || catFormFr.trim();
+    const labelHy = catFormHy.trim();
+    const labelKa = catFormKa.trim();
 
     let next: DynamicExpenseCategory[];
     if (editingCategoryId) {
-      next = expenseCategories.map((c) =>
-        c.id === editingCategoryId
-          ? {
-              ...c,
-              labelFr,
-              labelRu,
-              icon: catFormIcon,
-              defaultAmount: Math.max(0, Number(catFormDefaultAmount) || 0),
-            }
-          : c
-      );
+      next = expenseCategories.map((c) => {
+        if (c.id !== editingCategoryId) return c;
+        const { labelHy: _oldHy, labelKa: _oldKa, ...rest } = c;
+        return {
+          ...rest,
+          labelFr,
+          labelRu,
+          ...(labelHy ? { labelHy } : {}),
+          ...(labelKa ? { labelKa } : {}),
+          icon: catFormIcon,
+          defaultAmount: Math.max(0, Number(catFormDefaultAmount) || 0),
+        };
+      });
     } else {
-      const slugBase = labelFr
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_|_$/g, '');
-      const newId = `${slugBase || 'cat'}_${Date.now().toString().slice(-4)}`;
+      const idResolution = resolveNewExpenseCategoryId({
+        rawId: catFormId,
+        fallbackLabel: labelFr,
+        existingIds: expenseCategories.map((c) => c.id),
+      });
+      if (idResolution.error) {
+        if (idResolution.error === 'duplicate_id') {
+          setCatFormError(
+            isRu
+              ? `Категория с ID «${idResolution.id}» уже существует.`
+              : `Une catégorie avec l’ID « ${idResolution.id} » existe déjà.`
+          );
+        } else if (idResolution.error === 'too_long') {
+          setCatFormError(
+            isRu
+              ? 'ID категории не должен превышать 64 символа.'
+              : 'L’ID de la catégorie ne doit pas dépasser 64 caractères.'
+          );
+        } else {
+          setCatFormError(
+            isRu
+              ? 'ID должен содержать латинские буквы, цифры, «_» или «-» (1–64 символа).'
+              : 'L’ID doit contenir uniquement lettres, chiffres, « _ » ou « - » (1–64 caractères).'
+          );
+        }
+        return;
+      }
+
       const maxOrder = expenseCategories.reduce((m, c) => Math.max(m, c.order || 0), 0);
       next = [
         ...expenseCategories,
         {
-          id: newId,
+          id: idResolution.id,
           labelFr,
           labelRu,
+          ...(labelHy ? { labelHy } : {}),
+          ...(labelKa ? { labelKa } : {}),
           icon: catFormIcon,
           defaultAmount: Math.max(0, Number(catFormDefaultAmount) || 0),
           order: maxOrder + 1,
@@ -800,26 +836,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleSaveTaxDefaults = async () => {
-    await saveSuperAdminTaxDefaults(taxDefaultsDraft, currentUserUid);
-    showSavedFeedback(
-      isRu
-        ? 'Налоговые настройки по умолчанию сохранены (/settings/tax_defaults)'
-        : 'Paramètres fiscaux par défaut enregistrés (/settings/tax_defaults)'
-    );
+    try {
+      await saveSuperAdminTaxDefaults(taxDefaultsDraft, currentUserUid);
+      showSavedFeedback(
+        isRu
+          ? 'Налоговые настройки по умолчанию сохранены (/settings/tax_defaults)'
+          : 'Paramètres fiscaux par défaut enregistrés (/settings/tax_defaults)'
+      );
+    } catch (err) {
+      console.error('Failed to save tax defaults:', err);
+      showSavedFeedback(
+        isRu
+          ? 'Ошибка сохранения налоговых настроек в Firestore'
+          : 'Erreur lors de la sauvegarde des barèmes fiscaux dans Firestore'
+      );
+    }
   };
 
   const handleResetTaxDefaults = async () => {
     const fresh = createDefaultFrenchTaxConfig('micro_entreprise');
     setTaxDefaultsDraft(fresh);
-    await saveSuperAdminTaxDefaults(fresh, currentUserUid);
-    showSavedFeedback(
-      pickLocalized(lang, {
-        fr: 'Réinitialisé aux barèmes français (Micro 12,3% + 1% · Franchise en base)',
-        ru: 'Сброшено к стандартам Франции (Micro 12.3% + 1% · Franchise en base)',
-        hy: 'Վերականգնված է ֆրանսիական ստանդարտներով (Micro 12.3% + 1% · Franchise en base)',
-        ka: 'აღდგენილია ფრანგული სტანდარტებით (Micro 12.3% + 1% · Franchise en base)',
-      })
-    );
+    try {
+      await saveSuperAdminTaxDefaults(fresh, currentUserUid);
+      showSavedFeedback(
+        pickLocalized(lang, {
+          fr: 'Réinitialisé aux barèmes français (Micro 12,3% + 1% · Franchise en base)',
+          ru: 'Сброшено к стандартам Франции (Micro 12.3% + 1% · Franchise en base)',
+          hy: 'Վերականգնված է ֆրանսիական ստանդարտներով (Micro 12.3% + 1% · Franchise en base)',
+          ka: 'აღდგენილია ფრანგული სტანდარტებით (Micro 12.3% + 1% · Franchise en base)',
+        })
+      );
+    } catch (err) {
+      console.error('Failed to reset tax defaults:', err);
+      showSavedFeedback(
+        isRu
+          ? 'Ошибка сброса налоговых настроек в Firestore'
+          : 'Erreur lors de la réinitialisation des barèmes fiscaux dans Firestore'
+      );
+    }
   };
 
   // Cerfa Calibration Cloud Persistence handlers (platform_settings/cerfa_templates)
@@ -851,7 +905,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const defaults = createDefaultCerfaTemplatesCalibration();
     setCerfaCalibrationDraft((prev) => ({
       ...prev,
-      [selectedCerfaTemplate]: defaults[selectedCerfaTemplate],
+      cerfa_15776_02: defaults.cerfa_15776_02,
     }));
   };
 
@@ -1913,108 +1967,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
               </div>
 
-              {/* Global Application Layout Mode Switcher (Classic Top-Nav vs Modern Sidebar Layout) */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <PanelLeft className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs font-bold text-white">
-                      {isRu
-                        ? 'Глобальный макет приложения (Новый дизайн / Sidebar Layout)'
-                        : 'Disposition globale de l’interface (Sidebar vs Classique)'}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-400">
-                    {isRu
-                      ? 'Сохраняется глобально в settings/branding (по умолчанию Classic)'
-                      : 'Enregistré dans settings/branding (Classic par défaut)'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    data-testid="admin-layout-classic"
-                    onClick={async () => {
-                      const next = { ...resolvedDraft, layoutMode: 'classic' as const };
-                      setDraftConfig(next);
-                      onGlobalLayoutChanged?.('classic');
-                      await handleSaveGlobalConfig(next);
-                    }}
-                    className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition ${
-                      (resolvedDraft.layoutMode || 'classic') === 'classic'
-                        ? 'border-amber-500 bg-amber-500/10 text-white'
-                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${
-                        (resolvedDraft.layoutMode || 'classic') === 'classic'
-                          ? 'bg-amber-500 text-slate-950 border-amber-400'
-                          : 'bg-slate-900 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      <PanelTop className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold flex items-center gap-2">
-                        <span>{isRu ? 'Классическая шапка (Classic Top-Nav)' : 'En-tête Classique (Top-Nav)'}</span>
-                        {(resolvedDraft.layoutMode || 'classic') === 'classic' && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950">
-                            {isRu ? 'Активно' : 'Actif'}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {isRu
-                          ? 'Верхняя панель навигации со счётчиками и выпадающим меню.'
-                          : 'Barre de navigation supérieure avec indicateurs et menu compact.'}
-                      </p>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    data-testid="admin-layout-sidebar"
-                    onClick={async () => {
-                      const next = { ...resolvedDraft, layoutMode: 'sidebar' as const };
-                      setDraftConfig(next);
-                      onGlobalLayoutChanged?.('sidebar');
-                      await handleSaveGlobalConfig(next);
-                    }}
-                    className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition ${
-                      resolvedDraft.layoutMode === 'sidebar'
-                        ? 'border-amber-500 bg-amber-500/10 text-white'
-                        : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700'
-                    }`}
-                  >
-                    <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center border shrink-0 ${
-                        resolvedDraft.layoutMode === 'sidebar'
-                          ? 'bg-amber-500 text-slate-950 border-amber-400'
-                          : 'bg-slate-900 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      <PanelLeft className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold flex items-center gap-2">
-                        <span>{isRu ? 'Новый дизайн / Sidebar Layout' : 'Nouveau Design (Sidebar Layout)'}</span>
-                        {resolvedDraft.layoutMode === 'sidebar' && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-slate-950">
-                            {isRu ? 'Активно' : 'Actif'}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {isRu
-                          ? 'Сворачиваемое левое меню, карточка гаража и минималистичная шапка.'
-                          : 'Barre latérale rétractable, sélecteur de garage et en-tête épuré.'}
-                      </p>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
               {/* Quick Dual-Theme Brand Presets */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -2324,8 +2276,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }[] = [
             {
               key: 'cerfaAutofill',
-              labelRu: 'Автозаполнение и PDF Cerfa',
-              labelFr: 'Auto-remplissage & PDF Cerfa',
+              labelRu: 'Автозаполнение и PDF Cerfa 15776*02',
+              labelFr: 'Auto-remplissage & PDF Cerfa 15776*02',
             },
             {
               key: 'suppliers',
@@ -2721,54 +2673,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           );
         })()}
 
-        {/* 5. TEMPLATE & CERFA CONFIGURATOR (Firestore platform_settings/cerfa_templates) */}
+        {/* 5. TEMPLATE & CERFA 15776*02 CONFIGURATOR (Firestore platform_settings/cerfa_templates) */}
         {activeTab === 'cerfa' && (() => {
-          const templateTabs: { id: CerfaTemplateKey; title: string; subtitle: string }[] = [
-            {
-              id: 'cerfa_15776_02',
-              title: 'Cerfa 15776*02',
-              subtitle: isRu ? 'Сертификат о продаже' : 'Certificat de cession',
-            },
-            {
-              id: 'cerfa_13750_07',
-              title: 'Cerfa 13750*07',
-              subtitle: isRu ? 'Заявка на Carte Grise' : 'Demande d’immatriculation',
-            },
-            {
-              id: 'declaration_achat',
-              title: "Déclaration d'Achat",
-              subtitle: isRu ? 'Cerfa 13751*02 (Выкуп)' : 'Cerfa 13751*02 (Achat pro)',
-            },
-          ];
-
-          const currentOffsets = cerfaCalibrationDraft[selectedCerfaTemplate].offsets;
-          const is15776 = selectedCerfaTemplate === 'cerfa_15776_02';
-          const active15776Field = getCerfa15776FieldAtPath(
+          const currentOffsets = cerfaCalibrationDraft.cerfa_15776_02.offsets;
+          const activeFieldValues = getCerfa15776FieldAtPath(
             cerfaCalibrationDraft.cerfa_15776_02.config,
             selectedCerfa15776Path
           );
-          const otherFieldsMap = is15776
-            ? null
-            : cerfaCalibrationDraft[selectedCerfaTemplate].fields;
-          const otherFieldEntries = otherFieldsMap ? Object.entries(otherFieldsMap) : [];
-          const resolvedOtherKey =
-            otherFieldsMap && selectedOtherFieldKey in otherFieldsMap
-              ? selectedOtherFieldKey
-              : otherFieldEntries[0]?.[0] || '';
-          const activeOtherField: CerfaCalibrationFieldEntry | null =
-            otherFieldsMap && resolvedOtherKey ? otherFieldsMap[resolvedOtherKey] : null;
-
-          const activeFieldValues = is15776 ? active15776Field : activeOtherField;
 
           const updateCurrentOffsets = (
             patch: Partial<CerfaTemplatesCalibrationPayload['cerfa_15776_02']['offsets']>
           ) => {
             setCerfaCalibrationDraft((prev) => ({
               ...prev,
-              [selectedCerfaTemplate]: {
-                ...prev[selectedCerfaTemplate],
+              cerfa_15776_02: {
+                ...prev.cerfa_15776_02,
                 offsets: {
-                  ...prev[selectedCerfaTemplate].offsets,
+                  ...prev.cerfa_15776_02.offsets,
                   ...patch,
                 },
               },
@@ -2778,47 +2699,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           const updateSelectedFieldCoords = (
             patch: Partial<{ x: number; y: number; size: number; stepX: number }>
           ) => {
-            if (is15776) {
-              setCerfaCalibrationDraft((prev) => ({
-                ...prev,
-                cerfa_15776_02: {
-                  ...prev.cerfa_15776_02,
-                  config: updateCerfa15776FieldAtPath(
-                    prev.cerfa_15776_02.config,
-                    selectedCerfa15776Path,
-                    patch
-                  ),
-                },
-              }));
-            } else if (selectedCerfaTemplate === 'cerfa_13750_07' && resolvedOtherKey) {
-              setCerfaCalibrationDraft((prev) => ({
-                ...prev,
-                cerfa_13750_07: {
-                  ...prev.cerfa_13750_07,
-                  fields: {
-                    ...prev.cerfa_13750_07.fields,
-                    [resolvedOtherKey]: {
-                      ...prev.cerfa_13750_07.fields[resolvedOtherKey],
-                      ...patch,
-                    },
-                  },
-                },
-              }));
-            } else if (selectedCerfaTemplate === 'declaration_achat' && resolvedOtherKey) {
-              setCerfaCalibrationDraft((prev) => ({
-                ...prev,
-                declaration_achat: {
-                  ...prev.declaration_achat,
-                  fields: {
-                    ...prev.declaration_achat.fields,
-                    [resolvedOtherKey]: {
-                      ...prev.declaration_achat.fields[resolvedOtherKey],
-                      ...patch,
-                    },
-                  },
-                },
-              }));
-            }
+            setCerfaCalibrationDraft((prev) => ({
+              ...prev,
+              cerfa_15776_02: {
+                ...prev.cerfa_15776_02,
+                config: updateCerfa15776FieldAtPath(
+                  prev.cerfa_15776_02.config,
+                  selectedCerfa15776Path,
+                  patch
+                ),
+              },
+            }));
           };
 
           const nudgeSelectedField = (axis: 'x' | 'y', delta: number) => {
@@ -2835,7 +2726,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="text-xl font-bold text-white">
-                      {isRu ? 'Конфигуратор шаблонов и Cerfa' : 'Configurateur de Modèles & Cerfa'}
+                      {isRu ? 'Калибровка бланка Cerfa 15776*02' : 'Calibration du modèle Cerfa 15776*02'}
                     </h1>
                     <span
                       data-testid="admin-cerfa-dummy-badge"
@@ -2865,35 +2756,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
 
-              {/* Template Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {templateTabs.map((tpl) => {
-                  const active = selectedCerfaTemplate === tpl.id;
-                  return (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      data-testid={`admin-cerfa-tpl-${tpl.id}`}
-                      onClick={() => {
-                        setSelectedCerfaTemplate(tpl.id);
-                        if (tpl.id !== 'cerfa_15776_02') {
-                          const keys = Object.keys(cerfaCalibrationDraft[tpl.id].fields);
-                          if (keys.length > 0) setSelectedOtherFieldKey(keys[0]);
-                        }
-                      }}
-                      className={`text-left px-4 py-3 rounded-2xl border transition cursor-pointer ${
-                        active
-                          ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm'
-                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                      }`}
-                    >
-                      <p className={`text-sm font-bold ${active ? 'text-amber-400' : 'text-white'}`}>
-                        {tpl.title}
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{tpl.subtitle}</p>
-                    </button>
-                  );
-                })}
+              {/* Active Official Template Banner */}
+              <div
+                data-testid="admin-cerfa-tpl-cerfa_15776_02"
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl border bg-amber-500/10 border-amber-500/50 text-white"
+              >
+                <div>
+                  <p className="text-sm font-bold text-amber-400">
+                    Cerfa N° 15776*02 — {isRu ? 'Акт передачи ТС (Certificat de cession)' : 'Certificat de cession d’un véhicule d’occasion'}
+                  </p>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    {isRu
+                      ? 'Единый поддерживаемый правительственный шаблон PDF (экземпляры 1 и 2)'
+                      : 'Modèle gouvernemental officiel actif (Exemplaires 1 & 2)'}
+                  </p>
+                </div>
               </div>
 
               {/* Calibration Controls (Left) + Live Highlighted Preview Sheet (Right) */}
@@ -3005,31 +2882,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <select
                           id="admin-cerfa-field-select"
                           data-testid="admin-cerfa-field-select"
-                          value={is15776 ? selectedCerfa15776Path : resolvedOtherKey}
-                          onChange={(e) => {
-                            if (is15776) {
-                              setSelectedCerfa15776Path(e.target.value);
-                            } else {
-                              setSelectedOtherFieldKey(e.target.value);
-                            }
-                          }}
+                          value={selectedCerfa15776Path}
+                          onChange={(e) => setSelectedCerfa15776Path(e.target.value)}
                           className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
                         >
-                          {is15776
-                            ? sections15776.map((sec) => (
-                                <optgroup key={sec} label={sec}>
-                                  {CERFA_ALIGNER_FIELDS.filter((f) => f.section === sec).map((f) => (
-                                    <option key={f.path} value={f.path}>
-                                      {f.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ))
-                            : otherFieldEntries.map(([key, entry]) => (
-                                <option key={key} value={key}>
-                                  {entry.label}
+                          {sections15776.map((sec) => (
+                            <optgroup key={sec} label={sec}>
+                              {CERFA_ALIGNER_FIELDS.filter((f) => f.section === sec).map((f) => (
+                                <option key={f.path} value={f.path}>
+                                  {f.label}
                                 </option>
                               ))}
+                            </optgroup>
+                          ))}
                         </select>
                       </div>
 
@@ -3200,13 +3065,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Right: Live PDF Preview with Full Dummy Test Data & Highlighted Selected Field */}
                 <div className="xl:col-span-7">
                   <CerfaLivePreviewSheet
-                    title={
-                      selectedCerfaTemplate === 'cerfa_15776_02'
-                        ? 'Живой предпросмотр Cerfa N° 15776*02'
-                        : selectedCerfaTemplate === 'cerfa_13750_07'
-                        ? 'Живой предпросмотр Cerfa N° 13750*07'
-                        : "Живой предпросмотр Déclaration d'Achat (13751*02)"
-                    }
+                    title="Живой предпросмотр Cerfa N° 15776*02"
                     activeFieldLabel={activeCerfaPreviewLabel}
                     generatePdfBytes={generateAdminCerfaPreviewBytes}
                     dependencyKey={adminCerfaPreviewDepKey}
@@ -3269,6 +3128,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 )}
               </div>
 
+              {/* Multilingual Labels: FR, RU, HY, KA */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
@@ -3277,6 +3137,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <input
                     type="text"
                     required
+                    data-testid="admin-cat-fr-input"
                     value={catFormFr}
                     onChange={(e) => setCatFormFr(e.target.value)}
                     placeholder="ex. Expertise / Diagnostic"
@@ -3290,6 +3151,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <input
                     type="text"
                     required
+                    data-testid="admin-cat-ru-input"
                     value={catFormRu}
                     onChange={(e) => setCatFormRu(e.target.value)}
                     placeholder="напр. Диагностика / Подбор"
@@ -3298,43 +3160,173 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Иконка' : 'Icône'}
+                    {isRu ? 'Название (HY)' : 'Nom (HY)'}
                   </label>
-                  <ThemedSelect
-                    testId="admin-category-icon-select"
-                    ariaLabel="Category icon"
-                    value={catFormIcon}
-                    onChange={(val) => setCatFormIcon(val)}
-                    options={[
-                      { value: 'Truck', label: 'Truck (Эвакуатор / Transport)' },
-                      { value: 'Fuel', label: 'Fuel (Топливо / Carburant)' },
-                      { value: 'FileCheck', label: 'FileCheck (Техосмотр / CT)' },
-                      { value: 'Sparkles', label: 'Sparkles (Мойка / Detailing)' },
-                      { value: 'FileText', label: 'FileText (Carte Grise / Документы)' },
-                      { value: 'ShieldCheck', label: 'ShieldCheck (Страховка / Assurance)' },
-                      { value: 'Wrench', label: 'Wrench (Запчасти / Pièces)' },
-                      { value: 'Coins', label: 'Coins (Прочее / Autre)' },
-                    ]}
-                    triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--foreground)]"
+                  <input
+                    type="text"
+                    data-testid="admin-cat-hy-input"
+                    value={catFormHy}
+                    onChange={(e) => setCatFormHy(e.target.value)}
+                    placeholder="օր. Ախտորոշում / Պահեստամասեր"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    {isRu ? 'Название (KA)' : 'Nom (KA)'}
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="admin-cat-ka-input"
+                    value={catFormKa}
+                    onChange={(e) => setCatFormKa(e.target.value)}
+                    placeholder="მაგ. დიაგნოსტიკა / ნაწილები"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Optional ID, Default Amount & Live Preview */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    {isRu ? 'ID категории (опционально)' : 'ID catégorie (optionnel)'}
+                  </label>
+                  <input
+                    type="text"
+                    data-testid="admin-cat-id-input"
+                    disabled={Boolean(editingCategoryId)}
+                    maxLength={64}
+                    value={catFormId}
+                    onChange={(e) => {
+                      setCatFormId(e.target.value);
+                      if (catFormError) setCatFormError(null);
+                    }}
+                    placeholder={
+                      isRu
+                        ? 'Авто из названия (напр. diagnostic_auto)'
+                        : 'Auto depuis le nom (ex. diagnostic_auto)'
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                    {editingCategoryId
+                      ? isRu
+                        ? 'ID существующей категории фиксирован'
+                        : 'ID verrouillé après création'
+                      : catFormId.trim()
+                      ? `${isRu ? 'Будет сохранён' : 'ID normalisé'}: ${normalizeExpenseCategorySlug(catFormId) || '—'}`
+                      : isRu
+                      ? 'Латиница, цифры, _ или - (1–64 симв.)'
+                      : 'Lettres, chiffres, _ ou - (1–64 car.)'}
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                     {isRu ? 'Сумма по умолчанию (€)' : 'Montant par défaut (€)'}
                   </label>
                   <input
                     type="number"
+                    data-testid="admin-cat-default-amount-input"
                     min={0}
                     value={catFormDefaultAmount}
                     onChange={(e) => setCatFormDefaultAmount(Number(e.target.value) || 0)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white tabular-nums focus:outline-none focus:border-amber-500"
                   />
                 </div>
+
+                {/* Live Category Preview */}
+                <div>
+                  <span className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    {isRu ? 'Предпросмотр' : 'Aperçu en direct'}
+                  </span>
+                  <div
+                    data-testid="admin-cat-live-preview"
+                    className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 min-h-[34px]"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                        {renderExpenseCategoryIcon(catFormIcon, 'w-3.5 h-3.5')}
+                      </span>
+                      <span className="text-xs font-semibold text-white truncate">
+                        {(isRu ? catFormRu : catFormFr) ||
+                          catFormFr ||
+                          catFormRu ||
+                          (isRu ? 'Новая категория' : 'Nouvelle catégorie')}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-amber-400 shrink-0">
+                      {catFormIcon}
+                    </span>
+                  </div>
+                </div>
               </div>
+
+              {/* Visual Icon Grid Selector */}
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <label className="block text-[11px] font-semibold text-slate-400">
+                    {isRu ? 'Иконка категории' : 'Icône de la catégorie'}
+                  </label>
+                  <span className="text-[11px] font-mono text-amber-400" data-testid="admin-cat-selected-icon">
+                    {catFormIcon}
+                  </span>
+                </div>
+                <div
+                  className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2"
+                  role="radiogroup"
+                  aria-label={isRu ? 'Иконка категории' : 'Icône de la catégorie'}
+                >
+                  {EXPENSE_CATEGORY_ICON_OPTIONS.map((opt) => {
+                    const isSelected = catFormIcon === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        data-testid={`admin-cat-icon-${opt.id}`}
+                        onClick={() => setCatFormIcon(opt.id)}
+                        title={isRu ? opt.labelRu : opt.labelFr}
+                        className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left transition ${
+                          isSelected
+                            ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        <span
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                            isSelected ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 text-amber-400'
+                          }`}
+                        >
+                          {renderExpenseCategoryIcon(opt.id, 'w-3.5 h-3.5')}
+                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <div className="text-[11px] font-mono font-semibold truncate">{opt.id}</div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {isRu ? opt.labelRu : opt.labelFr}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {catFormError && (
+                <div
+                  data-testid="admin-cat-error"
+                  className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-400 font-medium"
+                >
+                  {catFormError}
+                </div>
+              )}
 
               <div className="flex justify-end">
                 <button
                   type="submit"
+                  data-testid="admin-cat-submit-btn"
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -3360,6 +3352,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <th className="py-3 px-4">ID</th>
                     <th className="py-3 px-4">{isRu ? 'Название (FR)' : 'Nom (FR)'}</th>
                     <th className="py-3 px-4">{isRu ? 'Название (RU)' : 'Nom (RU)'}</th>
+                    <th className="py-3 px-4">{isRu ? 'Название (HY)' : 'Nom (HY)'}</th>
+                    <th className="py-3 px-4">{isRu ? 'Название (KA)' : 'Nom (KA)'}</th>
                     <th className="py-3 px-4">{isRu ? 'Иконка' : 'Icône'}</th>
                     <th className="py-3 px-4 text-right">{isRu ? 'По умолч.' : 'Défaut'}</th>
                     <th className="py-3 px-4 text-right">{isRu ? 'Действия' : 'Actions'}</th>
@@ -3372,7 +3366,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <td className="py-2.5 px-4 font-mono text-[11px] text-slate-400">{cat.id}</td>
                       <td className="py-2.5 px-4 font-semibold text-white">{cat.labelFr}</td>
                       <td className="py-2.5 px-4 font-semibold text-slate-200">{cat.labelRu}</td>
-                      <td className="py-2.5 px-4 text-amber-400 font-mono text-[11px]">{cat.icon}</td>
+                      <td className="py-2.5 px-4 text-slate-300">{cat.labelHy || '—'}</td>
+                      <td className="py-2.5 px-4 text-slate-300">{cat.labelKa || '—'}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="inline-flex items-center gap-1.5 text-amber-400 font-mono text-[11px]">
+                          {renderExpenseCategoryIcon(cat.icon, 'w-3.5 h-3.5')}
+                          <span>{cat.icon}</span>
+                        </span>
+                      </td>
                       <td className="py-2.5 px-4 text-right tabular-nums text-slate-200">
                         {formatEuro(cat.defaultAmount || 0)}
                       </td>
@@ -3496,7 +3497,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   },
                   {
                     key: 'cerfaGenerator',
-                    titleRu: 'Документы Cerfa (15776*02 / 13750*07) и Aligner Mode',
+                    titleRu: 'Документы Cerfa 15776*02 и Aligner Mode',
                     titleFr: 'Générateur Cerfa 15776*02 & Aligner Mode',
                     descRu: 'Скрывает генерацию и кнопки Cerfa в карточке автомобиля и разделе Документы.',
                     descFr: 'Masque le bouton Cerfa dans les fiches véhicules et Documents.',

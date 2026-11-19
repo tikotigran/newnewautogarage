@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildProfileSettingsPatch,
+  buildTaxDefaultsFirestorePayload,
   buildTransactionTaxSnapshot,
   calculateCorporateIS,
   calculateFrenchVat,
@@ -9,6 +10,7 @@ import {
   calculateVehicleProfitBeforeTaxes,
   createDefaultFrenchTaxConfig,
   getResolvedVehicleSaleSnapshot,
+  parseTaxDefaultsFirestoreData,
   resolveDealSellerProfileType,
   resolveEffectiveSettingsForDeal,
   resolveUserProfileType,
@@ -500,5 +502,125 @@ describe('Two-Profile Architecture — Particulier vs Micro-entrepreneur', () =>
     assert.equal(partDealSnap.netProfitAfterTax, 2000);
   });
 });
+
+describe('SuperAdmin Tax Defaults (/settings/tax_defaults) Firestore schema alignment', () => {
+  it('wraps FrenchTaxConfiguration under the config map field with no stray top-level tax fields', () => {
+    const customMicro = createDefaultFrenchTaxConfig('micro_entreprise', {
+      socialContributionRate: 13.8,
+      versementLiberatoireEnabled: false,
+      versementLiberatoireRate: 0,
+      microBicAbattementPercent: 71,
+      microBicIncomeTaxRate: 14,
+    });
+
+    const payload = buildTaxDefaultsFirestorePayload(customMicro, {
+      updatedAt: '2026-11-19T10:00:00.000Z',
+      updatedBy: 'superadmin_uid_123',
+    });
+
+    assert.deepEqual(Object.keys(payload).sort(), ['config', 'updatedAt', 'updatedBy']);
+    assert.equal(typeof payload.config, 'object');
+    assert.ok(payload.config !== null);
+    assert.equal('legalStatus' in payload, false);
+    assert.equal('businessTaxRegime' in payload, false);
+    assert.equal('socialContributionRate' in payload, false);
+
+    assert.equal(payload.config.legalStatus, 'micro_entreprise');
+    assert.equal(payload.config.businessTaxRegime, 'micro');
+    assert.equal(payload.config.socialContributionRate, 13.8);
+    assert.equal(payload.config.versementLiberatoireEnabled, false);
+    assert.equal(payload.config.microBicIncomeTaxRate, 14);
+    assert.equal(payload.config.vatRegime, 'franchise_base');
+    assert.equal(payload.config.vatRatePercent, 0);
+    assert.equal(payload.updatedAt, '2026-11-19T10:00:00.000Z');
+    assert.equal(payload.updatedBy, 'superadmin_uid_123');
+  });
+
+  it('omits optional metadata keys when not provided and round-trips through parseTaxDefaultsFirestoreData', () => {
+    const partDefaults = createDefaultFrenchTaxConfig('particulier');
+    const payload = buildTaxDefaultsFirestorePayload(partDefaults);
+
+    assert.deepEqual(Object.keys(payload), ['config']);
+    const parsed = parseTaxDefaultsFirestoreData(payload);
+    assert.equal(parsed.legalStatus, 'particulier');
+    assert.equal(parsed.businessTaxRegime, 'none');
+    assert.equal(parsed.socialContributionRate, 0);
+    assert.equal(parsed.versementLiberatoireEnabled, false);
+    assert.equal(parsed.vatRegime, 'franchise_base');
+  });
+
+  it('reads data.config when present and prioritizes it over stale top-level legacy fields', () => {
+    const docWithConfigAndLegacy = {
+      // Stale top-level fields from an older merge
+      legalStatus: 'particulier',
+      businessTaxRegime: 'none',
+      socialContributionRate: 0,
+      // Authoritative nested config map
+      config: {
+        legalStatus: 'micro_entreprise',
+        businessTaxRegime: 'micro',
+        socialContributionRate: 12.9,
+        versementLiberatoireEnabled: true,
+        versementLiberatoireRate: 1.5,
+      },
+      updatedAt: '2026-11-19T11:00:00.000Z',
+      updatedBy: 'superadmin_uid',
+    };
+
+    const parsed = parseTaxDefaultsFirestoreData(docWithConfigAndLegacy);
+    assert.equal(parsed.legalStatus, 'micro_entreprise');
+    assert.equal(parsed.businessTaxRegime, 'micro');
+    assert.equal(parsed.socialContributionRate, 12.9);
+    assert.equal(parsed.versementLiberatoireEnabled, true);
+    assert.equal(parsed.versementLiberatoireRate, 1.5);
+    assert.equal('updatedAt' in parsed, false);
+    assert.equal('updatedBy' in parsed, false);
+  });
+
+  it('falls back gracefully to top-level fields for older flat /settings/tax_defaults documents', () => {
+    const legacyFlatMicroDoc = {
+      legalStatus: 'micro_entreprise',
+      businessTaxRegime: 'micro',
+      socialContributionRate: 14.2,
+      versementLiberatoireEnabled: false,
+      versementLiberatoireRate: 1.0,
+      microBicAbattementPercent: 71,
+      microBicIncomeTaxRate: 12.5,
+      updatedAt: '2026-08-01T09:00:00.000Z',
+      updatedBy: 'legacy_admin',
+    };
+
+    const parsedMicro = parseTaxDefaultsFirestoreData(legacyFlatMicroDoc);
+    assert.equal(parsedMicro.legalStatus, 'micro_entreprise');
+    assert.equal(parsedMicro.businessTaxRegime, 'micro');
+    assert.equal(parsedMicro.socialContributionRate, 14.2);
+    assert.equal(parsedMicro.versementLiberatoireEnabled, false);
+    assert.equal(parsedMicro.microBicIncomeTaxRate, 12.5);
+    assert.equal('updatedAt' in parsedMicro, false);
+    assert.equal('updatedBy' in parsedMicro, false);
+
+    const legacyFlatParticulierDoc = {
+      legalStatus: 'particulier',
+      businessTaxRegime: 'none',
+      updatedAt: '2026-08-01T09:00:00.000Z',
+    };
+    const parsedPart = parseTaxDefaultsFirestoreData(legacyFlatParticulierDoc);
+    assert.equal(parsedPart.legalStatus, 'particulier');
+    assert.equal(parsedPart.businessTaxRegime, 'none');
+    assert.equal(parsedPart.socialContributionRate, 0);
+  });
+
+  it('returns default micro_entreprise configuration when document is missing, empty, or malformed', () => {
+    for (const bad of [null, undefined, {}, { config: {} }, { updatedAt: '2026-01-01' }, []]) {
+      const parsed = parseTaxDefaultsFirestoreData(bad);
+      assert.equal(parsed.legalStatus, 'micro_entreprise');
+      assert.equal(parsed.businessTaxRegime, 'micro');
+      assert.equal(parsed.socialContributionRate, 12.3);
+      assert.equal(parsed.versementLiberatoireEnabled, true);
+      assert.equal(parsed.versementLiberatoireRate, 1.0);
+    }
+  });
+});
+
 
 

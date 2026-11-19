@@ -57,6 +57,14 @@ export function resolveDefaultPurchaseStatus(
   return 'micro';
 }
 
+export function resolveTargetGarageId(
+  vehicle?: Pick<Vehicle, 'garageId'> | null,
+  activeGarageId?: string | null
+): string | undefined {
+  const candidate = vehicle?.garageId || activeGarageId || undefined;
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined;
+}
+
 export function resolveVehiclePurchaseStatus(
   vehicle?: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'> | null,
   fallbackProfileType?: AppUserProfileType | null
@@ -274,7 +282,8 @@ export function validateQuickVehicleForm(
 export function buildVehicleSubmitPayload(
   input: VehicleFormInput,
   userId: string,
-  initialVehicle?: Vehicle | null
+  initialVehicle?: Vehicle | null,
+  activeGarageId?: string | null
 ): Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'> {
   const cleanedVin = input.vin.replace(/\s+/g, '').toUpperCase();
   const cleanedReg = input.registrationNumber.trim().toUpperCase();
@@ -323,8 +332,11 @@ export function buildVehicleSubmitPayload(
       ? initialVehicle.purchaseStatus
       : 'micro';
 
+  const targetGarageId = resolveTargetGarageId(initialVehicle, activeGarageId);
+
   return {
     userId,
+    ...(targetGarageId ? { garageId: targetGarageId } : {}),
     make: input.make.trim(),
     model: input.model.trim(),
     commercialDesignation: input.commercialDesignation.trim(),

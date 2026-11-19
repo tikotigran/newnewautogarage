@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Car,
@@ -13,10 +13,11 @@ import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
 import { LocaleDateInput } from './LocaleDateInput';
-import { getGarageSettings } from '../services/garageService';
+import { fetchGarageSettingsFromCloud, getGarageSettings } from '../services/garageService';
 import {
   buildVehicleSubmitPayload,
   resolveDefaultPurchaseStatus,
+  resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
   validateVehicleFormDetailed,
   VehicleFormFieldErrorKey,
@@ -28,6 +29,7 @@ interface VehicleModalProps {
   onSubmit: (data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   initialVehicle?: Vehicle | null;
   userId: string;
+  activeGarageId?: string | null;
   defaultPurchaseStatus?: VehiclePurchaseStatus;
   onValidationToast?: (message: string) => void;
 }
@@ -38,11 +40,14 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   onSubmit,
   initialVehicle,
   userId,
+  activeGarageId,
   defaultPurchaseStatus,
   onValidationToast,
 }) => {
   const { t, lang } = useI18n();
   const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
+  const targetGarageId = resolveTargetGarageId(initialVehicle, activeGarageId);
+  const hasEditedPurchaseStatusRef = useRef(false);
 
   // Primary & Mandatory Cerfa Vehicle Fields
   const [make, setMake] = useState('');
@@ -71,7 +76,9 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   const [targetSalePrice, setTargetSalePrice] = useState<number | ''>('');
   const [status, setStatus] = useState<VehicleStatus>('preparation');
   const [purchaseStatus, setPurchaseStatus] = useState<VehiclePurchaseStatus>(
-    () => defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, getGarageSettings())
+    () =>
+      defaultPurchaseStatus ||
+      resolveDefaultPurchaseStatus(undefined, getGarageSettings(targetGarageId))
   );
   const [photos, setPhotos] = useState<string[]>([]);
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
@@ -81,6 +88,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<VehicleFormFieldErrorKey, string>>>({});
 
   useEffect(() => {
+    hasEditedPurchaseStatusRef.current = false;
+    const scopedSettings = getGarageSettings(targetGarageId);
+    const scopedFallbackProfile =
+      resolveDefaultPurchaseStatus(undefined, scopedSettings) === 'particulier'
+        ? 'particulier'
+        : 'micro_entrepreneur';
     if (initialVehicle) {
       setMake(initialVehicle.make);
       setModel(initialVehicle.model);
@@ -113,7 +126,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setPurchaseStatus(
         resolveVehiclePurchaseStatus(
           initialVehicle,
-          defaultPurchaseStatus === 'particulier' ? 'particulier' : 'micro_entrepreneur'
+          initialVehicle.garageId
+            ? scopedFallbackProfile
+            : defaultPurchaseStatus === 'particulier'
+            ? 'particulier'
+            : scopedFallbackProfile
         )
       );
       setPhotos(initialVehicle.photos || []);
@@ -143,13 +160,27 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setTargetSalePrice('');
       setStatus('preparation');
       setPurchaseStatus(
-        defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, getGarageSettings())
+        defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, scopedSettings)
       );
       setPhotos([]);
     }
     setError(null);
     setFieldErrors({});
-  }, [initialVehicle, isOpen, defaultPurchaseStatus]);
+  }, [initialVehicle, isOpen, defaultPurchaseStatus, targetGarageId]);
+
+  useEffect(() => {
+    if (!isOpen || !userId || !targetGarageId) return;
+    let isCancelled = false;
+    fetchGarageSettingsFromCloud(userId, targetGarageId).then((cloudSettings) => {
+      if (isCancelled || hasEditedPurchaseStatusRef.current) return;
+      if (!initialVehicle && !defaultPurchaseStatus) {
+        setPurchaseStatus(resolveDefaultPurchaseStatus(undefined, cloudSettings));
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, userId, targetGarageId, initialVehicle, defaultPurchaseStatus]);
 
   if (!isOpen) return null;
 
@@ -252,7 +283,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setIsSubmitting(true);
       setError(null);
       setFieldErrors({});
-      const payload = buildVehicleSubmitPayload(formState, userId, initialVehicle);
+      const payload = buildVehicleSubmitPayload(
+        formState,
+        userId,
+        initialVehicle,
+        activeGarageId
+      );
       await onSubmit(payload);
       onClose();
     } catch (err: unknown) {
@@ -352,7 +388,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 role="radio"
                 aria-checked={purchaseStatus === 'micro'}
                 data-testid="vehicle-purchase-status-micro"
-                onClick={() => setPurchaseStatus('micro')}
+                onClick={() => {
+                  hasEditedPurchaseStatusRef.current = true;
+                  setPurchaseStatus('micro');
+                }}
                 className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-left text-xs font-bold transition cursor-pointer ${
                   purchaseStatus === 'micro'
                     ? 'bg-amber-500/15 border-amber-500/60 text-amber-300 shadow-sm'
@@ -370,7 +409,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 role="radio"
                 aria-checked={purchaseStatus === 'particulier'}
                 data-testid="vehicle-purchase-status-particulier"
-                onClick={() => setPurchaseStatus('particulier')}
+                onClick={() => {
+                  hasEditedPurchaseStatusRef.current = true;
+                  setPurchaseStatus('particulier');
+                }}
                 className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-left text-xs font-bold transition cursor-pointer ${
                   purchaseStatus === 'particulier'
                     ? 'bg-blue-500/15 border-blue-500/60 text-blue-300 shadow-sm'

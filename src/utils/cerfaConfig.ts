@@ -167,7 +167,11 @@ export function cloneCerfaConfig(): Cerfa15776Config {
   return JSON.parse(JSON.stringify(CERFA_15776_CONFIG)) as Cerfa15776Config;
 }
 
-export type CerfaTemplateKey = 'cerfa_15776_02' | 'cerfa_13750_07' | 'declaration_achat';
+export type CerfaTemplateKey = 'cerfa_15776_02';
+
+export function normalizeCerfaTemplateId(_templateId?: string | null): CerfaTemplateKey {
+  return 'cerfa_15776_02';
+}
 
 export interface CerfaTemplateOffsetConfig {
   offsetX: number;
@@ -175,26 +179,10 @@ export interface CerfaTemplateOffsetConfig {
   fontSizeDelta: number;
 }
 
-export interface CerfaCalibrationFieldEntry {
-  label: string;
-  x: number;
-  y: number;
-  size: number;
-  stepX?: number;
-}
-
 export interface CerfaTemplatesCalibrationPayload {
   cerfa_15776_02: {
     offsets: CerfaTemplateOffsetConfig;
     config: Cerfa15776Config;
-  };
-  cerfa_13750_07: {
-    offsets: CerfaTemplateOffsetConfig;
-    fields: Record<string, CerfaCalibrationFieldEntry>;
-  };
-  declaration_achat: {
-    offsets: CerfaTemplateOffsetConfig;
-    fields: Record<string, CerfaCalibrationFieldEntry>;
   };
   updatedAtIso?: string;
   updatedBy?: string;
@@ -203,99 +191,11 @@ export interface CerfaTemplatesCalibrationPayload {
 export const CERFA_CALIBRATION_STORAGE_KEY = 'autogarage_cerfa_templates_calibration';
 export const CERFA_CALIBRATION_UPDATED_EVENT = 'autogarage_cerfa_calibration_updated';
 
-export const DEFAULT_CERFA_13750_07_FIELDS: Record<string, CerfaCalibrationFieldEntry> = {
-  registrationNumber: { label: '(A) Immatriculation', x: 54, y: 710, size: 9, stepX: 14 },
-  firstRegistrationDate: { label: '(B) Date 1re immat.', x: 380, y: 710, size: 8.5 },
-  make: { label: '(D.1) Marque', x: 54, y: 678, size: 8.5 },
-  typeVariantVersion: { label: '(D.2) Type / Variante', x: 195, y: 678, size: 8 },
-  commercialDesignation: { label: '(D.3) Dénomination', x: 395, y: 678, size: 8 },
-  vin: { label: '(E) Numéro VIN', x: 54, y: 646, size: 8.5, stepX: 14 },
-  nationalGenre: { label: '(J.1) Genre national', x: 355, y: 646, size: 8.5 },
-  bodywork: { label: '(J.3) Carrosserie', x: 465, y: 646, size: 8.5 },
-  formulaNumber: { label: 'N° de formule', x: 54, y: 614, size: 8.5, stepX: 12.2 },
-  certificateDate: { label: '(I) Date du certificat', x: 355, y: 614, size: 8.5 },
-  holderName: { label: 'Titulaire (Nom / Raison sociale)', x: 54, y: 556, size: 9 },
-  holderBirthDate: { label: 'Né(e) le (Acquéreur)', x: 54, y: 528, size: 8.5 },
-  holderBirthPlace: { label: 'Lieu de naissance', x: 245, y: 528, size: 8.5 },
-  holderAddress: { label: 'Adresse complète', x: 54, y: 498, size: 8.5 },
-  holderPostalCode: { label: 'Code postal', x: 54, y: 468, size: 8.5, stepX: 12 },
-  holderCity: { label: 'Commune', x: 150, y: 468, size: 8.5 },
-  signatureLocation: { label: 'Fait à (Commune)', x: 54, y: 150, size: 8.5 },
-  signatureDate: { label: 'Fait le (Date)', x: 355, y: 150, size: 8.5 },
-};
-
-export const DEFAULT_DECLARATION_ACHAT_FIELDS: Record<string, CerfaCalibrationFieldEntry> = {
-  registrationNumber: { label: '(A) Immatriculation', x: 48, y: 715, size: 9, stepX: 13.5 },
-  firstRegistrationDate: { label: '(B) Date 1re immat.', x: 380, y: 715, size: 8.5 },
-  vin: { label: '(E) Numéro VIN', x: 48, y: 682, size: 8.5, stepX: 13.8 },
-  nationalGenre: { label: '(J.1) Genre national', x: 355, y: 682, size: 8.5 },
-  bodywork: { label: '(J.3) Carrosserie', x: 465, y: 682, size: 8.5 },
-  make: { label: '(D.1) Marque', x: 48, y: 650, size: 8.5 },
-  typeVariantVersion: { label: '(D.2) Type / Variante', x: 195, y: 650, size: 8 },
-  model: { label: '(D.3) Dénomination', x: 395, y: 650, size: 8.5 },
-  mileage: { label: 'Kilométrage', x: 48, y: 618, size: 8.5 },
-  formulaNumber: { label: 'N° de formule', x: 205, y: 618, size: 8.5 },
-  certificateDate: { label: '(I) Date du certificat', x: 405, y: 618, size: 8.5 },
-  sellerName: { label: 'Ancien propriétaire', x: 48, y: 552, size: 8.5 },
-  dealerName: { label: 'Professionnel acquéreur (Garage)', x: 48, y: 455, size: 9 },
-  dealerSiret: { label: 'N° SIRET Garage', x: 365, y: 455, size: 8, stepX: 11.8 },
-  dealerAddress: { label: 'Adresse Garage', x: 48, y: 424, size: 8.5 },
-  dealerPostalCode: { label: 'Code postal Garage', x: 48, y: 394, size: 8.5, stepX: 12 },
-  dealerCity: { label: 'Commune Garage', x: 145, y: 394, size: 8.5 },
-  purchaseDate: { label: 'Date & Heure d’achat', x: 48, y: 310, size: 8.5 },
-  purchaseLocation: { label: 'Lieu (Fait à)', x: 48, y: 150, size: 8.5 },
-};
-
-export const CALIBRATION_DUMMY_TEMPLATE_VALUES: Record<string, string> = {
-  registrationNumber: 'AB-123-CD',
-  firstRegistrationDate: '15/06/2020',
-  make: 'PEUGEOT',
-  typeVariantVersion: 'UPHNK0MT129841',
-  commercialDesignation: '208 GT LINE',
-  model: '208 GT LINE',
-  vin: 'VF3UPHNK0MT129841',
-  nationalGenre: 'VP',
-  bodywork: 'CI',
-  mileage: '84 500 km',
-  formulaNumber: '2021AB12345',
-  certificateDate: '20/09/2021',
-  holderName: 'DUPONT JEAN-MARC',
-  holderBirthDate: '12/04/1985',
-  holderBirthPlace: 'LYON',
-  holderAddress: '45 AVENUE DE LA REPUBLIQUE',
-  holderPostalCode: '69003',
-  holderCity: 'LYON',
-  sellerName: 'DUPONT JEAN-MARC (45 AVENUE DE LA REPUBLIQUE, 69003 LYON)',
-  dealerName: 'MON GARAGE AUTO',
-  dealerSiret: '89412345600012',
-  dealerAddress: "12 RUE DE L'INDUSTRIE",
-  dealerPostalCode: '75011',
-  dealerCity: 'PARIS',
-  purchaseDate: '17/11/2026 à 14:30',
-  purchaseLocation: 'PARIS',
-  signatureLocation: 'PARIS',
-  signatureDate: '17/11/2026',
-};
-
 export function createDefaultCerfaTemplatesCalibration(): CerfaTemplatesCalibrationPayload {
   return {
     cerfa_15776_02: {
       offsets: { offsetX: 0, offsetY: 0, fontSizeDelta: 0 },
       config: cloneCerfaConfig(),
-    },
-    cerfa_13750_07: {
-      offsets: { offsetX: 0, offsetY: 0, fontSizeDelta: 0 },
-      fields: JSON.parse(JSON.stringify(DEFAULT_CERFA_13750_07_FIELDS)) as Record<
-        string,
-        CerfaCalibrationFieldEntry
-      >,
-    },
-    declaration_achat: {
-      offsets: { offsetX: 0, offsetY: 0, fontSizeDelta: 0 },
-      fields: JSON.parse(JSON.stringify(DEFAULT_DECLARATION_ACHAT_FIELDS)) as Record<
-        string,
-        CerfaCalibrationFieldEntry
-      >,
     },
   };
 }
@@ -344,26 +244,6 @@ function mergeLeafObjects<T>(defaults: T, incoming: unknown): T {
   return out as T;
 }
 
-function mergeFieldEntries(
-  defaults: Record<string, CerfaCalibrationFieldEntry>,
-  incoming?: Record<string, Partial<CerfaCalibrationFieldEntry>> | null
-): Record<string, CerfaCalibrationFieldEntry> {
-  const result: Record<string, CerfaCalibrationFieldEntry> = {};
-  for (const [key, defEntry] of Object.entries(defaults)) {
-    const rawEntry = incoming?.[key];
-    result[key] = {
-      label: typeof rawEntry?.label === 'string' && rawEntry.label ? rawEntry.label : defEntry.label,
-      x: toFiniteNumber(rawEntry?.x, defEntry.x),
-      y: toFiniteNumber(rawEntry?.y, defEntry.y),
-      size: Math.max(4, toFiniteNumber(rawEntry?.size, defEntry.size)),
-      ...(typeof defEntry.stepX === 'number' || typeof rawEntry?.stepX === 'number'
-        ? { stepX: Math.max(4, toFiniteNumber(rawEntry?.stepX, defEntry.stepX ?? 12)) }
-        : {}),
-    };
-  }
-  return result;
-}
-
 export function resolveCerfaTemplatesCalibration(
   raw?: Partial<CerfaTemplatesCalibrationPayload> | null
 ): CerfaTemplatesCalibrationPayload {
@@ -374,14 +254,6 @@ export function resolveCerfaTemplatesCalibration(
     cerfa_15776_02: {
       offsets: resolveOffsets(raw.cerfa_15776_02?.offsets),
       config: mergeLeafObjects(defaults.cerfa_15776_02.config, raw.cerfa_15776_02?.config),
-    },
-    cerfa_13750_07: {
-      offsets: resolveOffsets(raw.cerfa_13750_07?.offsets),
-      fields: mergeFieldEntries(defaults.cerfa_13750_07.fields, raw.cerfa_13750_07?.fields),
-    },
-    declaration_achat: {
-      offsets: resolveOffsets(raw.declaration_achat?.offsets),
-      fields: mergeFieldEntries(defaults.declaration_achat.fields, raw.declaration_achat?.fields),
     },
     ...(typeof raw.updatedAtIso === 'string' ? { updatedAtIso: raw.updatedAtIso } : {}),
     ...(typeof raw.updatedBy === 'string' ? { updatedBy: raw.updatedBy } : {}),

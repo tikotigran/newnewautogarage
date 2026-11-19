@@ -26,8 +26,6 @@ import {
   List,
   KeyRound,
   Menu,
-  PanelLeft,
-  PanelTop,
   Calculator,
   History,
   ShieldAlert,
@@ -42,11 +40,9 @@ import {
   AppUserProfileType,
   FrenchTaxConfiguration,
   GarageSettings,
-  LayoutMode,
   StatusProfileData,
   SubscriptionPlan,
   TaxSettingsAuditEntry,
-  UserLayoutPreference,
   UserProfile,
   Vehicle,
 } from '../types/garage';
@@ -117,10 +113,6 @@ interface SettingsProps {
   onOpenAlignerMode?: () => void;
   userEmail?: string | null;
   userRole?: string;
-  layoutPreference?: UserLayoutPreference;
-  effectiveLayoutMode?: LayoutMode;
-  globalLayoutMode?: LayoutMode;
-  onLayoutPreferenceChange?: (pref: UserLayoutPreference) => void;
   variant?: 'modal' | 'page';
   activeTab?: SettingsTab;
   onTabChange?: (tab: SettingsTab) => void;
@@ -158,10 +150,6 @@ export const Settings: React.FC<SettingsProps> = ({
   onOpenAlignerMode,
   userEmail,
   userRole = 'user',
-  layoutPreference = 'global',
-  effectiveLayoutMode = 'classic',
-  globalLayoutMode = 'classic',
-  onLayoutPreferenceChange,
   variant = 'modal',
   activeTab: controlledActiveTab,
   onTabChange,
@@ -242,6 +230,7 @@ export const Settings: React.FC<SettingsProps> = ({
       setSettings({
         ...DEFAULT_GARAGE_SETTINGS,
         ...current,
+        defaultCerfaTemplate: 'cerfa_15776_02',
         garageId: targetGarageId,
         theme,
         profileType: resolvedProfile,
@@ -292,6 +281,7 @@ export const Settings: React.FC<SettingsProps> = ({
           setSettings((prev) => ({
             ...prev,
             ...cloudSettings,
+            defaultCerfaTemplate: 'cerfa_15776_02',
             theme,
             profileType: cloudProfile,
             entityType: 'physique',
@@ -336,7 +326,6 @@ export const Settings: React.FC<SettingsProps> = ({
         ...settings,
         garageId: targetGarageId,
         theme,
-        layoutMode: layoutPreference,
       },
       targetProfile
     );
@@ -500,6 +489,7 @@ export const Settings: React.FC<SettingsProps> = ({
     const updatedSettings: GarageSettings = syncActiveProfileOnEdit(
       {
         ...settings,
+        defaultCerfaTemplate: 'cerfa_15776_02',
         profileType: targetProfile,
         entityType: 'physique',
         legalStatus: enforcedStatus,
@@ -508,7 +498,6 @@ export const Settings: React.FC<SettingsProps> = ({
         frenchTaxConfig: normalizedTax,
         taxAuditHistory: nextAuditHistory,
         theme,
-        layoutMode: layoutPreference,
       },
       {
         siret: targetProfile === 'particulier' ? '' : (settings.siret || '').trim(),
@@ -1302,9 +1291,9 @@ export const Settings: React.FC<SettingsProps> = ({
                       id="settings-cerfa-template"
                       testId="settings-cerfa-template-select"
                       ariaLabel={L('Modèle de document actif', 'Активный шаблон PDF', 'Ակտիվ PDF ձևաթուղթ', 'აქტიური PDF შაბლონი')}
-                      value={settings.defaultCerfaTemplate || 'cerfa_15776_02'}
-                      onChange={(val) =>
-                        setSettings({ ...settings, defaultCerfaTemplate: val })
+                      value="cerfa_15776_02"
+                      onChange={() =>
+                        setSettings({ ...settings, defaultCerfaTemplate: 'cerfa_15776_02' })
                       }
                       options={[
                         {
@@ -2177,98 +2166,6 @@ export const Settings: React.FC<SettingsProps> = ({
                         </button>
                       );
                     })}
-                  </div>
-                </div>
-
-                {/* Layout Switcher: Classic Top-Nav vs Modern Sidebar Layout */}
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-xs font-bold text-white">
-                      <PanelLeft className="w-4 h-4 text-amber-400" />
-                      <span>
-                        {L(
-                          'Disposition de l’interface',
-                          'Макет интерфейса (Layout)',
-                          'Ինտերֆեյսի դասավորություն',
-                          'ინტერფეისის განლაგება'
-                        )}
-                      </span>
-                    </div>
-                    {layoutPreference !== 'global' && onLayoutPreferenceChange && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onLayoutPreferenceChange('global');
-                          setStatusMessage({
-                            type: 'success',
-                            text: L(
-                              'Réinitialisé sur la disposition globale.',
-                              'Сброшено к глобальному макету платформы.',
-                              'Վերականգնված է գլոբալ դասավորությունը։',
-                              'აღდგენილია გლობალური განლაგება.'
-                            ),
-                          });
-                        }}
-                        className="text-[11px] font-semibold text-amber-400 hover:underline"
-                      >
-                        {L(
-                          `Par défaut (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classique'})`,
-                          `По умолчанию (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`,
-                          `Լռելյայն (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`,
-                          `ნაგულისხმევი (${globalLayoutMode === 'sidebar' ? 'Sidebar' : 'Classic'})`
-                        )}
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      data-testid="settings-layout-classic"
-                      onClick={() => {
-                        onLayoutPreferenceChange?.('classic');
-                        setStatusMessage({
-                          type: 'success',
-                          text: L(
-                            'Disposition classique (Top-Nav) activée.',
-                            'Включён классический макет (Top-Nav).',
-                            'Դասական տեսքը միացված է։',
-                            'კლასიკური განლაგება ჩართულია.'
-                          ),
-                        });
-                      }}
-                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
-                        effectiveLayoutMode === 'classic'
-                          ? 'bg-amber-500 text-slate-950 border-amber-500'
-                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <PanelTop className="w-3.5 h-3.5" />
-                      <span>{L('En-tête Classique', 'Классическая шапка', 'Դասական վերնագիր', 'კლასიკური მენიუ')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="settings-layout-sidebar"
-                      onClick={() => {
-                        onLayoutPreferenceChange?.('sidebar');
-                        setStatusMessage({
-                          type: 'success',
-                          text: L(
-                            'Nouveau design (Sidebar Layout) activé.',
-                            'Включён новый дизайн (Sidebar Layout).',
-                            'Կողմնային ընտրացանկը միացված է։',
-                            'გვერდითი მენიუ ჩართულია.'
-                          ),
-                        });
-                      }}
-                      className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer ${
-                        effectiveLayoutMode === 'sidebar'
-                          ? 'bg-amber-500 text-slate-950 border-amber-500'
-                          : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
-                      }`}
-                    >
-                      <PanelLeft className="w-3.5 h-3.5" />
-                      <span>{L('Nouveau Design (Sidebar)', 'Новый дизайн (Sidebar)', 'Նոր դիզայն (Sidebar)', 'ახალი დიზაინი (Sidebar)')}</span>
-                    </button>
                   </div>
                 </div>
 

@@ -1,14 +1,15 @@
 import { AppUserProfileType, GarageSettings, StatusProfileData, Vehicle } from '../types/garage';
 import { DEFAULT_GARAGE_SETTINGS } from '../services/garageService';
-import { Language } from './i18nUtils';
-import { formatCerfaMissingToast } from './vehicleFormUtils';
+import { Language, pickLocalized } from './i18nUtils';
+import { formatCerfaMissingToast, resolveTargetGarageId } from './vehicleFormUtils';
 import {
   EMPTY_PARTICULIER_PROFILE,
   EMPTY_PRO_PROFILE,
   pickStatusProfileFields,
   resolveSeparatedProfiles,
 } from './profileSeparationUtils';
-export { CERFA_15776_CONFIG } from './cerfaConfig';
+import { CerfaTemplateKey } from './cerfaConfig';
+export { CERFA_15776_CONFIG, normalizeCerfaTemplateId } from './cerfaConfig';
 
 export interface Cerfa15776VehicleStep {
   registrationNumber: string; // (A) Numéro d'immatriculation
@@ -136,6 +137,13 @@ export function sanitizeWinAnsi(input: string): string {
     .replace(/[\u00A0\u202F]/g, ' ')
     // Strip characters outside Latin-1 / WinAnsi safe range
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+}
+
+export function resolveCerfaTargetGarageId(
+  vehicle?: Pick<Vehicle, 'garageId'> | null,
+  activeGarageId?: string | null
+): string | undefined {
+  return resolveTargetGarageId(vehicle, activeGarageId);
 }
 
 /**
@@ -337,7 +345,7 @@ export function buildInitialCerfaData(
       streetName: buyerStreet.streetName,
       postalCode: parsedPostal,
       city: buyerCity,
-      signingCity: buyerCity || garageSettings.city || '',
+      signingCity: buyerCity || sellerStep.city || garageSettings.city || '',
       signingDate: saleDate,
       certifyAcquire: true,
       certifyInformedAdmin: true,
@@ -352,80 +360,185 @@ export function buildInitialCerfaData(
  */
 export function validateCerfaStep(
   step: 1 | 2 | 3,
-  data: Cerfa15776FormData
+  data: Cerfa15776FormData,
+  lang: Language = 'fr'
 ): Record<string, string> {
+  const L = (fr: string, ru: string, hy: string, ka: string) =>
+    pickLocalized(lang, { fr, ru, hy, ka });
   const errors: Record<string, string> = {};
 
   if (step === 1) {
     if (!data.vehicle.registrationNumber.trim()) {
-      errors.registrationNumber = "(A) N° d'immatriculation";
+      errors.registrationNumber = L(
+        "(A) N° d'immatriculation",
+        '(A) Госномер',
+        '(A) Պետհամարանիշ',
+        '(A) სახელმწიფო ნომერი'
+      );
     }
     if (!data.vehicle.vin.trim()) {
       errors.vin = 'VIN (E)';
     }
     if (!data.vehicle.firstRegistrationDate.trim()) {
-      errors.firstRegistrationDate = '(B) 1re immatriculation';
+      errors.firstRegistrationDate = L(
+        '(B) 1re immatriculation',
+        '(B) Дата 1-й регистрации',
+        '(B) Առաջին գրանցման ամսաթիվ',
+        '(B) პირველი რეგისტრაციის თარიღი'
+      );
     }
     if (!data.vehicle.make.trim()) {
-      errors.make = '(D.1) Marque';
+      errors.make = L('(D.1) Marque', '(D.1) Марка', '(D.1) Մակնիշ', '(D.1) მარკა');
     }
     if (!data.vehicle.commercialDesignation.trim()) {
-      errors.commercialDesignation = '(D.3) Dénomination commerciale';
+      errors.commercialDesignation = L(
+        '(D.3) Dénomination commerciale',
+        '(D.3) Коммерческое наименование',
+        '(D.3) Առևտրային անվանում',
+        '(D.3) კომერციული დასახელება'
+      );
     }
     if (data.vehicle.mileage === '' || Number(data.vehicle.mileage) < 0) {
-      errors.mileage = 'Kilométrage au compteur';
+      errors.mileage = L(
+        'Kilométrage au compteur',
+        'Пробег по одометру',
+        'Վազքը (կմ)',
+        'ოდომეტრის გარბენი'
+      );
     }
     if (typeof data.vehicle.hasRegistrationCertificate !== 'boolean') {
-      errors.hasRegistrationCertificate = "Présence du certificat d'immatriculation";
+      errors.hasRegistrationCertificate = L(
+        "Présence du certificat d'immatriculation",
+        'Наличие СТС (Carte Grise)',
+        'Գրանցման վկայականի առկայություն',
+        'სარეგისტრაციო მოწმობის არსებობა'
+      );
     } else if (data.vehicle.hasRegistrationCertificate) {
       if (!data.vehicle.formulaNumber.trim() && !data.vehicle.certificateDate.trim()) {
-        errors.formulaOrCertificateDate = 'Numéro de formule ou (I) Date du certificat';
+        errors.formulaOrCertificateDate = L(
+          'Numéro de formule ou (I) Date du certificat',
+          'Номер формулы или (I) Дата выдачи СТС',
+          'Ձևի համար կամ (I) Վկայականի ամսաթիվ',
+          'ფორმულის ნომერი ან (I) მოწმობის თარიღი'
+        );
       }
     } else if (!data.vehicle.absenceReason.trim()) {
-      errors.absenceReason = "Motif d'absence du certificat";
+      errors.absenceReason = L(
+        "Motif d'absence du certificat",
+        'Причина отсутствия СТС',
+        'Վկայականի բացակայության պատճառ',
+        'მოწმობის არქონის მიზეზი'
+      );
     }
   }
 
   if (step === 2) {
     if (!data.seller.nameOrCompany.trim()) {
       errors.sellerName =
-        data.seller.entityType === 'morale' ? 'Raison sociale (cédant)' : 'Nom et Prénom (cédant)';
+        data.seller.entityType === 'morale'
+          ? L(
+              'Raison sociale (cédant)',
+              'Название компании (продавец)',
+              'Կազմակերպության անվանում (վաճառող)',
+              'კომპანიის დასახელება (გამყიდველი)'
+            )
+          : L(
+              'Nom et Prénom (cédant)',
+              'ФИО (продавец)',
+              'Անուն, ազգանուն (վաճառող)',
+              'სახელი და გვარი (გამყიდველი)'
+            );
     }
     if (data.seller.entityType === 'morale' && !data.seller.siret.trim()) {
-      errors.sellerSiret = 'N° SIRET (cédant)';
+      errors.sellerSiret = L(
+        'N° SIRET (cédant)',
+        'SIRET (продавец)',
+        'SIRET (վաճառող)',
+        'SIRET (გამყიდველი)'
+      );
     }
     if (!data.seller.streetNumber.trim()) {
-      errors.sellerStreetNumber = 'N° de voie (vendeur / propriétaire)';
+      errors.sellerStreetNumber = L(
+        'N° de voie (vendeur)',
+        'Номер дома (продавец)',
+        'Տան համար (վաճառող)',
+        'ქუჩის ნომერი (გამყიდველი)'
+      );
     }
     if (!data.seller.streetName.trim()) {
-      errors.sellerStreetName = 'Nom de la voie (vendeur / propriétaire)';
+      errors.sellerStreetName = L(
+        'Nom de la voie (vendeur)',
+        'Улица (продавец)',
+        'Փողոց (վաճառող)',
+        'ქუჩის დასახელება (გამყიდველი)'
+      );
     }
     if (!data.seller.postalCode.trim() || !data.seller.city.trim()) {
-      errors.sellerCity = 'Code postal et commune (cédant)';
+      errors.sellerCity = L(
+        'Code postal et commune (cédant)',
+        'Индекс и город (продавец)',
+        'Ինդեքս և քաղաք (վաճառող)',
+        'ინდექსი და ქალაქი (გამყიდველი)'
+      );
     }
     if (!data.seller.saleDate.trim()) {
-      errors.saleDate = 'Date de cession';
+      errors.saleDate = L(
+        'Date de cession',
+        'Дата продажи',
+        'Վաճառքի ամսաթիվ',
+        'გაყიდვის თარიღი'
+      );
     }
     if (!data.seller.signingCity.trim()) {
-      errors.sellerSigningCity = 'Lieu de signature (Fait à)';
+      errors.sellerSigningCity = L(
+        'Lieu de signature (Fait à)',
+        'Место подписания (Fait à)',
+        'Ստորագրման վայր (Fait à)',
+        'ხელმოწერის ადგილი (Fait à)'
+      );
     }
   }
 
   if (step === 3) {
     if (!data.buyer.nameOrCompany.trim()) {
-      errors.buyerName = 'Nom ou raison sociale (acquéreur)';
+      errors.buyerName = L(
+        'Nom ou raison sociale (acquéreur)',
+        'ФИО или компания (покупатель)',
+        'Անուն կամ կազմակերպություն (գնորդ)',
+        'სახელი ან კომპანია (მყიდველი)'
+      );
     }
     if (data.buyer.entityType === 'physique' && !data.buyer.birthDate.trim()) {
-      errors.buyerBirthDate = 'Date de naissance (acquéreur)';
+      errors.buyerBirthDate = L(
+        'Date de naissance (acquéreur)',
+        'Дата рождения (покупатель)',
+        'Ծննդյան ամսաթիվ (գնորդ)',
+        'დაბადების თარიღი (მყიდველი)'
+      );
     }
     if (!data.buyer.streetNumber.trim()) {
-      errors.buyerStreetNumber = 'N° de voie (acheteur)';
+      errors.buyerStreetNumber = L(
+        'N° de voie (acheteur)',
+        'Номер дома (покупатель)',
+        'Տան համար (գնորդ)',
+        'ქუჩის ნომერი (მყიდველი)'
+      );
     }
     if (!data.buyer.streetName.trim()) {
-      errors.buyerStreetName = 'Nom de la voie (acheteur)';
+      errors.buyerStreetName = L(
+        'Nom de la voie (acheteur)',
+        'Улица (покупатель)',
+        'Փողոց (գնորդ)',
+        'ქუჩის დასახელება (მყიდველი)'
+      );
     }
     if (!data.buyer.postalCode.trim() || !data.buyer.city.trim()) {
-      errors.buyerCity = 'Code postal et commune (acquéreur)';
+      errors.buyerCity = L(
+        'Code postal et commune (acquéreur)',
+        'Индекс и город (покупатель)',
+        'Ինդեքս և քաղաք (գնորդ)',
+        'ინდექსი და ქალაქი (მყიდველი)'
+      );
     }
   }
 
@@ -443,9 +556,9 @@ export function validateAllCerfaSteps(
   data: Cerfa15776FormData,
   lang: Language = 'ru'
 ): CerfaFullValidationResult {
-  const s1 = validateCerfaStep(1, data);
-  const s2 = validateCerfaStep(2, data);
-  const s3 = validateCerfaStep(3, data);
+  const s1 = validateCerfaStep(1, data, lang);
+  const s2 = validateCerfaStep(2, data, lang);
+  const s3 = validateCerfaStep(3, data, lang);
   const combined: Record<string, string> = { ...s1, ...s2, ...s3 };
   const missingLabels = Object.values(combined);
 
@@ -463,12 +576,16 @@ export function validateAllCerfaSteps(
 }
 
 export interface CerfaTemplateOption {
-  id: string;
+  id: CerfaTemplateKey;
   code: string;
   labelFr: string;
   labelRu: string;
+  labelHy: string;
+  labelKa: string;
   descriptionFr: string;
   descriptionRu: string;
+  descriptionHy: string;
+  descriptionKa: string;
 }
 
 export const CERFA_TEMPLATE_OPTIONS: CerfaTemplateOption[] = [
@@ -477,8 +594,12 @@ export const CERFA_TEMPLATE_OPTIONS: CerfaTemplateOption[] = [
     code: '15776*02',
     labelFr: 'Cerfa N° 15776*02 — Certificat de cession',
     labelRu: 'Cerfa N° 15776*02 — Акт передачи ТС (Cession)',
+    labelHy: 'Cerfa N° 15776*02 — Փոխանցման վկայագիր (Cession)',
+    labelKa: 'Cerfa N° 15776*02 — გადაცემის სერტიფიკატი (Cession)',
     descriptionFr: 'Formulaire officiel ANTS / SIV (Exemplaires 1 & 2 pré-remplis)',
     descriptionRu: 'Официальный бланк ANTS / SIV (экземпляры 1 и 2 с автозаполнением)',
+    descriptionHy: 'Պաշտոնական ձևաթուղթ ANTS / SIV (1-ին և 2-րդ օրինակների ավտոլրացում)',
+    descriptionKa: 'ოფიციალური ბლანკი ANTS / SIV (1-ლი და მე-2 ეგზემპლარის ავტოშევსება)',
   },
 ];
 

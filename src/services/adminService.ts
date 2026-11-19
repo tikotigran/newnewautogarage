@@ -32,8 +32,8 @@ import {
   UserProfile,
 } from '../types/garage';
 import {
-  createDefaultFrenchTaxConfig,
-  normalizeFrenchTaxConfig,
+  buildTaxDefaultsFirestorePayload,
+  parseTaxDefaultsFirestoreData,
 } from '../utils/frenchTaxEngine';
 import {
   applySystemThemeVariables,
@@ -966,10 +966,8 @@ export async function saveGlobalTextOverrides(
 
 // 4. SuperAdmin Global French Tax Defaults (/settings/tax_defaults)
 export function getSuperAdminTaxDefaults(): FrenchTaxConfiguration {
-  const saved = readLocal<Partial<FrenchTaxConfiguration> | null>(LOCAL_TAX_DEFAULTS_KEY, null);
-  return saved
-    ? normalizeFrenchTaxConfig({ frenchTaxConfig: saved as FrenchTaxConfiguration })
-    : createDefaultFrenchTaxConfig('micro_entreprise');
+  const saved = readLocal<unknown>(LOCAL_TAX_DEFAULTS_KEY, null);
+  return parseTaxDefaultsFirestoreData(saved);
 }
 
 export function subscribeSuperAdminTaxDefaults(
@@ -980,9 +978,7 @@ export function subscribeSuperAdminTaxDefaults(
   getDoc(doc(db, 'settings', 'tax_defaults'))
     .then((snap) => {
       if (snap.exists()) {
-        const cfg = normalizeFrenchTaxConfig({
-          frenchTaxConfig: snap.data() as FrenchTaxConfiguration,
-        });
+        const cfg = parseTaxDefaultsFirestoreData(snap.data());
         writeLocal(LOCAL_TAX_DEFAULTS_KEY, cfg);
         onData(cfg);
       }
@@ -995,9 +991,7 @@ export function subscribeSuperAdminTaxDefaults(
       doc(db, 'settings', 'tax_defaults'),
       (snap) => {
         if (snap.exists()) {
-          const cfg = normalizeFrenchTaxConfig({
-            frenchTaxConfig: snap.data() as FrenchTaxConfiguration,
-          });
+          const cfg = parseTaxDefaultsFirestoreData(snap.data());
           writeLocal(LOCAL_TAX_DEFAULTS_KEY, cfg);
           onData(cfg);
         }
@@ -1020,19 +1014,14 @@ export async function saveSuperAdminTaxDefaults(
   config: FrenchTaxConfiguration,
   adminUid?: string
 ): Promise<void> {
-  const normalized = normalizeFrenchTaxConfig({ frenchTaxConfig: config });
-  writeLocal(LOCAL_TAX_DEFAULTS_KEY, normalized, 'autogarage_tax_defaults_updated');
+  const payload = buildTaxDefaultsFirestorePayload(config, {
+    updatedAt: new Date().toISOString(),
+    updatedBy: adminUid || auth.currentUser?.uid,
+  });
+  writeLocal(LOCAL_TAX_DEFAULTS_KEY, payload.config, 'autogarage_tax_defaults_updated');
   if (auth.currentUser) {
     try {
-      await setDoc(
-        doc(db, 'settings', 'tax_defaults'),
-        {
-          ...normalized,
-          updatedAt: new Date().toISOString(),
-          updatedBy: adminUid || auth.currentUser.uid,
-        },
-        { merge: true }
-      );
+      await setDoc(doc(db, 'settings', 'tax_defaults'), payload);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'settings/tax_defaults');
     }
@@ -1138,8 +1127,6 @@ export async function saveCerfaTemplatesCalibration(
         doc(db, 'platform_settings', 'cerfa_templates'),
         {
           cerfa_15776_02: resolved.cerfa_15776_02,
-          cerfa_13750_07: resolved.cerfa_13750_07,
-          declaration_achat: resolved.declaration_achat,
           updatedAtIso: nowIso,
           updatedBy: actor,
           updatedAt: serverTimestamp(),

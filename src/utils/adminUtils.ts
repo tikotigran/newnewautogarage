@@ -1,12 +1,10 @@
 import {
   CardPaddingDensity,
-  LayoutMode,
   PlanModulesConfig,
   SubscriptionPlan,
   SubscriptionPlanId,
   SystemThemeConfig,
   ThemePaletteTokens,
-  UserLayoutPreference,
   UserProfile,
 } from '../types/garage';
 import { roundToTwo } from './finance';
@@ -53,6 +51,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
     id: 'starter',
     name: 'Starter',
+    nameFr: 'Starter',
+    nameRu: 'Starter',
+    nameHy: 'Starter',
+    nameKa: 'Starter',
     priceMonthly: 0,
     vehicleLimit: 5,
     isPopular: false,
@@ -69,22 +71,26 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     featuresRu: [
       'Базовый учёт автопарка (до 5 авто)',
       'Расчёт P&L',
-      'Ручное заполнение Cerfa',
+      'Ручное заполнение Cerfa 15776*02',
     ],
     featuresHy: [
       'Ավտոպարկի բազային հաշվառում (մինչև 5 մեքենա)',
       'P&L շահույթի հաշվարկ',
-      'Cerfa-ի ձեռքով լրացում',
+      'Cerfa 15776*02-ի ձեռքով լրացում',
     ],
     featuresKa: [
       'ავტოპარკის საბაზისო აღრიცხვა (5 ავტომდე)',
       'P&L მოგების გათვლა',
-      'Cerfa-ს ხელით შევსება',
+      'Cerfa 15776*02-ის ხელით შევსება',
     ],
   },
   {
     id: 'pro',
     name: 'Pro',
+    nameFr: 'Pro',
+    nameRu: 'Pro',
+    nameHy: 'Pro',
+    nameKa: 'Pro',
     priceMonthly: 39,
     vehicleLimit: null,
     isPopular: true,
@@ -95,25 +101,25 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     taglineKa: 'საუკეთესოა დამოუკიდებელი დილერებისთვის',
     featuresFr: [
       'Stock de véhicules illimité',
-      'Auto-remplissage & export PDF de tous les Cerfa (15776*02, 13750*07, DA)',
+      'Auto-remplissage & export PDF Cerfa 15776*02 (cession officielle)',
       'Fournisseurs, achats & pièces détachées',
       'Analytique détaillée & exports cloud',
     ],
     featuresRu: [
       'Безлимитный склад авто',
-      'Автозаполнение и PDF-экспорт всех бланков Cerfa (15776*02, 13750*07, DA)',
+      'Автозаполнение и PDF-экспорт Cerfa 15776*02 (акт передачи ТС)',
       'Учёт поставщиков и запчастей',
       'Аналитика P&L, экспорт и бэкап',
     ],
     featuresHy: [
       'Անսահմանափակ ավտոպարկ',
-      'Բոլոր Cerfa ձևաթղթերի ավտոլրացում և PDF արտահանում (15776*02, 13750*07, DA)',
+      'Cerfa 15776*02-ի ավտոլրացում և PDF արտահանում',
       'Մատակարարների և պահեստամասերի հաշվառում',
       'Վերլուծություն, արտահանում և պահուստավորում',
     ],
     featuresKa: [
       'ულიმიტო ავტომობილების საწყობი',
-      'ყველა Cerfa ფორმის ავტოშევსება და PDF ექსპორტი (15776*02, 13750*07, DA)',
+      'Cerfa 15776*02-ის ავტოშევსება და PDF ექსპორტი',
       'მომწოდებლებისა და ნაწილების აღრიცხვა',
       'ანალიტიკა, ექსპორტი და სარეზერვო ასლი',
     ],
@@ -121,6 +127,10 @@ export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
     id: 'enterprise',
     name: 'Business',
+    nameFr: 'Business',
+    nameRu: 'Business',
+    nameHy: 'Business',
+    nameKa: 'Business',
     priceMonthly: 79,
     vehicleLimit: null,
     isPopular: false,
@@ -226,15 +236,43 @@ export function normalizeSubscriptionPlans(raw?: unknown): SubscriptionPlan[] {
   return DEFAULT_SUBSCRIPTION_PLANS.map((def) => {
     const custom = byId.get(def.id);
     if (!custom) return def;
-    const sanitizeFeatures = (list: unknown, fallback?: string[]): string[] => {
+    const sanitizeFeatures = (
+      list: unknown,
+      fallback: string[] | undefined,
+      legacyReplacement?: string
+    ): string[] => {
       if (!Array.isArray(list)) return fallback ? [...fallback] : [];
-      return list.map((s) => String(s ?? '').trim()).filter(Boolean);
+      return list
+        .map((s) => {
+          const text = String(s ?? '').trim();
+          if (!text) return '';
+          if (legacyReplacement && (/13750|13751/i.test(text) || /,\s*DA\b/i.test(text))) {
+            return legacyReplacement;
+          }
+          return text;
+        })
+        .filter(Boolean);
+    };
+    const fallbackName =
+      typeof custom.name === 'string' && custom.name.trim() ? custom.name.trim() : def.name;
+    const pickOptString = (val: unknown, fallback?: string): string | undefined => {
+      if (typeof val !== 'string') return fallback;
+      const trimmed = val.trim();
+      return trimmed || fallback;
     };
     return {
       ...def,
       ...custom,
       id: def.id,
-      name: typeof custom.name === 'string' && custom.name.trim() ? custom.name.trim() : def.name,
+      name: fallbackName,
+      nameFr: pickOptString(custom.nameFr, fallbackName),
+      nameRu: pickOptString(custom.nameRu, fallbackName),
+      nameHy: pickOptString(custom.nameHy, fallbackName),
+      nameKa: pickOptString(custom.nameKa, fallbackName),
+      taglineFr: typeof custom.taglineFr === 'string' ? custom.taglineFr.trim() : def.taglineFr,
+      taglineRu: typeof custom.taglineRu === 'string' ? custom.taglineRu.trim() : def.taglineRu,
+      taglineHy: typeof custom.taglineHy === 'string' ? custom.taglineHy.trim() : def.taglineHy,
+      taglineKa: typeof custom.taglineKa === 'string' ? custom.taglineKa.trim() : def.taglineKa,
       priceMonthly:
         typeof custom.priceMonthly === 'number' && !Number.isNaN(custom.priceMonthly)
           ? Math.max(0, custom.priceMonthly)
@@ -242,10 +280,10 @@ export function normalizeSubscriptionPlans(raw?: unknown): SubscriptionPlan[] {
       vehicleLimit: normalizeVehicleLimit(custom.vehicleLimit, def.vehicleLimit),
       isPopular: typeof custom.isPopular === 'boolean' ? custom.isPopular : Boolean(def.isPopular),
       modules: normalizePlanModules(custom.modules, def.id),
-      featuresFr: sanitizeFeatures(custom.featuresFr, def.featuresFr),
-      featuresRu: sanitizeFeatures(custom.featuresRu, def.featuresRu),
-      featuresHy: sanitizeFeatures(custom.featuresHy, def.featuresHy),
-      featuresKa: sanitizeFeatures(custom.featuresKa, def.featuresKa),
+      featuresFr: sanitizeFeatures(custom.featuresFr, def.featuresFr, def.featuresFr[1]),
+      featuresRu: sanitizeFeatures(custom.featuresRu, def.featuresRu, def.featuresRu[1]),
+      featuresHy: sanitizeFeatures(custom.featuresHy, def.featuresHy, def.featuresHy?.[1]),
+      featuresKa: sanitizeFeatures(custom.featuresKa, def.featuresKa, def.featuresKa?.[1]),
     };
   });
 }
@@ -279,17 +317,32 @@ export function computePlanPricing(
   };
 }
 
+export function getPlanDisplayName(
+  plan: Pick<SubscriptionPlan, 'name' | 'nameFr' | 'nameRu' | 'nameHy' | 'nameKa'>,
+  lang: Language
+): string {
+  const localized =
+    lang === 'ru'
+      ? plan.nameRu
+      : lang === 'hy'
+      ? plan.nameHy
+      : lang === 'ka'
+      ? plan.nameKa
+      : plan.nameFr;
+  return (localized && localized.trim()) || plan.name.trim();
+}
+
 export function getPlanBadgeLabel(
   planId: SubscriptionPlanId | undefined | null,
-  _lang: Language,
+  lang: Language,
   plans?: SubscriptionPlan[]
 ): string {
   const resolvedId: SubscriptionPlanId =
     planId === 'enterprise' || planId === 'pro' ? planId : 'starter';
   if (plans && plans.length > 0) {
     const matched = plans.find((p) => p.id === resolvedId);
-    if (matched?.name?.trim()) {
-      return matched.name.trim().toUpperCase();
+    if (matched) {
+      return getPlanDisplayName(matched, lang).toUpperCase();
     }
   }
   if (resolvedId === 'enterprise') return 'BUSINESS';
@@ -408,7 +461,6 @@ export const CARD_PADDING_VALUES: Record<CardPaddingDensity, string> = {
   spacious: '24px',
 };
 
-export const USER_LAYOUT_MODE_STORAGE_KEY = 'autogarage_user_layout_mode';
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'autogarage_sidebar_collapsed';
 
 export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
@@ -418,7 +470,6 @@ export const DEFAULT_SYSTEM_THEME_CONFIG: SystemThemeConfig = {
   cardPadding: 'comfortable',
   sectionGap: '16px',
   defaultInventoryViewMode: 'grid',
-  layoutMode: 'sidebar',
   cerfaAdjustments: {
     offsetX: 0,
     offsetY: 0,
@@ -742,7 +793,6 @@ export function resolveSystemThemeConfig(
     ...DEFAULT_SYSTEM_THEME_CONFIG,
     ...(raw || {}),
     primaryAccentColor: baseAccent,
-    layoutMode: raw?.layoutMode === 'classic' ? 'classic' : 'sidebar',
     cerfaAdjustments: {
       ...DEFAULT_SYSTEM_THEME_CONFIG.cerfaAdjustments,
       ...(raw?.cerfaAdjustments || {}),
@@ -750,23 +800,6 @@ export function resolveSystemThemeConfig(
     lightPalette,
     darkPalette,
   };
-}
-
-export function parseUserLayoutPreference(raw?: string | null): UserLayoutPreference {
-  if (raw === 'classic' || raw === 'sidebar') {
-    return raw;
-  }
-  return 'global';
-}
-
-export function resolveEffectiveLayoutMode(params: {
-  userPreference?: UserLayoutPreference | null;
-  systemLayoutMode?: LayoutMode | null;
-}): LayoutMode {
-  if (params.userPreference === 'classic' || params.userPreference === 'sidebar') {
-    return params.userPreference;
-  }
-  return params.systemLayoutMode === 'classic' ? 'classic' : 'sidebar';
 }
 
 export function isSuperAdminUser(params: {
@@ -989,7 +1022,7 @@ export function resolveEffectiveFeatureFlagsForPlan(
   isSuperAdmin: boolean = false,
   plans: SubscriptionPlan[] = DEFAULT_SUBSCRIPTION_PLANS
 ): FeatureFlagsConfig {
-  if (isSuperAdmin && !planId) {
+  if (isSuperAdmin) {
     return globalFlags;
   }
   const caps = getPlanCapabilities(planId, plans);
@@ -1000,6 +1033,85 @@ export function resolveEffectiveFeatureFlagsForPlan(
     exportsBackup: globalFlags.exportsBackup && caps.canUseExportsBackup,
     expenseAnalytics: globalFlags.expenseAnalytics && caps.canUseAdvancedAnalytics,
   };
+}
+
+export const EXPENSE_CATEGORY_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export const EXPENSE_CATEGORY_ICON_OPTIONS: {
+  id: string;
+  labelFr: string;
+  labelRu: string;
+  labelHy: string;
+  labelKa: string;
+}[] = [
+  { id: 'Truck', labelFr: 'Transport / Plateau', labelRu: 'Эвакуатор / Доставка', labelHy: 'Տեղափոխում / Էվակուատոր', labelKa: 'ტრანსპორტირება / ევაკუატორი' },
+  { id: 'Fuel', labelFr: 'Carburant', labelRu: 'Топливо', labelHy: 'Վառելիք', labelKa: 'საწვავი' },
+  { id: 'FileCheck', labelFr: 'Contrôle Technique', labelRu: 'Техосмотр / CT', labelHy: 'Տեխզննում / CT', labelKa: 'ტექდათვალიერება / CT' },
+  { id: 'Sparkles', labelFr: 'Lavage / Detailing', labelRu: 'Мойка / Детейлинг', labelHy: 'Լվացում / Դեթեյլինգ', labelKa: 'რეცხვა / დეტეილინგი' },
+  { id: 'FileText', labelFr: 'Carte Grise / Admin', labelRu: 'Документы / Carte Grise', labelHy: 'Փաստաթղթեր / Carte Grise', labelKa: 'დოკუმენტები / Carte Grise' },
+  { id: 'ShieldCheck', labelFr: 'Assurance', labelRu: 'Страховка', labelHy: 'Ապահովագրություն', labelKa: 'დაზღვევა' },
+  { id: 'Wrench', labelFr: 'Pièces / Mécanique', labelRu: 'Запчасти / Ремонт', labelHy: 'Պահեստամասեր / Վերանորոգում', labelKa: 'ნაწილები / შეკეთება' },
+  { id: 'Activity', labelFr: 'Diagnostic / Expertise', labelRu: 'Диагностика', labelHy: 'Ախտորոշում / Փորձաքննություն', labelKa: 'დიაგნოსტიკა' },
+  { id: 'Package', labelFr: 'Accessoires / Colis', labelRu: 'Комплектующие', labelHy: 'Պարագաներ', labelKa: 'აქსესუარები' },
+  { id: 'Car', labelFr: 'Préparation véhicule', labelRu: 'Подготовка авто', labelHy: 'Մեքենայի նախապատրաստում', labelKa: 'ავტომობილის მომზადება' },
+  { id: 'Tag', labelFr: 'Marketing / Annonce', labelRu: 'Реклама / Тег', labelHy: 'Գովազդ / Պիտակ', labelKa: 'მარკეტინგი / რეკლამა' },
+  { id: 'Coins', labelFr: 'Autre dépense', labelRu: 'Прочее', labelHy: 'Այլ ծախսեր', labelKa: 'სხვა ხარჯები' },
+];
+
+export function normalizeExpenseCategorySlug(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/[\s]+/g, '_')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '')
+    .slice(0, 64);
+}
+
+export function resolveNewExpenseCategoryId(params: {
+  rawId?: string;
+  fallbackLabel: string;
+  existingIds: string[];
+  suffix?: string;
+}): {
+  id: string;
+  error?: 'invalid_id' | 'too_long' | 'duplicate_id';
+} {
+  const trimmedInput = (params.rawId ?? '').trim();
+  const existingSet = new Set(params.existingIds);
+
+  if (trimmedInput) {
+    if (trimmedInput.length > 64) {
+      return { id: '', error: 'too_long' };
+    }
+    const normalized = normalizeExpenseCategorySlug(trimmedInput);
+    if (!normalized || !EXPENSE_CATEGORY_ID_REGEX.test(normalized)) {
+      return { id: '', error: 'invalid_id' };
+    }
+    if (existingSet.has(normalized)) {
+      return { id: normalized, error: 'duplicate_id' };
+    }
+    return { id: normalized };
+  }
+
+  const baseRaw = normalizeExpenseCategorySlug(params.fallbackLabel.toLowerCase()) || 'cat';
+  const suffix =
+    (params.suffix || Date.now().toString().slice(-4)).replace(/[^a-zA-Z0-9_-]/g, '') || '1';
+  const maxBaseLen = Math.max(1, 64 - suffix.length - 1);
+  const base = baseRaw.slice(0, maxBaseLen).replace(/[_-]+$/g, '') || 'cat';
+  let candidate = `${base}_${suffix}`.slice(0, 64);
+  let counter = 1;
+  while (existingSet.has(candidate)) {
+    const extra = `_${counter}`;
+    const trimmedBase =
+      base.slice(0, Math.max(1, 64 - suffix.length - 1 - extra.length)).replace(/[_-]+$/g, '') ||
+      'cat';
+    candidate = `${trimmedBase}_${suffix}${extra}`;
+    counter += 1;
+  }
+  return { id: candidate };
 }
 
 export const DEFAULT_DYNAMIC_EXPENSE_CATEGORIES: DynamicExpenseCategory[] = [

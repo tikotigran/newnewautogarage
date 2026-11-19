@@ -10,15 +10,17 @@ import {
   DEFAULT_LIGHT_PALETTE,
   DEFAULT_SUBSCRIPTION_PLANS,
   DEFAULT_SYSTEM_THEME_CONFIG,
+  EXPENSE_CATEGORY_ICON_OPTIONS,
+  EXPENSE_CATEGORY_ID_REGEX,
   getContrastForeground,
   getTranslationKeyCategory,
   isSuperAdminUser,
   isViewAllowedByFeatureFlags,
+  normalizeExpenseCategorySlug,
   normalizeFeatureFlags,
-  parseUserLayoutPreference,
-  resolveEffectiveLayoutMode,
   resolveLocalizedColor,
   resolveLocalizedLabel,
+  resolveNewExpenseCategoryId,
   resolveSystemThemeConfig,
   sortExpenseCategories,
   SUPERADMIN_BOOTSTRAP_EMAIL,
@@ -225,46 +227,6 @@ test('getTranslationKeyCategory classifies keys into expected UI customization c
   assert.equal(getTranslationKeyCategory('analyticsRevenueTitle'), 'analytics');
   assert.equal(getTranslationKeyCategory('statusForSale'), 'statuses');
   assert.equal(getTranslationKeyCategory('searchPlaceholder'), 'inventory');
-});
-
-test('resolveSystemThemeConfig defaults layoutMode to sidebar and preserves classic', () => {
-  assert.equal(resolveSystemThemeConfig({}).layoutMode, 'sidebar');
-  assert.equal(resolveSystemThemeConfig({ layoutMode: 'classic' }).layoutMode, 'classic');
-  assert.equal(
-    resolveSystemThemeConfig({ layoutMode: 'invalid' as unknown as 'sidebar' }).layoutMode,
-    'sidebar'
-  );
-});
-
-test('parseUserLayoutPreference safely parses stored user layout values', () => {
-  assert.equal(parseUserLayoutPreference('sidebar'), 'sidebar');
-  assert.equal(parseUserLayoutPreference('classic'), 'classic');
-  assert.equal(parseUserLayoutPreference('global'), 'global');
-  assert.equal(parseUserLayoutPreference(null), 'global');
-  assert.equal(parseUserLayoutPreference('unknown'), 'global');
-});
-
-test('resolveEffectiveLayoutMode applies user override or inherits system default cleanly', () => {
-  // Default fallback
-  assert.equal(resolveEffectiveLayoutMode({}), 'sidebar');
-  // Inherits system default when user preference is global or absent
-  assert.equal(
-    resolveEffectiveLayoutMode({ userPreference: 'global', systemLayoutMode: 'classic' }),
-    'classic'
-  );
-  assert.equal(
-    resolveEffectiveLayoutMode({ userPreference: undefined, systemLayoutMode: 'sidebar' }),
-    'sidebar'
-  );
-  // User override wins over system global default
-  assert.equal(
-    resolveEffectiveLayoutMode({ userPreference: 'classic', systemLayoutMode: 'sidebar' }),
-    'classic'
-  );
-  assert.equal(
-    resolveEffectiveLayoutMode({ userPreference: 'sidebar', systemLayoutMode: 'classic' }),
-    'sidebar'
-  );
 });
 
 test('normalizeFeatureFlags merges partial Firestore documents safely with defaults and ignores metadata fields', () => {
@@ -487,5 +449,153 @@ test('getPlanCapabilities and resolveEffectiveFeatureFlagsForPlan dynamically fo
     resolveEffectiveFeatureFlagsForPlan(disabledSuppliersGlobal, 'enterprise', true, DEFAULT_SUBSCRIPTION_PLANS).suppliersModule,
     false
   );
+});
+
+test('normalizeExpenseCategorySlug and resolveNewExpenseCategoryId enforce Firestore slug compatibility and uniqueness', () => {
+  assert.equal(normalizeExpenseCategorySlug('  Diagnostic & Contrôle '), 'Diagnostic_Controle');
+  assert.equal(normalizeExpenseCategorySlug('pieces-rechange'), 'pieces-rechange');
+  assert.ok(EXPENSE_CATEGORY_ICON_OPTIONS.some((i) => i.id === 'Wrench'));
+  assert.ok(EXPENSE_CATEGORY_ICON_OPTIONS.some((i) => i.id === 'Activity'));
+
+  // Explicit valid ID
+  const validExplicit = resolveNewExpenseCategoryId({
+    rawId: 'diag_moteur',
+    fallbackLabel: 'Diagnostic',
+    existingIds: ['transport', 'fuel'],
+  });
+  assert.equal(validExplicit.error, undefined);
+  assert.equal(validExplicit.id, 'diag_moteur');
+  assert.ok(EXPENSE_CATEGORY_ID_REGEX.test(validExplicit.id));
+
+  // Explicit ID with spaces/accents gets normalized cleanly
+  const normalizedExplicit = resolveNewExpenseCategoryId({
+    rawId: 'Pièces Moteur',
+    fallbackLabel: 'Pièces',
+    existingIds: ['transport'],
+  });
+  assert.equal(normalizedExplicit.error, undefined);
+  assert.equal(normalizedExplicit.id, 'Pieces_Moteur');
+  assert.ok(EXPENSE_CATEGORY_ID_REGEX.test(normalizedExplicit.id));
+
+  // Empty rawId auto-generates unique <=64 char valid slug
+  const autoGen = resolveNewExpenseCategoryId({
+    rawId: '',
+    fallbackLabel: 'Une très longue catégorie pour tester la limite de 64 caractères maximum dans Firestore',
+    existingIds: ['transport'],
+    suffix: '1234',
+  });
+  assert.equal(autoGen.error, undefined);
+  assert.ok(autoGen.id.length <= 64);
+  assert.ok(EXPENSE_CATEGORY_ID_REGEX.test(autoGen.id));
+
+  // Collision on auto-generated ID produces deduplicated slug
+  const deduped = resolveNewExpenseCategoryId({
+    rawId: '',
+    fallbackLabel: 'Diagnostic',
+    existingIds: ['diagnostic_4321'],
+    suffix: '4321',
+  });
+  assert.equal(deduped.id, 'diagnostic_4321_1');
+
+  // Duplicate explicit ID returns duplicate_id error
+  const duplicate = resolveNewExpenseCategoryId({
+    rawId: 'transport',
+    fallbackLabel: 'Transport',
+    existingIds: ['transport'],
+  });
+  assert.equal(duplicate.error, 'duplicate_id');
+
+  // Non-ASCII / symbols-only ID returns invalid_id error
+  const invalidOnly = resolveNewExpenseCategoryId({
+    rawId: 'Диагностика!!!',
+    fallbackLabel: 'Diagnostic',
+    existingIds: [],
+  });
+  assert.equal(invalidOnly.error, 'invalid_id');
+
+  // >64 chars explicit ID returns too_long error
+  const tooLong = resolveNewExpenseCategoryId({
+    rawId: 'a'.repeat(65),
+    fallbackLabel: 'Diagnostic',
+    existingIds: [],
+  });
+  assert.equal(tooLong.error, 'too_long');
+});
+
+test('Pro plan descriptions advertise only Cerfa 15776*02 and sanitize legacy 13750/DA bullets', () => {
+  const proDefault = DEFAULT_SUBSCRIPTION_PLANS.find((p) => p.id === 'pro')!;
+  const allDefaultBullets = [
+    ...proDefault.featuresFr,
+    ...proDefault.featuresRu,
+    ...(proDefault.featuresHy || []),
+    ...(proDefault.featuresKa || []),
+  ];
+  for (const item of allDefaultBullets) {
+    assert.equal(/13750|13751|\bDA\b/.test(item), false, `Unexpected unsupported form in: ${item}`);
+  }
+  assert.ok(proDefault.featuresFr.some((f) => f.includes('15776*02')));
+  assert.ok(proDefault.featuresRu.some((f) => f.includes('15776*02')));
+
+  const normalizedLegacy = normalizeSubscriptionPlans([
+    {
+      id: 'pro',
+      featuresFr: [
+        'Stock de véhicules illimité',
+        'Auto-remplissage & export PDF de tous les Cerfa (15776*02, 13750*07, DA)',
+      ],
+      featuresRu: [
+        'Безлимитный склад авто',
+        'Автозаполнение и PDF-экспорт всех бланков Cerfa (15776*02, 13750*07, DA)',
+      ],
+    },
+  ]);
+  const proNormalized = normalizedLegacy.find((p) => p.id === 'pro')!;
+  assert.equal(
+    proNormalized.featuresFr[1],
+    'Auto-remplissage & export PDF Cerfa 15776*02 (cession officielle)'
+  );
+  assert.equal(
+    proNormalized.featuresRu[1],
+    'Автозаполнение и PDF-экспорт Cerfa 15776*02 (акт передачи ТС)'
+  );
+});
+
+test('resolveEffectiveFeatureFlagsForPlan grants SuperAdmin full module access regardless of assigned planId', () => {
+  for (const assignedPlan of ['starter', 'pro', 'enterprise'] as const) {
+    const adminFlags = resolveEffectiveFeatureFlagsForPlan(
+      DEFAULT_FEATURE_FLAGS,
+      assignedPlan,
+      true,
+      DEFAULT_SUBSCRIPTION_PLANS
+    );
+    assert.deepEqual(adminFlags, DEFAULT_FEATURE_FLAGS);
+    assert.equal(adminFlags.multiGarage, true);
+    assert.equal(adminFlags.suppliersModule, true);
+    assert.equal(adminFlags.exportsBackup, true);
+    assert.equal(adminFlags.expenseAnalytics, true);
+  }
+
+  // Non-superadmin users remain restricted by starter/pro plan locks
+  const starterUserFlags = resolveEffectiveFeatureFlagsForPlan(
+    DEFAULT_FEATURE_FLAGS,
+    'starter',
+    false,
+    DEFAULT_SUBSCRIPTION_PLANS
+  );
+  assert.equal(starterUserFlags.multiGarage, false);
+  assert.equal(starterUserFlags.suppliersModule, false);
+  assert.equal(starterUserFlags.exportsBackup, false);
+  assert.equal(starterUserFlags.expenseAnalytics, false);
+
+  const proUserFlags = resolveEffectiveFeatureFlagsForPlan(
+    DEFAULT_FEATURE_FLAGS,
+    'pro',
+    false,
+    DEFAULT_SUBSCRIPTION_PLANS
+  );
+  assert.equal(proUserFlags.multiGarage, false);
+  assert.equal(proUserFlags.suppliersModule, true);
+  assert.equal(proUserFlags.exportsBackup, true);
+  assert.equal(proUserFlags.expenseAnalytics, true);
 });
 

@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import {
   computeDealershipAnalytics,
   computeFleetExpenseAnalytics,
+  formatCustomExpenseCategoryLabel,
   isWithinTimeRange,
   mapGeneralExpenseCategory,
 } from './analytics';
-import { Vehicle, RepairTask, GeneralExpense } from '../types/garage';
+import { DynamicExpenseCategory, GeneralExpense, RepairTask, Vehicle } from '../types/garage';
 
 const mockVehicles: Vehicle[] = [
   {
@@ -690,4 +691,138 @@ test('computeDealershipAnalytics handles mixed fleet where Car 1 is Particulier 
   assert.equal(microRow.taxAmount, 1330);
   assert.equal(microRow.netProfit, 670);
 });
+
+test('mapGeneralExpenseCategory and formatCustomExpenseCategoryLabel handle built-in and custom categories', () => {
+  const dynamicCats: DynamicExpenseCategory[] = [
+    {
+      id: 'transport',
+      labelFr: 'Transport / Rapatriement',
+      labelRu: 'Доставка / Эвакуатор',
+      icon: 'Truck',
+      order: 1,
+    },
+    {
+      id: 'marketing_ads_4821',
+      labelFr: 'Publicité LeBonCoin',
+      labelRu: 'Реклама LeBonCoin',
+      labelHy: 'Գովազդ LeBonCoin',
+      labelKa: 'რეკლამა LeBonCoin',
+      icon: 'Tag',
+      order: 8,
+    },
+  ];
+
+  // Built-in categories keep exact existing behavior even when dynamicCategories includes them
+  assert.equal(mapGeneralExpenseCategory('transport', dynamicCats), 'transport');
+  assert.equal(mapGeneralExpenseCategory('fuel', dynamicCats), 'fuel');
+  assert.equal(mapGeneralExpenseCategory('controle_technique', dynamicCats), 'registration');
+  assert.equal(mapGeneralExpenseCategory('admin', dynamicCats), 'registration');
+  assert.equal(mapGeneralExpenseCategory('detailing', dynamicCats), 'detailing');
+  assert.equal(mapGeneralExpenseCategory('insurance', dynamicCats), 'other');
+  assert.equal(mapGeneralExpenseCategory('other', dynamicCats), 'other');
+
+  // Configured and unconfigured custom keys preserve their ID instead of falling back to 'other'
+  assert.equal(mapGeneralExpenseCategory('marketing_ads_4821', dynamicCats), 'marketing_ads_4821');
+  assert.equal(mapGeneralExpenseCategory('vip-concierge_fee', dynamicCats), 'vip-concierge_fee');
+  assert.equal(mapGeneralExpenseCategory('vip-concierge_fee'), 'vip-concierge_fee');
+  assert.equal(mapGeneralExpenseCategory(''), 'other');
+
+  // Clean formatting for unknown custom category keys
+  assert.equal(formatCustomExpenseCategoryLabel('marketing_ads'), 'Marketing ads');
+  assert.equal(formatCustomExpenseCategoryLabel('vip-concierge_fee'), 'Vip concierge fee');
+  assert.equal(formatCustomExpenseCategoryLabel('  garantie_moteur  '), 'Garantie moteur');
+});
+
+test('computeFleetExpenseAnalytics and computeDealershipAnalytics resolve configured and fallback custom expense categories', () => {
+  const dynamicCats: DynamicExpenseCategory[] = [
+    {
+      id: 'marketing_ads_4821',
+      labelFr: 'Publicité & Annonces',
+      labelRu: 'Реклама и объявления',
+      labelHy: 'Գովազդ',
+      labelKa: 'რეკლამა',
+      icon: 'Sparkles',
+      order: 8,
+    },
+  ];
+
+  const customExpenses: GeneralExpense[] = [
+    ...mockExpenses,
+    {
+      id: 'e_custom_cfg',
+      vehicleId: 'v1',
+      userId: 'u1',
+      category: 'marketing_ads_4821',
+      description: 'Boost annonce LaCentrale',
+      amount: 150,
+      date: '2026-11-06',
+      createdAt: '2026-11-06T10:00:00Z',
+      updatedAt: '2026-11-06T10:00:00Z',
+    },
+    {
+      id: 'e_custom_unknown',
+      vehicleId: 'v2',
+      userId: 'u1',
+      category: 'parking-stock_extern',
+      description: 'Gardiennage mensuel',
+      amount: 250,
+      date: '2026-11-07',
+      createdAt: '2026-11-07T10:00:00Z',
+      updatedAt: '2026-11-07T10:00:00Z',
+    },
+  ];
+
+  const fleetReport = computeFleetExpenseAnalytics({
+    vehicles: mockVehicles,
+    repairs: mockRepairs,
+    expenses: customExpenses,
+    timeRange: 'all',
+    dynamicCategories: dynamicCats,
+    now: fixedNow,
+  });
+
+  // Total = 2000 (mock) + 150 + 250 = 2400
+  assert.equal(fleetReport.totalSpent, 2400);
+
+  const configuredCat = fleetReport.categories.find((c) => c.id === 'marketing_ads_4821');
+  assert.ok(configuredCat);
+  assert.equal(configuredCat.labelFr, 'Publicité & Annonces');
+  assert.equal(configuredCat.labelRu, 'Реклама и объявления');
+  assert.equal(configuredCat.labelHy, 'Գովազդ');
+  assert.equal(configuredCat.labelKa, 'რეკლამა');
+  assert.equal(configuredCat.icon, 'Sparkles');
+  assert.equal(configuredCat.amount, 150);
+  assert.equal(configuredCat.entryCount, 1);
+  assert.equal(configuredCat.topVehicle?.vehicleId, 'v1');
+
+  const unconfiguredCat = fleetReport.categories.find((c) => c.id === 'parking-stock_extern');
+  assert.ok(unconfiguredCat);
+  assert.equal(unconfiguredCat.labelFr, 'Parking stock extern');
+  assert.equal(unconfiguredCat.labelRu, 'Parking stock extern');
+  assert.equal(unconfiguredCat.amount, 250);
+  assert.equal(unconfiguredCat.topVehicle?.vehicleId, 'v2');
+
+  // Built-in 'other' should remain 0 (custom categories did NOT collapse into 'other')
+  const otherCat = fleetReport.categories.find((c) => c.id === 'other');
+  assert.equal(otherCat?.amount, 0);
+
+  // Also verify computeDealershipAnalytics forwards dynamicCategories cleanly
+  const dealershipReport = computeDealershipAnalytics({
+    vehicles: mockVehicles,
+    repairs: mockRepairs,
+    expenses: customExpenses,
+    timeRange: 'all',
+    dynamicCategories: dynamicCats,
+    now: fixedNow,
+  });
+  assert.equal(
+    dealershipReport.expenseBreakdown.categories.find((c) => c.id === 'marketing_ads_4821')?.labelRu,
+    'Реклама и объявления'
+  );
+  assert.equal(
+    dealershipReport.expenseBreakdown.categories.find((c) => c.id === 'parking-stock_extern')?.labelFr,
+    'Parking stock extern'
+  );
+});
+
 

@@ -18,6 +18,7 @@ import {
   computePlanPricing,
   DEFAULT_SUBSCRIPTION_PLANS,
   getPlanCapabilities,
+  getPlanDisplayName,
   getPlanRank,
   normalizeSubscriptionPlans,
 } from '../utils/adminUtils';
@@ -94,11 +95,12 @@ export const SubscriptionPlanTab: React.FC<SubscriptionPlanTabProps> = ({
         currentProfile: userProfile,
       });
       onPlanUpdated?.(updatedProfile);
+      const targetPlanName = getPlanDisplayName(pendingTargetPlan, lang);
       const successText = L(
-        `Votre forfait a été changé pour ${pendingTargetPlan.name}`,
-        `Тариф успешно изменён на ${pendingTargetPlan.name}`,
-        `Սակագինը հաջողությամբ փոխվեց՝ ${pendingTargetPlan.name}`,
-        `ტარიფი წარმატებით შეიცვალა: ${pendingTargetPlan.name}`
+        `Votre forfait a été changé pour ${targetPlanName}`,
+        `Тариф успешно изменён на ${targetPlanName}`,
+        `Սակագինը հաջողությամբ փոխվեց՝ ${targetPlanName}`,
+        `ტარიფი წარმატებით შეიცვალა: ${targetPlanName}`
       );
       onNotify?.('success', successText);
       setPendingTargetPlan(null);
@@ -165,7 +167,7 @@ export const SubscriptionPlanTab: React.FC<SubscriptionPlanTabProps> = ({
               data-testid="subscription-active-plan-badge"
               className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)]"
             >
-              {currentPlan.name}
+              {getPlanDisplayName(currentPlan, lang)}
             </span>
           </div>
 
@@ -261,7 +263,7 @@ export const SubscriptionPlanTab: React.FC<SubscriptionPlanTabProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <h4 className="text-base font-extrabold text-[var(--foreground)]">
-                      {plan.name}
+                      {getPlanDisplayName(plan, lang)}
                     </h4>
                     {tagline && (
                       <p className="text-xs text-[var(--muted-foreground)] mt-0.5 leading-snug">
@@ -426,16 +428,16 @@ export const SubscriptionPlanTab: React.FC<SubscriptionPlanTabProps> = ({
                     >
                       {isDowngrade
                         ? L(
-                            `Confirmer le passage à ${pendingTargetPlan.name}`,
-                            `Подтвердите переход на ${pendingTargetPlan.name}`,
-                            `Հաստատեք անցումը ${pendingTargetPlan.name} սակագնին`,
-                            `დაადასტურეთ გადასვლა ტარიფზე ${pendingTargetPlan.name}`
+                            `Confirmer le passage à ${getPlanDisplayName(pendingTargetPlan, lang)}`,
+                            `Подтвердите переход на ${getPlanDisplayName(pendingTargetPlan, lang)}`,
+                            `Հաստատեք անցումը ${getPlanDisplayName(pendingTargetPlan, lang)} սակագնին`,
+                            `დაადასტურეთ გადასვლა ტარიფზე ${getPlanDisplayName(pendingTargetPlan, lang)}`
                           )
                         : L(
-                            `Activer le forfait ${pendingTargetPlan.name}`,
-                            `Активация тарифа ${pendingTargetPlan.name}`,
-                            `Ակտիվացնել ${pendingTargetPlan.name} սակագինը`,
-                            `გაააქტიურეთ ტარიფი ${pendingTargetPlan.name}`
+                            `Activer le forfait ${getPlanDisplayName(pendingTargetPlan, lang)}`,
+                            `Активация тарифа ${getPlanDisplayName(pendingTargetPlan, lang)}`,
+                            `Ակտիվացնել ${getPlanDisplayName(pendingTargetPlan, lang)} սակագինը`,
+                            `გაააქტიურეთ ტარიფი ${getPlanDisplayName(pendingTargetPlan, lang)}`
                           )}
                     </h4>
                     <p className="text-xs text-[var(--muted-foreground)]">
@@ -462,7 +464,7 @@ export const SubscriptionPlanTab: React.FC<SubscriptionPlanTabProps> = ({
                     {L('Nouveau tarif', 'Выбранный тариф', 'Ընտրված սակագին', 'არჩეული ტარიფი')}
                   </span>
                   <span className="text-sm font-extrabold text-[var(--foreground)]">
-                    {pendingTargetPlan.name}
+                    {getPlanDisplayName(pendingTargetPlan, lang)}
                   </span>
                 </div>
                 <div className="text-right">

@@ -24,6 +24,7 @@ import {
   BackupSnapshotRecord,
   ChangeLogEntry,
   DocumentHistoryEvent,
+  DynamicExpenseCategory,
   FullGarageBackupV2,
   GarageDocument,
   GarageSettings,
@@ -44,6 +45,11 @@ import {
   getGarageSettings,
   subscribeAllFleetExpensesAndRepairs,
 } from '../services/garageService';
+import {
+  getDynamicExpenseCategories,
+  subscribeDynamicExpenseCategories,
+} from '../services/adminService';
+import { DEFAULT_DYNAMIC_EXPENSE_CATEGORIES } from '../utils/adminUtils';
 import {
   buildFullGarageBackupV2,
   createRestorePoint,
@@ -158,6 +164,10 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     repairs: RepairTask[];
     expenses: GeneralExpense[];
   }>({ repairs: [], expenses: [] });
+  const [dynamicCategories, setDynamicCategories] = useState<DynamicExpenseCategory[]>(() => {
+    const initial = getDynamicExpenseCategories();
+    return initial.length > 0 ? initial : DEFAULT_DYNAMIC_EXPENSE_CATEGORIES;
+  });
 
   const [selectedPdfVehicleId, setSelectedPdfVehicleId] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<{
@@ -212,6 +222,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   }, [vehicles]);
 
   useEffect(() => {
+    const unsubCats = subscribeDynamicExpenseCategories((cats) => {
+      if (cats && cats.length > 0) {
+        setDynamicCategories(cats);
+      }
+    });
+    return () => unsubCats();
+  }, []);
+
+  useEffect(() => {
     if (vehicles.length > 0 && !vehicles.some((v) => v.id === selectedPdfVehicleId)) {
       setSelectedPdfVehicleId(vehicles[0].id);
     }
@@ -227,6 +246,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       repairs: fleetData.repairs,
       expenses: fleetData.expenses,
       timeRange: periodRange,
+      dynamicCategories,
       taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
       taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
       frenchTaxConfig: isParticulier
@@ -238,6 +258,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     fleetData.repairs,
     fleetData.expenses,
     periodRange,
+    dynamicCategories,
     isParticulier,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
@@ -251,8 +272,8 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     quarter: t('periodQuarter'),
     year: t('periodYear'),
     all: t('periodAll'),
-    '3months': '3 mois',
-    '6months': '6 mois',
+    '3months': pickLocalized(lang, { fr: '3 mois', ru: '3 мес.', hy: '3 ամիս', ka: '3 თვე' }),
+    '6months': pickLocalized(lang, { fr: '6 mois', ru: '6 мес.', hy: '6 ամիս', ka: '6 თვე' }),
     custom: t('periodCustom'),
   };
 
@@ -304,8 +325,8 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
 
   const facturxReadiness = useMemo(() => {
     if (!facturxVehicle) return null;
-    return validateFacturXReadiness(facturxVehicle, garageSettings);
-  }, [facturxVehicle, garageSettings]);
+    return validateFacturXReadiness(facturxVehicle, garageSettings, lang);
+  }, [facturxVehicle, garageSettings, lang]);
 
   const facturxXml = useMemo(() => {
     if (!facturxVehicle) return '';
@@ -581,7 +602,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     } catch (err) {
       setStatusBanner({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Erreur Factur-X PDF',
+        text:
+          err instanceof Error
+            ? err.message
+            : pickLocalized(lang, {
+                fr: 'Erreur Factur-X PDF',
+                ru: 'Ошибка генерации Factur-X PDF',
+                hy: 'Factur-X PDF սխալ',
+                ka: 'Factur-X PDF შეცდომა',
+              }),
       });
     } finally {
       setIsGeneratingFacturx(false);
@@ -670,7 +699,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     } catch (err) {
       setStatusBanner({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Backup error',
+        text:
+          err instanceof Error
+            ? err.message
+            : pickLocalized(lang, {
+                fr: 'Erreur de sauvegarde',
+                ru: 'Ошибка резервного копирования',
+                hy: 'Պահուստավորման սխալ',
+                ka: 'სარეზერვო ასლის შეცდომა',
+              }),
       });
     } finally {
       setIsCreatingSnapshot(false);
@@ -691,7 +728,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     } catch (err) {
       setStatusBanner({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Invalid backup JSON',
+        text:
+          err instanceof Error
+            ? err.message
+            : pickLocalized(lang, {
+                fr: 'Fichier JSON de sauvegarde invalide',
+                ru: 'Некорректный JSON-файл резервной копии',
+                hy: 'Անվավեր JSON պահուստային ֆայլ',
+                ka: 'არასწორი JSON სარეზერვო ფაილი',
+              }),
       });
     } finally {
       if (restoreFileInputRef.current) restoreFileInputRef.current.value = '';
@@ -720,7 +765,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     } catch (err) {
       setStatusBanner({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Invalid snapshot JSON',
+        text:
+          err instanceof Error
+            ? err.message
+            : pickLocalized(lang, {
+                fr: 'Snapshot JSON invalide',
+                ru: 'Некорректный JSON-снимок',
+                hy: 'Անվավեր JSON սնեփշոթ',
+                ka: 'არასწორი JSON სნეპშოტი',
+              }),
       });
     }
   };
@@ -748,7 +801,15 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     } catch (err) {
       setStatusBanner({
         type: 'error',
-        text: err instanceof Error ? err.message : 'Restore failed',
+        text:
+          err instanceof Error
+            ? err.message
+            : pickLocalized(lang, {
+                fr: 'Échec de la restauration',
+                ru: 'Ошибка восстановления данных',
+                hy: 'Վերականգնումը ձախողվեց',
+                ka: 'აღდგენა ვერ მოხერხდა',
+              }),
       });
     } finally {
       setIsRestoring(false);
@@ -1240,7 +1301,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                       </label>
                       <ThemedSelect
                         testId="facturx-vehicle-select"
-                        ariaLabel="Véhicule Factur-X"
+                        ariaLabel={pickLocalized(lang, {
+                          fr: 'Véhicule Factur-X',
+                          ru: 'Автомобиль Factur-X',
+                          hy: 'Factur-X ավտոմեքենա',
+                          ka: 'Factur-X ავტომობილი',
+                        })}
                         value={facturxVehicle?.id || ''}
                         onChange={setFacturxVehicleId}
                         options={vehicles.map((v) => ({
@@ -1261,7 +1327,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                       </label>
                       <ThemedSelect
                         testId="facturx-payment-select"
-                        ariaLabel="Moyen de paiement"
+                        ariaLabel={pickLocalized(lang, {
+                          fr: 'Moyen de paiement',
+                          ru: 'Способ оплаты',
+                          hy: 'Վճարման եղանակ',
+                          ka: 'გადახდის მეთოდი',
+                        })}
                         value={paymentMeansCode}
                         onChange={(v) => setPaymentMeansCode(v as '30' | '48' | '10' | '20')}
                         options={[
@@ -1328,16 +1399,21 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                               })
                             : pickLocalized(lang, {
                                 fr: 'Franchise en base de TVA (0% · Art. 293 B du CGI)',
-                                ru: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
-                                hy: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
-                                ka: 'Franchise en base de TVA (0% · Art. 293 B CGI)',
+                                ru: 'Освобождение от НДС — Franchise en base (0% · Art. 293 B CGI)',
+                                hy: 'ԱԱՀ-ից ազատում — Franchise en base (0% · Art. 293 B CGI)',
+                                ka: 'დღგ-სგან გათავისუფლება — Franchise en base (0% · Art. 293 B CGI)',
                               })}
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           <ThemedSelect<VatRegime>
                             testId="facturx-vat-select"
-                            ariaLabel="Régime TVA"
+                            ariaLabel={pickLocalized(lang, {
+                              fr: 'Régime TVA',
+                              ru: 'Режим НДС',
+                              hy: 'ԱԱՀ ռեժիմ',
+                              ka: 'დღგ რეჟიმი',
+                            })}
                             value={vatMode}
                             onChange={(v) => {
                               setVatMode(v);
@@ -1350,15 +1426,30 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             options={[
                               {
                                 value: 'tva_marge',
-                                label: 'AE — TVA sur la marge (Art. 297 A CGI)',
+                                label: pickLocalized(lang, {
+                                  fr: 'AE — TVA sur la marge (Art. 297 A CGI)',
+                                  ru: 'AE — НДС с маржи (Art. 297 A CGI)',
+                                  hy: 'AE — ԱԱՀ մարժայի վրա (Art. 297 A CGI)',
+                                  ka: 'AE — დღგ მარჟაზე (Art. 297 A CGI)',
+                                }),
                               },
                               {
                                 value: 'tva_total',
-                                label: 'S — TVA sur le prix total (20%)',
+                                label: pickLocalized(lang, {
+                                  fr: 'S — TVA sur le prix total (20%)',
+                                  ru: 'S — НДС с полной суммы (20%)',
+                                  hy: 'S — ԱԱՀ ամբողջ գումարից (20%)',
+                                  ka: 'S — დღგ სრული თანხიდან (20%)',
+                                }),
                               },
                               {
                                 value: 'franchise_base',
-                                label: 'E — Franchise en base (0% · Art. 293 B)',
+                                label: pickLocalized(lang, {
+                                  fr: 'E — Franchise en base (0% · Art. 293 B)',
+                                  ru: 'E — Без НДС / Franchise en base (0% · Art. 293 B)',
+                                  hy: 'E — Առանց ԱԱՀ / Franchise en base (0% · Art. 293 B)',
+                                  ka: 'E — დღგ-ს გარეშე / Franchise en base (0% · Art. 293 B)',
+                                }),
                               },
                               {
                                 value: 'custom',
@@ -1447,8 +1538,8 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                                   {pickLocalized(lang, {
                                     fr: item.labelFr,
                                     ru: item.labelRu,
-                                    hy: item.labelFr,
-                                    ka: item.labelFr,
+                                    hy: item.labelHy,
+                                    ka: item.labelKa,
                                   })}
                                 </div>
                                 <div className="text-[11px] text-[var(--muted-foreground)] truncate">
@@ -1542,7 +1633,13 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   data-testid="facturx-xml-preview"
                   className="flex-1 max-h-[540px] overflow-auto rounded-xl bg-[var(--surface-muted)] border border-[var(--border)] p-3.5 text-[11px] leading-relaxed font-mono text-[var(--foreground)]"
                 >
-                  {facturxXml || '<!-- Sélectionnez un véhicule pour prévisualiser factur-x.xml -->'}
+                  {facturxXml ||
+                    `<!-- ${pickLocalized(lang, {
+                      fr: 'Sélectionnez un véhicule pour prévisualiser factur-x.xml',
+                      ru: 'Выберите автомобиль для предпросмотра factur-x.xml',
+                      hy: 'Ընտրեք ավտոմեքենա՝ factur-x.xml-ը դիտելու համար',
+                      ka: 'აირჩიეთ ავტომობილი factur-x.xml-ის სანახავად',
+                    })} -->`}
                 </pre>
               )}
             </div>
@@ -1612,7 +1709,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 <div className="w-full sm:w-48">
                   <ThemedSelect
                     testId="audit-activity-filter"
-                    ariaLabel="Filtrer les actions"
+                    ariaLabel={pickLocalized(lang, {
+                      fr: 'Filtrer les actions',
+                      ru: 'Фильтр действий',
+                      hy: 'Զտել գործողությունները',
+                      ka: 'მოქმედებების ფილტრი',
+                    })}
                     value={activityFilter}
                     onChange={setActivityFilter}
                     options={[
@@ -1625,12 +1727,52 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                           ka: 'ყველა მოქმედება',
                         }),
                       },
-                      { value: 'export_csv', label: 'Export CSV' },
-                      { value: 'export_excel', label: 'Export Excel' },
-                      { value: 'export_pdf', label: 'Export PDF' },
+                      {
+                        value: 'export_csv',
+                        label: pickLocalized(lang, {
+                          fr: 'Export CSV',
+                          ru: 'Экспорт CSV',
+                          hy: 'CSV արտահանում',
+                          ka: 'CSV ექსპორტი',
+                        }),
+                      },
+                      {
+                        value: 'export_excel',
+                        label: pickLocalized(lang, {
+                          fr: 'Export Excel',
+                          ru: 'Экспорт Excel',
+                          hy: 'Excel արտահանում',
+                          ka: 'Excel ექსპორტი',
+                        }),
+                      },
+                      {
+                        value: 'export_pdf',
+                        label: pickLocalized(lang, {
+                          fr: 'Export PDF',
+                          ru: 'Экспорт PDF',
+                          hy: 'PDF արտահանում',
+                          ka: 'PDF ექსპორტი',
+                        }),
+                      },
                       { value: 'export_facturx', label: 'Factur-X' },
-                      { value: 'backup_created', label: 'Backup créé' },
-                      { value: 'backup_restored', label: 'Restauration' },
+                      {
+                        value: 'backup_created',
+                        label: pickLocalized(lang, {
+                          fr: 'Backup créé',
+                          ru: 'Бэкап создан',
+                          hy: 'Պահուստավորում ստեղծվեց',
+                          ka: 'სარეზერვო ასლი შეიქმნა',
+                        }),
+                      },
+                      {
+                        value: 'backup_restored',
+                        label: pickLocalized(lang, {
+                          fr: 'Restauration',
+                          ru: 'Восстановление',
+                          hy: 'Վերականգնում',
+                          ka: 'აღდგენა',
+                        }),
+                      },
                       {
                         value: 'vehicle_created',
                         label: pickLocalized(lang, {
@@ -1674,7 +1816,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                 <div className="w-full sm:w-48">
                   <ThemedSelect
                     testId="audit-changelog-filter"
-                    ariaLabel="Filtrer par entité"
+                    ariaLabel={pickLocalized(lang, {
+                      fr: 'Filtrer par entité',
+                      ru: 'Фильтр по объекту',
+                      hy: 'Զտել ըստ օբյեկտի',
+                      ka: 'ობიექტით ფილტრი',
+                    })}
                     value={changeEntityFilter}
                     onChange={setChangeEntityFilter}
                     options={[

@@ -202,27 +202,29 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       missingLabels.push(lbl);
     }
     if (!fullName.trim()) {
-      const lbl = isCompany ? 'Raison sociale' : L('Nom et Prénom', 'ФИО покупателя', 'Գնորդի անունը', 'მყიდველის სახელი');
+      const lbl = isCompany
+        ? L('Raison sociale', 'Название компании', 'Կազմակերպության անվանում', 'კომპანიის დასახელება')
+        : L('Nom et Prénom', 'ФИО покупателя', 'Գնորդի անունը', 'მყიდველის სახელი');
       nextFieldErrors.fullName = lbl;
       missingLabels.push(lbl);
     }
     if (!streetNumber.trim()) {
-      const lbl = 'N° de voie';
+      const lbl = L('N° de voie', 'Номер дома', 'Տան համար', 'ქუჩის ნომერი');
       nextFieldErrors.streetNumber = lbl;
       missingLabels.push(lbl);
     }
     if (!streetName.trim()) {
-      const lbl = 'Nom de la voie';
+      const lbl = L('Nom de la voie', 'Улица', 'Փողոց', 'ქუჩის დასახელება');
       nextFieldErrors.streetName = lbl;
       missingLabels.push(lbl);
     }
     if (!postalCode.trim()) {
-      const lbl = 'Code postal';
+      const lbl = L('Code postal', 'Почтовый индекс', 'Փոստային ինդեքս', 'საფოსტო ინდექსი');
       nextFieldErrors.postalCode = lbl;
       missingLabels.push(lbl);
     }
     if (!city.trim()) {
-      const lbl = 'Commune / Ville';
+      const lbl = L('Commune / Ville', 'Город', 'Քաղաք', 'ქალაქი');
       nextFieldErrors.city = lbl;
       missingLabels.push(lbl);
     }
@@ -587,7 +589,12 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
           <div className="pt-2 border-t border-slate-800">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
-                Section Cerfa 15776 : Nouveau Propriétaire (Acquéreur)
+                {L(
+                  'Section Cerfa 15776 : Nouveau Propriétaire (Acquéreur)',
+                  'Раздел Cerfa 15776: Покупатель (Acquéreur)',
+                  'Բաժին Cerfa 15776. Գնորդ (Acquéreur)',
+                  'სექცია Cerfa 15776: მყიდველი (Acquéreur)'
+                )}
               </label>
               <div className="flex items-center gap-2 text-xs">
                 <button
@@ -619,7 +626,14 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  {isCompany ? 'Raison Sociale de l’Entreprise *' : t('buyerFullNameLabel')}
+                  {isCompany
+                    ? L(
+                        'Raison Sociale de l’Entreprise *',
+                        'Название компании (Raison sociale) *',
+                        'Կազմակերպության անվանումը *',
+                        'კომპანიის დასახელება *'
+                      )
+                    : t('buyerFullNameLabel')}
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -632,7 +646,16 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       setFullName(e.target.value);
                       setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
                     }}
-                    placeholder={isCompany ? 'ex. Entreprise Transport Express' : t('buyerFullNamePlaceholder')}
+                    placeholder={
+                      isCompany
+                        ? L(
+                            'ex. Entreprise Transport Express',
+                            'напр. SARL Auto Express',
+                            'օր.՝ Transport Express SARL',
+                            'მაგ. Transport Express SARL'
+                          )
+                        : t('buyerFullNamePlaceholder')
+                    }
                     className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                       fieldErrors.fullName
                         ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
@@ -653,7 +676,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       type="text"
                       value={siret}
                       onChange={(e) => setSiret(e.target.value)}
-                      placeholder="ex. 912 345 678 00019"
+                      placeholder={L('ex. 912 345 678 00019', 'напр. 912 345 678 00019', 'օր.՝ 912 345 678 00019', 'მაგ. 912 345 678 00019')}
                       className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
@@ -679,7 +702,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       type="text"
                       value={birthPlace}
                       onChange={(e) => setBirthPlace(e.target.value)}
-                      placeholder="ex. Lyon (69)"
+                      placeholder={L('ex. Lyon (69)', 'напр. Lyon (69)', 'օր.՝ Lyon (69)', 'მაგ. Lyon (69)')}
                       className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
@@ -691,7 +714,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             <div className="grid grid-cols-4 gap-3 mb-3">
               <div className="col-span-1">
                 <label htmlFor="buyer-street-number" className="block text-xs font-semibold text-slate-300 mb-1">
-                  N° de voie *
+                  {L('N° de voie *', 'Номер дома *', 'Տան համար *', 'ქუჩის № *')}
                 </label>
                 <input
                   id="buyer-street-number"
@@ -713,7 +736,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
               </div>
               <div className="col-span-3">
                 <label htmlFor="buyer-street-name" className="block text-xs font-semibold text-slate-300 mb-1">
-                  Nom de la voie *
+                  {L('Nom de la voie *', 'Улица *', 'Փողոցի անվանում *', 'ქუჩის დასახელება *')}
                 </label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -826,7 +849,12 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             <div className="space-y-1">
               <p className="font-bold text-amber-200">{t('autoGenNoticeTitle')}</p>
               <p className="text-slate-300 text-[11px]">
-                Dès validation, les 2 boutons <strong>« Télécharger / Imprimer la Facture »</strong> et <strong>« Télécharger / Imprimer le Cerfa 15776 »</strong> seront instantanément disponibles dans le dossier du véhicule.
+                {L(
+                  'Dès validation, les 2 boutons « Télécharger / Imprimer la Facture » et « Télécharger / Imprimer le Cerfa 15776 » seront instantanément disponibles dans le dossier du véhicule.',
+                  'После подтверждения в карточке авто сразу станут доступны кнопки «Скачать / распечатать счёт (Facture)» и «Скачать / распечатать Cerfa 15776».',
+                  'Հաստատումից անմիջապես հետո ավտոմեքենայի քարտում հասանելի կդառնան «Ներբեռնել / տպել հաշիվ-ապրանքագիրը» և «Ներբեռնել / տպել Cerfa 15776» կոճակները։',
+                  'დადასტურებისთანავე ავტომობილის ბარათში მომენტალურად ხელმისაწვდომი გახდება ღილაკები «ინვოისის ჩამოტვირთვა / ბეჭდვა» და «Cerfa 15776 ჩამოტვირთვა / ბეჭდვა».'
+                )}
               </p>
               {!isParticulierSeller && (
                 <p className="text-slate-400 text-[10px]">

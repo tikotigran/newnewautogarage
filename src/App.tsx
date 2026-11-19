@@ -14,7 +14,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
 import { DemoModeBanner } from './components/DemoModeBanner';
-import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, UserLayoutPreference, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense, SubscriptionPlan } from './types/garage';
+import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense, SubscriptionPlan } from './types/garage';
 import {
   auth,
   onAuthStateChanged,
@@ -56,11 +56,8 @@ import {
   getPlanCapabilities,
   isSuperAdminUser,
   isViewAllowedByFeatureFlags,
-  parseUserLayoutPreference,
   resolveEffectiveFeatureFlagsForPlan,
-  resolveEffectiveLayoutMode,
   SIDEBAR_COLLAPSED_STORAGE_KEY,
-  USER_LAYOUT_MODE_STORAGE_KEY,
 } from './utils/adminUtils';
 import {
   buildGarageUpdatePayload,
@@ -190,14 +187,6 @@ export default function App() {
     useState<Exclude<ActiveAppView, 'settings'>>('desktop');
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('company');
 
-  // Dual-Layout Architecture state (Classic Top-Nav vs Modern Sidebar Layout)
-  const [userLayoutPreference, setUserLayoutPreference] = useState<UserLayoutPreference>(() => {
-    try {
-      return parseUserLayoutPreference(localStorage.getItem(USER_LAYOUT_MODE_STORAGE_KEY));
-    } catch {
-      return 'global';
-    }
-  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
@@ -206,28 +195,6 @@ export default function App() {
     }
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  const effectiveLayoutMode = useMemo(
-    () =>
-      resolveEffectiveLayoutMode({
-        userPreference: userLayoutPreference,
-        systemLayoutMode: systemConfig.layoutMode,
-      }),
-    [userLayoutPreference, systemConfig.layoutMode]
-  );
-
-  const handleLayoutPreferenceChange = (pref: UserLayoutPreference) => {
-    setUserLayoutPreference(pref);
-    try {
-      if (pref === 'global') {
-        localStorage.removeItem(USER_LAYOUT_MODE_STORAGE_KEY);
-      } else {
-        localStorage.setItem(USER_LAYOUT_MODE_STORAGE_KEY, pref);
-      }
-    } catch {
-      // ignore
-    }
-  };
 
   const handleToggleSidebarCollapse = () => {
     setSidebarCollapsed((prev) => {
@@ -505,13 +472,7 @@ export default function App() {
     setSelectedVehicle(null);
     persistActiveGarageId(garageId);
     if (garageId && user?.uid) {
-      fetchGarageSettingsFromCloud(user.uid, garageId)
-        .then((cloudSettings) => {
-          if (cloudSettings.layoutMode && !localStorage.getItem(USER_LAYOUT_MODE_STORAGE_KEY)) {
-            setUserLayoutPreference(parseUserLayoutPreference(cloudSettings.layoutMode));
-          }
-        })
-        .catch(() => {});
+      fetchGarageSettingsFromCloud(user.uid, garageId).catch(() => {});
     }
     if (garageId === null && activeView !== 'desktop' && activeView !== 'settings') {
       handleSetActiveView('desktop');
@@ -1085,7 +1046,12 @@ export default function App() {
   const handleSaveVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>) => {
     const actor = userProfile?.email || user?.email || null;
     if (editingVehicle) {
-      await updateVehicle(editingVehicle.id, data);
+      const preservedGarageId =
+        data.garageId || editingVehicle.garageId || activeGarageId || undefined;
+      await updateVehicle(editingVehicle.id, {
+        ...data,
+        ...(preservedGarageId ? { garageId: preservedGarageId } : {}),
+      });
       const label = `${data.make} ${data.model} (${data.registrationNumber || data.vin})`;
       const diffs = computeEntityFieldDiffs(
         editingVehicle as unknown as Record<string, unknown>,
@@ -1134,7 +1100,7 @@ export default function App() {
         );
         return;
       }
-      const targetGarage = activeGarageId || DEFAULT_GARAGE_ID;
+      const targetGarage = data.garageId || activeGarageId || DEFAULT_GARAGE_ID;
       const newId = await createVehicle({
         ...data,
         garageId: targetGarage,
@@ -1246,7 +1212,6 @@ export default function App() {
             onBackToApp={handleBackToGarageFromAdmin}
             onSignIn={() => setIsAuthModalOpen(true)}
             onOpenAlignerMode={() => setIsQuickAlignerOpen(true)}
-            onGlobalLayoutChanged={() => handleLayoutPreferenceChange('global')}
           />
         </div>
 
@@ -1256,6 +1221,7 @@ export default function App() {
           onClose={() => setIsQuickAlignerOpen(false)}
           vehicle={createDemoCerfaVehicle(effectiveUserId)}
           userId={effectiveUserId}
+          activeGarageId={activeGarageId}
           isSuperAdmin={isSuperAdmin}
           initialAlignerMode={true}
           calibrationDummyMode={true}
@@ -1436,6 +1402,7 @@ export default function App() {
                 }
                 vehicles={garageVehicles.length > 0 ? garageVehicles : vehicles}
                 userId={effectiveUserId}
+                activeGarageId={activeGarageId}
                 isSuperAdmin={isSuperAdmin}
                 initialAlignerMode={false}
                 canUseCerfaAutofill={planCapabilities.canUseCerfaAutofillAll}
@@ -1514,10 +1481,6 @@ export default function App() {
               }}
               userEmail={userProfile?.email || user?.email || null}
               userRole={isSuperAdmin ? 'superadmin' : (userProfile?.role || 'user')}
-              layoutPreference={userLayoutPreference}
-              effectiveLayoutMode={effectiveLayoutMode}
-              globalLayoutMode={systemConfig.layoutMode || 'sidebar'}
-              onLayoutPreferenceChange={handleLayoutPreferenceChange}
               onSettingsSaved={(saved) => {
                 const nextProfile = resolveUserProfileType(saved);
                 setUserProfile((prev) =>
@@ -1604,6 +1567,7 @@ export default function App() {
         onSubmit={handleSaveVehicle}
         initialVehicle={editingVehicle}
         userId={effectiveUserId}
+        activeGarageId={activeGarageId}
         defaultPurchaseStatus={activeProfileType === 'particulier' ? 'particulier' : 'micro'}
         onValidationToast={showGlobalToast}
       />
@@ -1628,6 +1592,7 @@ export default function App() {
         onClose={() => setIsQuickAlignerOpen(false)}
         vehicle={selectedVehicle || vehicles[0] || createDemoCerfaVehicle(effectiveUserId)}
         userId={effectiveUserId}
+        activeGarageId={activeGarageId}
         isSuperAdmin={isSuperAdmin}
         onValidationToast={showGlobalToast}
       />
@@ -1639,6 +1604,7 @@ export default function App() {
           onClose={() => setCerfaVehicle(null)}
           vehicle={cerfaVehicle}
           userId={effectiveUserId}
+          activeGarageId={activeGarageId}
           isSuperAdmin={isSuperAdmin}
           canUseCerfaAutofill={planCapabilities.canUseCerfaAutofillAll}
           onValidationToast={showGlobalToast}

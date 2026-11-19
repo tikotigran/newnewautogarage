@@ -131,7 +131,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       vehicleLimit: 9999,
       activeVehiclesCount: 0,
       subscriptionStatus: 'active',
-      mrrAmount: 149,
+      mrrAmount: 79,
       createdAt: now,
       updatedAt: now,
     };

@@ -955,3 +955,120 @@ export function getResolvedVehicleSaleSnapshot(params: {
     capturedAt: vehicle.buyerInfo?.saleDate || vehicle.updatedAt,
   });
 }
+
+const FRENCH_TAX_CONFIG_KEYS: ReadonlyArray<keyof FrenchTaxConfiguration> = [
+  'legalStatus',
+  'businessTaxRegime',
+  'socialContributionRate',
+  'versementLiberatoireEnabled',
+  'versementLiberatoireRate',
+  'microBicAbattementPercent',
+  'microBicIncomeTaxRate',
+  'isRateMode',
+  'corporateTaxRateReduced',
+  'corporateTaxRateStandard',
+  'corporateTaxCustomRate',
+  'reducedIsEligible',
+  'reducedIsThreshold',
+  'annualTaxableProfit',
+  'financialYear',
+  'vatRegime',
+  'vatRatePercent',
+  'effectiveDates',
+];
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as unknown as T;
+  }
+  if (isPlainRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (entry !== undefined) {
+        out[key] = stripUndefinedDeep(entry);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
+function pickFrenchTaxConfigFields(raw: Record<string, unknown>): Partial<FrenchTaxConfiguration> {
+  const picked: Partial<FrenchTaxConfiguration> = {};
+  for (const key of FRENCH_TAX_CONFIG_KEYS) {
+    if (key in raw && raw[key] !== undefined) {
+      (picked as Record<string, unknown>)[key] = raw[key];
+    }
+  }
+  return picked;
+}
+
+export interface SuperAdminTaxDefaultsDocument {
+  config: FrenchTaxConfiguration;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/**
+ * Parses `/settings/tax_defaults` Firestore data (and localStorage cache).
+ * Reads `data.config` when present, and gracefully falls back to top-level
+ * fields if an older flat document exists.
+ */
+export function parseTaxDefaultsFirestoreData(raw: unknown): FrenchTaxConfiguration {
+  if (!isPlainRecord(raw)) {
+    return createDefaultFrenchTaxConfig('micro_entreprise');
+  }
+
+  let candidate: Partial<FrenchTaxConfiguration> = {};
+  if (isPlainRecord(raw.config)) {
+    candidate = pickFrenchTaxConfigFields(raw.config);
+  }
+  if (Object.keys(candidate).length === 0) {
+    candidate = pickFrenchTaxConfigFields(raw);
+  }
+  if (Object.keys(candidate).length === 0) {
+    return createDefaultFrenchTaxConfig('micro_entreprise');
+  }
+
+  return normalizeFrenchTaxConfig({
+    frenchTaxConfig: candidate as FrenchTaxConfiguration,
+  });
+}
+
+/**
+ * Builds the Firestore payload for `/settings/tax_defaults` matching
+ * `firestore.rules` (`('config' in incoming()) && incoming().config is map`)
+ * without spreading tax fields at the document top level.
+ */
+export function buildTaxDefaultsFirestorePayload(
+  config: Partial<FrenchTaxConfiguration> | FrenchTaxConfiguration,
+  metadata?: {
+    updatedAt?: string;
+    updatedBy?: string;
+  }
+): SuperAdminTaxDefaultsDocument {
+  const candidate = isPlainRecord(config)
+    ? pickFrenchTaxConfigFields(config)
+    : {};
+  const normalized = normalizeFrenchTaxConfig({
+    frenchTaxConfig: candidate as FrenchTaxConfiguration,
+  });
+
+  const payload: SuperAdminTaxDefaultsDocument = {
+    config: stripUndefinedDeep(normalized),
+  };
+
+  if (typeof metadata?.updatedAt === 'string' && metadata.updatedAt.trim().length > 0) {
+    payload.updatedAt = metadata.updatedAt.trim();
+  }
+  if (typeof metadata?.updatedBy === 'string' && metadata.updatedBy.trim().length > 0) {
+    payload.updatedBy = metadata.updatedBy.trim().slice(0, 128);
+  }
+
+  return payload;
+}
+

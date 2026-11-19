@@ -5,6 +5,7 @@ import {
   hasVehicleCerfaDetails,
   mapProfileTypeToPurchaseStatus,
   resolveDefaultPurchaseStatus,
+  resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
   validateQuickVehicleForm,
   validateVehicleFormDetailed,
@@ -249,4 +250,51 @@ test('resolveDefaultPurchaseStatus and resolveVehiclePurchaseStatus track active
   );
   assert.equal(createdMicro.purchaseStatus, 'micro');
 });
+
+test('resolveTargetGarageId and buildVehicleSubmitPayload enforce strict per-garage assignment', () => {
+  assert.equal(resolveTargetGarageId({ garageId: 'garage_alpha' }, 'garage_beta'), 'garage_alpha');
+  assert.equal(resolveTargetGarageId({ garageId: undefined }, 'garage_beta'), 'garage_beta');
+  assert.equal(resolveTargetGarageId(null, 'garage_beta'), 'garage_beta');
+  assert.equal(resolveTargetGarageId(null, null), undefined);
+
+  // New vehicle created inside active garage gets assigned activeGarageId
+  const createdInBeta = buildVehicleSubmitPayload(
+    createBaseInput(),
+    'user_1',
+    null,
+    'garage_beta'
+  );
+  assert.equal(createdInBeta.garageId, 'garage_beta');
+
+  // Editing an existing vehicle preserves its own garageId even if activeGarageId differs
+  const editedAlpha = buildVehicleSubmitPayload(
+    createBaseInput({ purchasePrice: 9100 }),
+    'user_1',
+    {
+      ...createdInBeta,
+      id: 'veh_alpha_1',
+      garageId: 'garage_alpha',
+      createdAt: '2026-10-01T10:00:00Z',
+      updatedAt: '2026-10-01T10:00:00Z',
+    },
+    'garage_beta'
+  );
+  assert.equal(editedAlpha.garageId, 'garage_alpha');
+
+  // Editing a legacy vehicle missing garageId adopts activeGarageId
+  const editedLegacy = buildVehicleSubmitPayload(
+    createBaseInput(),
+    'user_1',
+    {
+      ...createdInBeta,
+      id: 'veh_legacy',
+      garageId: undefined,
+      createdAt: '2026-10-01T10:00:00Z',
+      updatedAt: '2026-10-01T10:00:00Z',
+    },
+    'garage_beta'
+  );
+  assert.equal(editedLegacy.garageId, 'garage_beta');
+});
+
 

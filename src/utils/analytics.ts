@@ -4,6 +4,7 @@ import {
   GeneralExpense,
   GeneralExpenseCategory,
   VehicleStatus,
+  DynamicExpenseCategory,
   FrenchTaxConfiguration,
 } from '../types/garage';
 import {
@@ -21,13 +22,17 @@ import {
   normalizeFrenchTaxConfig,
 } from './frenchTaxEngine';
 
-export type AnalyticsExpenseCategoryId =
+export type BuiltInAnalyticsExpenseCategoryId =
   | 'parts_labor'
   | 'fuel'
   | 'detailing'
   | 'registration'
   | 'transport'
   | 'other';
+
+export type AnalyticsExpenseCategoryId =
+  | BuiltInAnalyticsExpenseCategoryId
+  | (string & {});
 
 export type AnalyticsTimeRange =
   | 'today'
@@ -53,6 +58,7 @@ export interface AnalyticsCategoryMeta {
   labelKa: string;
   colorClass: string;
   barColorHex: string;
+  icon?: string;
 }
 
 export const ANALYTICS_CATEGORIES: AnalyticsCategoryMeta[] = [
@@ -140,6 +146,7 @@ export interface CategoryBreakdown {
   labelKa: string;
   colorClass: string;
   barColorHex: string;
+  icon?: string;
   amount: number;
   percentage: number;
   entryCount: number;
@@ -265,10 +272,85 @@ export interface DealershipAnalyticsReport {
   expenseBreakdown: FleetExpenseAnalytics;
 }
 
+const CUSTOM_CATEGORY_COLORS: Array<{ colorClass: string; barColorHex: string }> = [
+  { colorClass: 'bg-violet-500', barColorHex: '#8b5cf6' },
+  { colorClass: 'bg-teal-500', barColorHex: '#14b8a6' },
+  { colorClass: 'bg-pink-500', barColorHex: '#ec4899' },
+  { colorClass: 'bg-cyan-500', barColorHex: '#06b6d4' },
+  { colorClass: 'bg-rose-500', barColorHex: '#f43f5e' },
+  { colorClass: 'bg-lime-500', barColorHex: '#84cc16' },
+];
+
+const BUILT_IN_GENERAL_EXPENSE_KEYS = new Set<string>([
+  'transport',
+  'fuel',
+  'controle_technique',
+  'detailing',
+  'admin',
+  'insurance',
+  'other',
+]);
+
+export function formatCustomExpenseCategoryLabel(categoryKey: string): string {
+  const spaced = categoryKey
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!spaced) return 'Other';
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function getCustomCategoryColor(categoryKey: string): { colorClass: string; barColorHex: string } {
+  let hash = 0;
+  for (let i = 0; i < categoryKey.length; i += 1) {
+    hash = (hash * 31 + categoryKey.charCodeAt(i)) >>> 0;
+  }
+  return CUSTOM_CATEGORY_COLORS[hash % CUSTOM_CATEGORY_COLORS.length];
+}
+
+function buildCustomCategoryMeta(
+  categoryId: string,
+  dynamicMap: Map<string, DynamicExpenseCategory>
+): AnalyticsCategoryMeta {
+  const configured = dynamicMap.get(categoryId);
+  const fallbackLabel = formatCustomExpenseCategoryLabel(categoryId);
+  const { colorClass, barColorHex } = getCustomCategoryColor(categoryId);
+  if (configured) {
+    const primaryLabel = configured.labelFr?.trim() || configured.labelRu?.trim() || fallbackLabel;
+    return {
+      id: categoryId,
+      labelFr: primaryLabel,
+      labelRu: configured.labelRu?.trim() || primaryLabel,
+      labelHy: configured.labelHy?.trim() || primaryLabel,
+      labelKa: configured.labelKa?.trim() || primaryLabel,
+      colorClass,
+      barColorHex,
+      icon: configured.icon,
+    };
+  }
+  return {
+    id: categoryId,
+    labelFr: fallbackLabel,
+    labelRu: fallbackLabel,
+    labelHy: fallbackLabel,
+    labelKa: fallbackLabel,
+    colorClass,
+    barColorHex,
+    icon: 'Tag',
+  };
+}
+
 export function mapGeneralExpenseCategory(
-  category: GeneralExpenseCategory | string
+  category: GeneralExpenseCategory | string,
+  dynamicCategories?: DynamicExpenseCategory[]
 ): AnalyticsExpenseCategoryId {
-  switch (category) {
+  const trimmed = typeof category === 'string' ? category.trim() : '';
+  if (!trimmed) return 'other';
+
+  switch (trimmed) {
+    case 'parts_labor':
+      return 'parts_labor';
     case 'fuel':
       return 'fuel';
     case 'detailing':
@@ -280,8 +362,14 @@ export function mapGeneralExpenseCategory(
       return 'transport';
     case 'insurance':
     case 'other':
-    default:
       return 'other';
+    default: {
+      if (dynamicCategories) {
+        const matched = dynamicCategories.find((c) => c.id === trimmed);
+        if (matched) return matched.id;
+      }
+      return trimmed;
+    }
   }
 }
 
@@ -380,12 +468,28 @@ export function computeFleetExpenseAnalytics(params: {
   expenses: GeneralExpense[];
   timeRange: AnalyticsTimeRange;
   customRange?: CustomDateRange;
+  dynamicCategories?: DynamicExpenseCategory[];
   now?: Date;
 }): FleetExpenseAnalytics {
-  const { vehicles, repairs, expenses, timeRange, customRange, now = new Date() } = params;
+  const {
+    vehicles,
+    repairs,
+    expenses,
+    timeRange,
+    customRange,
+    dynamicCategories,
+    now = new Date(),
+  } = params;
   const vehicleMap = new Map<string, Vehicle>();
   for (const v of vehicles) {
     vehicleMap.set(v.id, v);
+  }
+
+  const dynamicCatMap = new Map<string, DynamicExpenseCategory>();
+  if (dynamicCategories) {
+    for (const cat of dynamicCategories) {
+      if (cat.id) dynamicCatMap.set(cat.id, cat);
+    }
   }
 
   const normalized: NormalizedExpenseEntry[] = [];
@@ -415,7 +519,7 @@ export function computeFleetExpenseAnalytics(params: {
     normalized.push({
       id: e.id,
       vehicleId: e.vehicleId,
-      categoryId: mapGeneralExpenseCategory(e.category),
+      categoryId: mapGeneralExpenseCategory(e.category, dynamicCategories),
       amount: roundToTwo(amount),
       date: effectiveDate,
       description: e.description,
@@ -425,7 +529,32 @@ export function computeFleetExpenseAnalytics(params: {
   const totalSpent = roundToTwo(normalized.reduce((acc, item) => acc + item.amount, 0));
   const impactedVehicleIds = new Set(normalized.map((item) => item.vehicleId));
 
-  const categories: CategoryBreakdown[] = ANALYTICS_CATEGORIES.map((meta) => {
+  const builtInIdSet = new Set<string>(ANALYTICS_CATEGORIES.map((m) => m.id));
+  const allCategoryMetas: AnalyticsCategoryMeta[] = [...ANALYTICS_CATEGORIES];
+  const seenCustomIds = new Set<string>();
+
+  if (dynamicCategories) {
+    for (const cat of dynamicCategories) {
+      if (
+        cat.id &&
+        !BUILT_IN_GENERAL_EXPENSE_KEYS.has(cat.id) &&
+        !builtInIdSet.has(cat.id) &&
+        !seenCustomIds.has(cat.id)
+      ) {
+        seenCustomIds.add(cat.id);
+        allCategoryMetas.push(buildCustomCategoryMeta(cat.id, dynamicCatMap));
+      }
+    }
+  }
+
+  for (const entry of normalized) {
+    if (!builtInIdSet.has(entry.categoryId) && !seenCustomIds.has(entry.categoryId)) {
+      seenCustomIds.add(entry.categoryId);
+      allCategoryMetas.push(buildCustomCategoryMeta(entry.categoryId, dynamicCatMap));
+    }
+  }
+
+  const categories: CategoryBreakdown[] = allCategoryMetas.map((meta) => {
     const catEntries = normalized.filter((item) => item.categoryId === meta.id);
     const catAmount = roundToTwo(catEntries.reduce((acc, item) => acc + item.amount, 0));
     const percentage = totalSpent > 0 ? roundToTwo((catAmount / totalSpent) * 100) : 0;
@@ -517,6 +646,7 @@ export function computeDealershipAnalytics(params: {
   expenses: GeneralExpense[];
   timeRange: AnalyticsTimeRange;
   customRange?: CustomDateRange;
+  dynamicCategories?: DynamicExpenseCategory[];
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
   frenchTaxConfig?: FrenchTaxConfiguration;
@@ -528,6 +658,7 @@ export function computeDealershipAnalytics(params: {
     expenses,
     timeRange,
     customRange,
+    dynamicCategories,
     taxRegime = 'sarl',
     taxRatePercent,
     frenchTaxConfig,
@@ -828,6 +959,7 @@ export function computeDealershipAnalytics(params: {
     repairs,
     expenses,
     timeRange: 'month',
+    dynamicCategories,
     now,
   });
 
@@ -852,6 +984,7 @@ export function computeDealershipAnalytics(params: {
     expenses,
     timeRange,
     customRange,
+    dynamicCategories,
     now,
   });
 

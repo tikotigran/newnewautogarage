@@ -73,6 +73,7 @@ import { subscribeDynamicExpenseCategories } from '../services/adminService';
 import {
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
   DEFAULT_FEATURE_FLAGS,
+  EXPENSE_CATEGORY_ID_REGEX,
 } from '../utils/adminUtils';
 import {
   generateSalesInvoicePDF,
@@ -287,12 +288,16 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [expenseAmount, setExpenseAmount] = useState<number | ''>('');
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
   const [expenseReceipt, setExpenseReceipt] = useState('');
+  const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [isSavingExpense, setIsSavingExpense] = useState(false);
 
   useEffect(() => {
     const unsubCats = subscribeDynamicExpenseCategories((cats) => {
       setDynamicCategories(cats);
-      if (cats.length > 0 && !cats.some((c) => c.id === expenseCategory)) {
-        setExpenseCategory(cats[0].id);
+      if (cats.length > 0) {
+        setExpenseCategory((prev) =>
+          cats.some((c) => c.id === prev) ? prev : cats[0].id
+        );
       }
     });
     return () => unsubCats();
@@ -493,22 +498,61 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   // Add general expense handler
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!expenseDesc.trim() || expenseAmount === '') return;
+    if (!expenseDesc.trim() || expenseAmount === '' || isSavingExpense) return;
+    setExpenseError(null);
 
-    await addGeneralExpense(vehicle.id, userId, {
-      category: expenseCategory,
-      description: expenseDesc.trim(),
-      amount: Number(expenseAmount),
-      date: expenseDate,
-      receiptUrl: expenseReceipt.trim() || undefined,
-    });
+    const normalizedCategory = String(expenseCategory || '').trim();
+    if (!EXPENSE_CATEGORY_ID_REGEX.test(normalizedCategory)) {
+      const msg = pickLocalized(lang, {
+        fr: `L’ID de catégorie « ${normalizedCategory} » est invalide pour Firestore. Modifiez ou recréez la catégorie dans l’Admin Panel.`,
+        ru: `Некорректный ID категории «${normalizedCategory}» для Firestore. Пересоздайте категорию в админ-панели с латинским ID.`,
+        hy: `«${normalizedCategory}» կատեգորիայի ID-ն անվավեր է Firestore-ի համար։ Վերստեղծեք կատեգորիան ադմին վահանակում։`,
+        ka: `კატეგორიის ID «${normalizedCategory}» არასწორია Firestore-სთვის. ხელახლა შექმენით კატეგორია ადმინ პანელში.`,
+      });
+      setExpenseError(msg);
+      onValidationToast?.(msg);
+      return;
+    }
 
-    // Reset expense form
-    setExpenseDesc('');
-    setExpenseAmount('');
-    setExpenseDate(new Date().toISOString().split('T')[0]);
-    setExpenseReceipt('');
-    setShowAddExpense(false);
+    setIsSavingExpense(true);
+    try {
+      await addGeneralExpense(vehicle.id, userId, {
+        category: normalizedCategory,
+        description: expenseDesc.trim(),
+        amount: Number(expenseAmount),
+        date: expenseDate,
+        receiptUrl: expenseReceipt.trim() || undefined,
+      });
+
+      // Reset expense form
+      setExpenseDesc('');
+      setExpenseAmount('');
+      setExpenseDate(new Date().toISOString().split('T')[0]);
+      setExpenseReceipt('');
+      setShowAddExpense(false);
+    } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const isPermError =
+        rawMsg.includes('Missing or insufficient permissions') ||
+        rawMsg.includes('permission-denied');
+      const userMsg = isPermError
+        ? pickLocalized(lang, {
+            fr: 'Firestore a refusé l’enregistrement (permission-denied). Publiez les règles firestore.rules à jour dans la console Firebase pour autoriser les catégories personnalisées.',
+            ru: 'Firestore отклонил сохранение (permission-denied): в вашей базе Firebase ещё не опубликованы обновлённые правила firestore.rules для пользовательских категорий.',
+            hy: 'Firestore-ը մերժեց պահպանումը (permission-denied)։ Հրապարակեք թարմացված firestore.rules կանոնները Firebase կոնսոլում։',
+            ka: 'Firestore-მა უარყო შენახვა (permission-denied). გამოაქვეყნეთ განახლებული firestore.rules წესები Firebase კონსოლში.',
+          })
+        : pickLocalized(lang, {
+            fr: 'Erreur lors de l’enregistrement de la dépense.',
+            ru: 'Ошибка при сохранении расхода. Проверьте данные и подключение.',
+            hy: 'Սխալ՝ ծախսը պահպանելիս։',
+            ka: 'შეცდომა ხარჯის შენახვისას.',
+          });
+      setExpenseError(userMsg);
+      onValidationToast?.(userMsg);
+    } finally {
+      setIsSavingExpense(false);
+    }
   };
 
   const getStatusBadge = (status: VehicleStatus) => {
@@ -2065,6 +2109,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     value={expenseCategory}
                     onChange={(nextId) => {
                       setExpenseCategory(nextId);
+                      setExpenseError(null);
                       const found = dynamicCategories.find((c) => c.id === nextId);
                       if (found?.defaultAmount && found.defaultAmount > 0 && expenseAmount === '') {
                         setExpenseAmount(found.defaultAmount);
@@ -2140,18 +2185,34 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 />
               </div>
 
+              {expenseError && (
+                <div
+                  role="alert"
+                  data-testid="vehicle-expense-error"
+                  className="px-3.5 py-2.5 rounded-[var(--ag-button-radius)] bg-rose-500/10 border border-rose-500/35 text-xs text-rose-400 font-medium flex items-start gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{expenseError}</span>
+                </div>
+              )}
+
               {/* Submit Buttons */}
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddExpense(false)}
+                  onClick={() => {
+                    setExpenseError(null);
+                    setShowAddExpense(false);
+                  }}
                   className="px-4 py-2 text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-[var(--ag-button-radius)] transition"
                 >
                   {t('cancelBtn')}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow transition flex items-center gap-1.5"
+                  disabled={isSavingExpense}
+                  data-testid="save-expense-submit-btn"
+                  className="px-5 py-2 rounded-[var(--ag-button-radius)] text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white shadow transition flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{t('saveExpenseBtn')}</span>
@@ -2571,6 +2632,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
         onClose={() => setShowCerfaWizard(false)}
         vehicle={vehicle}
         userId={userId}
+        activeGarageId={activeGarageId}
         onValidationToast={onValidationToast}
       />
     </div>

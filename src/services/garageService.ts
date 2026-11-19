@@ -31,6 +31,7 @@ import {
   resolveUserProfileType,
 } from '../utils/frenchTaxEngine';
 import { buildGarageUpdatePayload, DEFAULT_GARAGE_ID } from '../utils/garageUtils';
+import { normalizeCerfaTemplateId } from '../utils/cerfaConfig';
 import {
   applyProfileSlotToSettings,
   EMPTY_PARTICULIER_PROFILE,
@@ -162,6 +163,7 @@ function hydrateGarageSettings(raw: Partial<GarageSettings>, targetId: string): 
 
   const hydratedBase: GarageSettings = {
     ...mergedBase,
+    defaultCerfaTemplate: normalizeCerfaTemplateId(mergedBase.defaultCerfaTemplate),
     profileType: resolvedProfile,
     legalStatus:
       resolvedProfile === 'particulier'
@@ -263,7 +265,6 @@ export async function fetchGarageSettingsFromCloud(
             ? { ...local, ...cloudData }
             : {
                 theme: local.theme,
-                layoutMode: local.layoutMode,
                 defaultMarginPercent: local.defaultMarginPercent,
                 currency: local.currency,
                 defaultCerfaTemplate: local.defaultCerfaTemplate,
@@ -345,6 +346,7 @@ export async function saveGarageSettings(
   const baseWithSlots = applyProfileSlotToSettings(
     {
       ...settings,
+      defaultCerfaTemplate: normalizeCerfaTemplateId(settings.defaultCerfaTemplate),
       garageId: targetId,
       profileType: resolvedProfileType,
       entityType: 'physique',
@@ -1177,7 +1179,7 @@ export async function addRepairTask(
   const partsCost = Number(task.partsCost) || 0;
   const laborCost = Number(task.laborCost) || 0;
 
-  const newTask: RepairTask = {
+  const newTask: RepairTask = stripUndefined({
     ...task,
     id,
     vehicleId,
@@ -1187,7 +1189,7 @@ export async function addRepairTask(
     totalCost: partsCost + laborCost,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   if (!auth.currentUser) {
     const list = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY);
@@ -1238,10 +1240,10 @@ export async function updateRepairTask(
   }
 
   try {
-    const payload: Record<string, unknown> = {
+    const payload: Record<string, unknown> = stripUndefined({
       ...updates,
       updatedAt: new Date().toISOString(),
-    };
+    });
     if (updates.partsCost !== undefined || updates.laborCost !== undefined) {
       const existingSnap = await getDoc(doc(db, 'vehicles', vehicleId, 'repairs', taskId));
       const existing = existingSnap.exists() ? (existingSnap.data() as RepairTask) : null;
@@ -1391,15 +1393,17 @@ export async function addGeneralExpense(
   const path = `vehicles/${vehicleId}/expenses/${id}`;
   const now = new Date().toISOString();
 
-  const newExpense: GeneralExpense = {
+  const newExpense: GeneralExpense = stripUndefined({
     ...expense,
     id,
     vehicleId,
     userId,
-    amount: Number(expense.amount) || 0,
+    category: String(expense.category || '').trim(),
+    description: String(expense.description || '').trim(),
+    amount: Math.max(0, Number(expense.amount) || 0),
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   if (!auth.currentUser) {
     const list = getLocalStore<GeneralExpense>(LOCAL_EXPENSES_KEY);
@@ -1440,10 +1444,10 @@ export async function updateGeneralExpense(
   }
 
   try {
-    const payload = {
+    const payload = stripUndefined({
       ...updates,
       updatedAt: new Date().toISOString(),
-    };
+    });
     await updateDoc(doc(db, 'vehicles', vehicleId, 'expenses', expenseId), payload);
     await recalculateAndSyncVehicleById(vehicleId);
   } catch (err) {
