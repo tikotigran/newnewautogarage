@@ -274,4 +274,13 @@ describe('exportBackup utilities', () => {
     assert.equal(rows[0].Acheteur, 'Claire Moreau');
     assert.equal(rows[0].MargeBrute, 3500);
   });
+
+  it('localizes backup validation errors for FR, RU, HY, and KA', () => {
+    assert.throws(() => parseFullBackupPayload('not-json', 'fr'), /Fichier JSON invalide/);
+    assert.throws(() => parseFullBackupPayload('not-json', 'ru'), /Некорректный/);
+    assert.throws(() => parseFullBackupPayload('not-json', 'hy'), /Անվավեր/);
+    assert.throws(() => parseFullBackupPayload('not-json', 'ka'), /არასწორი/);
+    assert.throws(() => parseFullBackupPayload('{"settings":{}}', 'hy'), /vehicles/);
+    assert.throws(() => parseFullBackupPayload('{"vehicles":[]}', 'ka'), /settings/);
+  });
 });

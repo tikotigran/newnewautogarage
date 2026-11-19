@@ -279,8 +279,8 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
         postalCode: postalCode.trim(),
         city: city.trim(),
         address: fullFormattedAddress,
-        phone: phone.trim() || 'Non renseigné',
-        email: email.trim() || 'Non renseigné',
+        phone: phone.trim() || L('Non renseigné', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
+        email: email.trim() || L('Non renseigné', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
         salePrice: Number(salePrice),
         saleDate,
         saleTime,
@@ -325,7 +325,9 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label={t('cancelBtn')}
             className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />
@@ -750,7 +752,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       setStreetName(e.target.value);
                       setFieldErrors((prev) => ({ ...prev, streetName: undefined }));
                     }}
-                    placeholder="Rue des Lilas"
+                    placeholder={L('ex. Rue des Lilas', 'напр. ул. Сиреневая', 'օր.՝ Աբովյան փողոց', 'მაგ. რუსთაველის გამზ.')}
                     className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                       fieldErrors.streetName
                         ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
@@ -798,7 +800,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     setCity(e.target.value);
                     setFieldErrors((prev) => ({ ...prev, city: undefined }));
                   }}
-                  placeholder="Lyon"
+                  placeholder={L('ex. Lyon', 'напр. Лион', 'օր.՝ Երևան', 'მაგ. თბილისი')}
                   className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                     fieldErrors.city
                       ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'

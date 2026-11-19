@@ -63,6 +63,7 @@ import {
   applySystemThemeVariables,
   BRAND_THEME_PRESETS,
   CARD_PADDING_VALUES,
+  cleanGlobalTextOverrides,
   computeAdminDashboardMetrics,
   DEFAULT_DARK_PALETTE,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
@@ -73,6 +74,7 @@ import {
   EXPENSE_CATEGORY_ICON_OPTIONS,
   getContrastForeground,
   getDefaultPlanModules,
+  getPlanDisplayName,
   getPlanCapabilities,
   getTranslationKeyCategory,
   normalizeExpenseCategorySlug,
@@ -119,7 +121,7 @@ import {
   createDefaultFrenchTaxConfig,
 } from '../utils/frenchTaxEngine';
 import { formatEuro } from '../utils/finance';
-import { pickLocalized } from '../utils/i18nUtils';
+import { Language, pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { translations } from '../i18n/translations';
 
@@ -155,7 +157,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenAlignerMode,
 }) => {
   const { lang, t } = useI18n();
-  const isRu = lang === 'ru';
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T): T => pickLocalized(lang, { fr, ru, hy, ka });
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [accounts, setAccounts] = useState<UserProfile[]>([]);
@@ -164,9 +166,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isPlansDirty, setIsPlansDirty] = useState(false);
   const plansDirtyRef = useRef(false);
   const [isSavingPlans, setIsSavingPlans] = useState(false);
-  const [planFeaturesLang, setPlanFeaturesLang] = useState<'ru' | 'fr'>(() =>
-    lang === 'ru' ? 'ru' : 'fr'
-  );
+  const [planFeaturesLang, setPlanFeaturesLang] = useState<Language>(() => lang);
   const [searchQuery, setSearchQuery] = useState('');
   const [draftConfig, setDraftConfig] = useState<SystemThemeConfig>(() =>
     resolveSystemThemeConfig(systemConfig)
@@ -312,6 +312,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const hasOverride = Boolean(
         textOverrides[k]?.fr?.trim() ||
           textOverrides[k]?.ru?.trim() ||
+          textOverrides[k]?.hy?.trim() ||
+          textOverrides[k]?.ka?.trim() ||
           textOverrides[k]?.color?.trim()
       );
       if (onlyModifiedTexts && !hasOverride) return false;
@@ -320,8 +322,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         k.toLowerCase().includes(q) ||
         translations.fr[k].toLowerCase().includes(q) ||
         translations.ru[k].toLowerCase().includes(q) ||
+        translations.hy[k].toLowerCase().includes(q) ||
+        translations.ka[k].toLowerCase().includes(q) ||
         (textOverrides[k]?.fr || '').toLowerCase().includes(q) ||
-        (textOverrides[k]?.ru || '').toLowerCase().includes(q)
+        (textOverrides[k]?.ru || '').toLowerCase().includes(q) ||
+        (textOverrides[k]?.hy || '').toLowerCase().includes(q) ||
+        (textOverrides[k]?.ka || '').toLowerCase().includes(q)
       );
     });
   }, [textSearch, onlyModifiedTexts, textOverrides, selectedTextCategory]);
@@ -367,12 +373,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
           <div className="space-y-2">
             <h1 className="text-xl font-bold text-white">
-              {isRu ? 'Доступ ограничен (403)' : 'Accès Restreint (403)'}
+              {L(
+                'Accès Restreint (403)',
+                'Доступ ограничен (403)',
+                'Մուտքը սահմանափակված է (403)',
+                'წვდომა შეზღუდულია (403)'
+              )}
             </h1>
             <p className="text-sm text-slate-400 leading-relaxed">
-              {isRu
-                ? 'Раздел /admin доступен только пользователям с ролью superadmin.'
-                : 'La section /admin est strictement réservée aux comptes disposant du rôle superadmin.'}
+              {L(
+                'La section /admin est strictement réservée aux comptes disposant du rôle superadmin.',
+                'Раздел /admin доступен только пользователям с ролью superadmin.',
+                '/admin բաժինը հասանելի է միայն superadmin դեր ունեցող օգտատերերին։',
+                '/admin განყოფილება ხელმისაწვდომია მხოლოდ superadmin როლის მქონე მომხმარებლებისთვის.'
+              )}
             </p>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
@@ -382,7 +396,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition"
             >
               <LogIn className="w-4 h-4" />
-              <span>{isRu ? 'Войти как SuperAdmin' : 'Connexion SuperAdmin'}</span>
+              <span>
+                {L(
+                  'Connexion SuperAdmin',
+                  'Войти как SuperAdmin',
+                  'Մուտք որպես SuperAdmin',
+                  'შესვლა როგორც SuperAdmin'
+                )}
+              </span>
             </button>
             <button
               type="button"
@@ -390,7 +411,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>{isRu ? 'Вернуться в гараж' : 'Retour au garage'}</span>
+              <span>
+                {L(
+                  'Retour au garage',
+                  'Вернуться в гараж',
+                  'Վերադառնալ ավտոսրահ',
+                  'გარაჟში დაბრუნება'
+                )}
+              </span>
             </button>
           </div>
         </div>
@@ -403,22 +431,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setTimeout(() => setSaveNotice(null), 2500);
   };
 
-  const cleanTextOverridesMap = (raw: GlobalTextOverrides): GlobalTextOverrides => {
-    const cleaned: GlobalTextOverrides = {};
-    for (const [k, v] of Object.entries(raw)) {
-      const fr = v.fr || '';
-      const ru = v.ru || '';
-      const color = v.color?.trim() || '';
-      if (fr.trim() !== '' || ru.trim() !== '' || color !== '') {
-        cleaned[k] = {
-          fr,
-          ru,
-          ...(color ? { color } : {}),
-        };
-      }
-    }
-    return cleaned;
-  };
+  const cleanTextOverridesMap = (raw: GlobalTextOverrides): GlobalTextOverrides =>
+    cleanGlobalTextOverrides(raw);
 
   const handleSaveGlobalConfig = async (
     nextConfig: SystemThemeConfig = draftConfig,
@@ -444,7 +458,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       // ignore
     }
     showSavedFeedback(
-      isRu ? 'Брендинг и палитра сохранены глобально' : 'Branding et palettes appliqués globalement'
+      L(
+        'Branding et palettes appliqués globalement',
+        'Брендинг и палитра сохранены глобально',
+        'Բրենդինգն ու գունապնակը պահպանվեցին գլոբալ',
+        'ბრენდინგი და პალიტრა გლობალურად შენახულია'
+      )
     );
   };
 
@@ -453,7 +472,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setDraftConfig(reset);
     await handleSaveGlobalConfig(reset);
     showSavedFeedback(
-      isRu ? 'Сброшено к стандартным цветам' : 'Couleurs réinitialisées par défaut'
+      L(
+        'Couleurs réinitialisées par défaut',
+        'Сброшено к стандартным цветам',
+        'Վերականգնված է լռելյայն գույներով',
+        'ნაგულისხმევი ფერები აღდგენილია'
+      )
     );
   };
 
@@ -504,18 +528,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       vehicleLimit: caps.vehicleLimit,
       mrrAmount: plan?.priceMonthly ?? 0,
     });
-    showSavedFeedback(isRu ? 'Тариф обновлён' : 'Forfait mis à jour');
+    showSavedFeedback(
+      L('Forfait mis à jour', 'Тариф обновлён', 'Սակագինը թարմացվել է', 'ტარიფი განახლებულია')
+    );
   };
 
   const handleRoleToggle = async (uid: string, currentRole: UserRole) => {
     const nextRole: UserRole = currentRole === 'superadmin' ? 'user' : 'superadmin';
     await updateUserAccount(uid, { role: nextRole });
-    showSavedFeedback(isRu ? 'Роль обновлена' : 'Rôle mis à jour');
+    showSavedFeedback(
+      L('Rôle mis à jour', 'Роль обновлена', 'Դերը թարմացվել է', 'როლი განახლებულია')
+    );
   };
 
   const handleStatusChange = async (uid: string, subscriptionStatus: SubscriptionStatus) => {
     await updateUserAccount(uid, { subscriptionStatus });
-    showSavedFeedback(isRu ? 'Статус оплаты обновлён' : 'Statut de paiement mis à jour');
+    showSavedFeedback(
+      L(
+        'Statut de paiement mis à jour',
+        'Статус оплаты обновлён',
+        'Վճարման կարգավիճակը թարմացվել է',
+        'გადახდის სტატუსი განახლებულია'
+      )
+    );
   };
 
   const updatePlanDraft = (
@@ -559,9 +594,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }));
   };
 
+  type PlanFeaturesFieldKey = 'featuresFr' | 'featuresRu' | 'featuresHy' | 'featuresKa';
+
   const handleUpdatePlanFeature = (
     planId: SubscriptionPlanId,
-    fieldKey: 'featuresRu' | 'featuresFr',
+    fieldKey: PlanFeaturesFieldKey,
     index: number,
     value: string
   ) => {
@@ -574,12 +611,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleAddPlanFeature = (
     planId: SubscriptionPlanId,
-    fieldKey: 'featuresRu' | 'featuresFr'
+    fieldKey: PlanFeaturesFieldKey
   ) => {
     updatePlanDraft(planId, (plan) => {
       const current = [...(plan[fieldKey] || [])];
       const defaultLine =
-        fieldKey === 'featuresRu' ? 'Новая функция тарифа' : 'Nouvelle fonctionnalité';
+        fieldKey === 'featuresRu'
+          ? 'Новая функция тарифа'
+          : fieldKey === 'featuresHy'
+          ? 'Սակագնի նոր հնարավորություն'
+          : fieldKey === 'featuresKa'
+          ? 'ტარიფის ახალი ფუნქცია'
+          : 'Nouvelle fonctionnalité';
       current.push(defaultLine);
       return { ...plan, [fieldKey]: current };
     });
@@ -587,7 +630,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleRemovePlanFeature = (
     planId: SubscriptionPlanId,
-    fieldKey: 'featuresRu' | 'featuresFr',
+    fieldKey: PlanFeaturesFieldKey,
     index: number
   ) => {
     updatePlanDraft(planId, (plan) => {
@@ -606,16 +649,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       plansDirtyRef.current = false;
       setIsPlansDirty(false);
       showSavedFeedback(
-        isRu
-          ? 'Тарифы и лимиты сохранены в облаке'
-          : 'Forfaits et limites enregistrés dans le cloud'
+        L(
+          'Forfaits et limites enregistrés dans le cloud',
+          'Тарифы и лимиты сохранены в облаке',
+          'Սակագներն ու սահմանաչափերը պահպանվել են ամպում',
+          'ტარიფები და ლიმიტები შენახულია ღრუბელში'
+        )
       );
     } catch (err) {
       console.error('Failed to save subscription plans:', err);
       showSavedFeedback(
-        isRu
-          ? 'Ошибка сохранения тарифов в Firestore'
-          : 'Erreur lors de la sauvegarde des forfaits'
+        L(
+          'Erreur lors de la sauvegarde des forfaits',
+          'Ошибка сохранения тарифов в Firestore',
+          'Սակագները Firestore-ում պահպանելու սխալ',
+          'ტარიფების Firestore-ში შენახვის შეცდომა'
+        )
       );
     } finally {
       setIsSavingPlans(false);
@@ -628,9 +677,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     plansDirtyRef.current = true;
     setIsPlansDirty(true);
     showSavedFeedback(
-      isRu
-        ? 'Сброшено к шаблону — нажмите «Сохранить изменения»'
-        : 'Réinitialisé — cliquez sur « Enregistrer »'
+      L(
+        'Réinitialisé — cliquez sur « Enregistrer »',
+        'Сброшено к шаблону — нажмите «Сохранить изменения»',
+        'Վերականգնված է — սեղմեք «Պահպանել փոփոխությունները»',
+        'განულებულია — დააჭირეთ «ცვლილებების შენახვას»'
+      )
     );
   };
 
@@ -723,21 +775,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (idResolution.error) {
         if (idResolution.error === 'duplicate_id') {
           setCatFormError(
-            isRu
-              ? `Категория с ID «${idResolution.id}» уже существует.`
-              : `Une catégorie avec l’ID « ${idResolution.id} » existe déjà.`
+            L(
+              `Une catégorie avec l’ID « ${idResolution.id} » existe déjà.`,
+              `Категория с ID «${idResolution.id}» уже существует.`,
+              `«${idResolution.id}» ID-ով կատեգորիան արդեն գոյություն ունի։`,
+              `კატეგორია ID-ით «${idResolution.id}» უკვე არსებობს.`
+            )
           );
         } else if (idResolution.error === 'too_long') {
           setCatFormError(
-            isRu
-              ? 'ID категории не должен превышать 64 символа.'
-              : 'L’ID de la catégorie ne doit pas dépasser 64 caractères.'
+            L(
+              'L’ID de la catégorie ne doit pas dépasser 64 caractères.',
+              'ID категории не должен превышать 64 символа.',
+              'Կատեգորիայի ID-ն չպետք է գերազանցի 64 նիշը։',
+              'კატეგორიის ID არ უნდა აღემატებოდეს 64 სიმბოლოს.'
+            )
           );
         } else {
           setCatFormError(
-            isRu
-              ? 'ID должен содержать латинские буквы, цифры, «_» или «-» (1–64 символа).'
-              : 'L’ID doit contenir uniquement lettres, chiffres, « _ » ou « - » (1–64 caractères).'
+            L(
+              'L’ID doit contenir uniquement lettres, chiffres, « _ » ou « - » (1–64 caractères).',
+              'ID должен содержать латинские буквы, цифры, «_» или «-» (1–64 символа).',
+              'ID-ն պետք է պարունակի միայն լատինատառեր, թվեր, «_» կամ «-» (1–64 նիշ)։',
+              'ID უნდა შეიცავდეს მხოლოდ ლათინურ ასოებს, ციფრებს, «_» ან «-» (1–64 სიმბოლო).'
+            )
           );
         }
         return;
@@ -763,7 +824,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setExpenseCategories(sorted);
     await saveDynamicExpenseCategories(sorted, currentUserUid);
     resetCategoryForm();
-    showSavedFeedback(isRu ? 'Категория сохранена' : 'Catégorie enregistrée');
+    showSavedFeedback(
+      L(
+        'Catégorie enregistrée',
+        'Категория сохранена',
+        'Կատեգորիան պահպանվել է',
+        'კატეგორია შენახულია'
+      )
+    );
   };
 
   const handleDeleteCategory = async (id: string) => {
@@ -773,7 +841,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setExpenseCategories(next);
     await saveDynamicExpenseCategories(next, currentUserUid);
     if (editingCategoryId === id) resetCategoryForm();
-    showSavedFeedback(isRu ? 'Категория удалена' : 'Catégorie supprimée');
+    showSavedFeedback(
+      L(
+        'Catégorie supprimée',
+        'Категория удалена',
+        'Կատեգորիան ջնջվել է',
+        'კატეგორია წაშლილია'
+      )
+    );
   };
 
   const handleMoveCategory = async (index: number, direction: -1 | 1) => {
@@ -785,14 +860,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const reordered = copy.map((c, idx) => ({ ...c, order: idx + 1 }));
     setExpenseCategories(reordered);
     await saveDynamicExpenseCategories(reordered, currentUserUid);
-    showSavedFeedback(isRu ? 'Порядок обновлён' : 'Ordre mis à jour');
+    showSavedFeedback(
+      L(
+        'Ordre mis à jour',
+        'Порядок обновлён',
+        'Հերթականությունը թարմացվել է',
+        'რიგითობა განახლებულია'
+      )
+    );
   };
 
   const handleResetCategories = async () => {
     setExpenseCategories(DEFAULT_DYNAMIC_EXPENSE_CATEGORIES);
     await saveDynamicExpenseCategories(DEFAULT_DYNAMIC_EXPENSE_CATEGORIES, currentUserUid);
     resetCategoryForm();
-    showSavedFeedback(isRu ? 'Категории сброшены' : 'Catégories réinitialisées');
+    showSavedFeedback(
+      L(
+        'Catégories réinitialisées',
+        'Категории сброшены',
+        'Կատեգորիաները վերականգնված են',
+        'კატეგორიები განულებულია'
+      )
+    );
   };
 
   // Feature Flags handlers (persisted globally in platform_settings/feature_flags)
@@ -801,16 +890,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
       await saveFeatureFlags(nextFlags, currentUserUid);
       showSavedFeedback(
-        isRu
-          ? 'Настройки функций сохранены в облаке'
-          : 'Paramètres des fonctions enregistrés dans le cloud'
+        L(
+          'Paramètres des fonctions enregistrés dans le cloud',
+          'Настройки функций сохранены в облаке',
+          'Գործառույթների կարգավորումները պահպանվել են ամպում',
+          'ფუნქციების პარამეტრები შენახულია ღრუბელში'
+        )
       );
     } catch (err) {
       console.error('Failed to save feature flags:', err);
       showSavedFeedback(
-        isRu
-          ? 'Ошибка сохранения настроек функций в Firestore'
-          : 'Erreur lors de la sauvegarde dans Firestore'
+        L(
+          'Erreur lors de la sauvegarde dans Firestore',
+          'Ошибка сохранения настроек функций в Firestore',
+          'Firestore-ում պահպանման սխալ',
+          'Firestore-ში შენახვის შეცდომა'
+        )
       );
     } finally {
       setIsSavingFeatureFlags(false);
@@ -839,16 +934,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
       await saveSuperAdminTaxDefaults(taxDefaultsDraft, currentUserUid);
       showSavedFeedback(
-        isRu
-          ? 'Налоговые настройки по умолчанию сохранены (/settings/tax_defaults)'
-          : 'Paramètres fiscaux par défaut enregistrés (/settings/tax_defaults)'
+        L(
+          'Paramètres fiscaux par défaut enregistrés (/settings/tax_defaults)',
+          'Налоговые настройки по умолчанию сохранены (/settings/tax_defaults)',
+          'Հարկային լռելյայն կարգավորումները պահպանված են (/settings/tax_defaults)',
+          'საგადასახადო ნაგულისხმევი პარამეტრები შენახულია (/settings/tax_defaults)'
+        )
       );
     } catch (err) {
       console.error('Failed to save tax defaults:', err);
       showSavedFeedback(
-        isRu
-          ? 'Ошибка сохранения налоговых настроек в Firestore'
-          : 'Erreur lors de la sauvegarde des barèmes fiscaux dans Firestore'
+        L(
+          'Erreur lors de la sauvegarde des barèmes fiscaux dans Firestore',
+          'Ошибка сохранения налоговых настроек в Firestore',
+          'Հարկային դրույքները Firestore-ում պահպանելու սխալ',
+          'საგადასახადო განაკვეთების Firestore-ში შენახვის შეცდომა'
+        )
       );
     }
   };
@@ -859,19 +960,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
       await saveSuperAdminTaxDefaults(fresh, currentUserUid);
       showSavedFeedback(
-        pickLocalized(lang, {
-          fr: 'Réinitialisé aux barèmes français (Micro 12,3% + 1% · Franchise en base)',
-          ru: 'Сброшено к стандартам Франции (Micro 12.3% + 1% · Franchise en base)',
-          hy: 'Վերականգնված է ֆրանսիական ստանդարտներով (Micro 12.3% + 1% · Franchise en base)',
-          ka: 'აღდგენილია ფრანგული სტანდარტებით (Micro 12.3% + 1% · Franchise en base)',
-        })
+        L(
+          'Réinitialisé aux barèmes français (Micro 12,3% + 1% · Franchise en base)',
+          'Сброшено к стандартам Франции (Micro 12.3% + 1% · Franchise en base)',
+          'Վերականգնված է ֆրանսիական ստանդարտներով (Micro 12.3% + 1% · Franchise en base)',
+          'აღდგენილია ფრანგული სტანდარტებით (Micro 12.3% + 1% · Franchise en base)'
+        )
       );
     } catch (err) {
       console.error('Failed to reset tax defaults:', err);
       showSavedFeedback(
-        isRu
-          ? 'Ошибка сброса налоговых настроек в Firestore'
-          : 'Erreur lors de la réinitialisation des barèmes fiscaux dans Firestore'
+        L(
+          'Erreur lors de la réinitialisation des barèmes fiscaux dans Firestore',
+          'Ошибка сброса налоговых настроек в Firestore',
+          'Հարկային դրույքները վերականգնելու սխալ',
+          'საგადასახადო განაკვეთების განულების შეცდომა'
+        )
       );
     }
   };
@@ -895,7 +999,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       };
       setDraftConfig(syncedConfig);
       await saveSystemThemeConfig(syncedConfig, currentUserUid);
-      showSavedFeedback('Калибровка полей Cerfa сохранена в облаке');
+      showSavedFeedback(
+        L(
+          'Calibration Cerfa enregistrée dans le cloud',
+          'Калибровка полей Cerfa сохранена в облаке',
+          'Cerfa դաշտերի կալիբրացիան պահպանված է ամպում',
+          'Cerfa ველების კალიბრაცია შენახულია ღრუბელში'
+        )
+      );
     } finally {
       setIsSavingCerfa(false);
     }
@@ -910,12 +1021,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // Global Text Overrides handlers
-  const handleTextOverrideChange = (key: string, field: 'fr' | 'ru' | 'color', value: string) => {
+  const handleTextOverrideChange = (
+    key: string,
+    field: 'fr' | 'ru' | 'hy' | 'ka' | 'color',
+    value: string
+  ) => {
     setTextOverrides((prev) => ({
       ...prev,
       [key]: {
         fr: field === 'fr' ? value : prev[key]?.fr ?? '',
         ru: field === 'ru' ? value : prev[key]?.ru ?? '',
+        hy: field === 'hy' ? value : prev[key]?.hy ?? '',
+        ka: field === 'ka' ? value : prev[key]?.ka ?? '',
         color: field === 'color' ? value : prev[key]?.color ?? '',
       },
     }));
@@ -925,7 +1042,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const cleaned = cleanTextOverridesMap(nextOverrides);
     setTextOverrides(cleaned);
     await saveGlobalTextOverrides(cleaned, currentUserUid);
-    showSavedFeedback(isRu ? 'Тексты и цвета применены глобально' : 'Textes et couleurs appliqués');
+    showSavedFeedback(
+      L(
+        'Textes et couleurs appliqués',
+        'Тексты и цвета применены глобально',
+        'Տեքստերն ու գույները կիրառվեցին գլոբալ',
+        'ტექსტები და ფერები გლობალურად გამოყენებულია'
+      )
+    );
   };
 
   const handleSaveUiAndTexts = async () => {
@@ -939,7 +1063,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     ]);
     applySystemThemeVariables(resolvedLayout, theme);
     showSavedFeedback(
-      isRu ? 'Настройки UI и тексты сохранены глобально' : 'UI & textes appliqués globalement'
+      L(
+        'UI & textes appliqués globalement',
+        'Настройки UI и тексты сохранены глобально',
+        'UI և տեքստերի կարգավորումները պահպանված են գլոբալ',
+        'UI და ტექსტების პარამეტრები გლობალურად შენახულია'
+      )
     );
   };
 
@@ -952,48 +1081,55 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleResetAllTexts = async () => {
     setTextOverrides({});
     await saveGlobalTextOverrides({}, currentUserUid);
-    showSavedFeedback(isRu ? 'Все тексты сброшены' : 'Tous les textes réinitialisés');
+    showSavedFeedback(
+      L(
+        'Tous les textes réinitialisés',
+        'Все тексты сброшены',
+        'Բոլոր տեքստերը վերականգնված են',
+        'ყველა ტექსტი განულებულია'
+      )
+    );
   };
 
   const navItems: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
     {
       id: 'dashboard',
-      label: isRu ? 'Дашборд' : 'Tableau de bord',
+      label: L('Tableau de bord', 'Дашборд', 'Վահանակ', 'მართვის პანელი'),
       icon: <LayoutDashboard className="w-4 h-4" />,
     },
     {
       id: 'users',
-      label: isRu ? 'Пользователи и гаражи' : 'Utilisateurs & Garages',
+      label: L('Utilisateurs & Garages', 'Пользователи и гаражи', 'Օգտատերեր և սրահներ', 'მომხმარებლები და გარაჟები'),
       icon: <Users className="w-4 h-4" />,
     },
     {
       id: 'expenses',
-      label: isRu ? 'Категории расходов' : 'Catégories de frais',
+      label: L('Catégories de frais', 'Категории расходов', 'Ծախսերի կատեգորիաներ', 'ხარჯების კატეგორიები'),
       icon: <Receipt className="w-4 h-4" />,
     },
     {
       id: 'features',
-      label: isRu ? 'Управление функциями' : 'Contrôle des fonctions',
+      label: L('Contrôle des fonctions', 'Управление функциями', 'Գործառույթների կառավարում', 'ფუნქციების მართვა'),
       icon: <ToggleRight className="w-4 h-4" />,
     },
     {
       id: 'texts',
-      label: isRu ? 'UI и Тексты' : 'UI & Text Customization',
+      label: L('UI & Text Customization', 'UI и Тексты', 'UI և Տեքստեր', 'UI და ტექსტები'),
       icon: <Type className="w-4 h-4" />,
     },
     {
       id: 'design',
-      label: isRu ? 'Дизайн и Брендинг' : 'Design & Branding',
+      label: L('Design & Branding', 'Дизайн и Брендинг', 'Դիզայն և Բրենդինգ', 'დიზაინი და ბრენდინგი'),
       icon: <Palette className="w-4 h-4" />,
     },
     {
       id: 'billing',
-      label: isRu ? 'Подписки и биллинг' : 'Abonnements & Billing',
+      label: L('Abonnements & Billing', 'Подписки и биллинг', 'Բաժանորդագրություններ', 'გამოწერები და ბილინგი'),
       icon: <CreditCard className="w-4 h-4" />,
     },
     {
       id: 'cerfa',
-      label: isRu ? 'Шаблоны и Cerfa' : 'Modèles & Cerfa',
+      label: L('Modèles & Cerfa', 'Шаблоны и Cerfa', 'Ձևանմուշներ և Cerfa', 'შაბლონები და Cerfa'),
       icon: <FileText className="w-4 h-4" />,
     },
   ];
@@ -1016,7 +1152,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/60 hover:bg-slate-800 border border-slate-800 transition cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
-            <span>{isRu ? 'Вернуться в гараж' : 'Retour au garage'}</span>
+            <span>
+              {L(
+                'Retour au garage',
+                'Вернуться в гараж',
+                'Վերադառնալ ավտոսրահ',
+                'გარაჟში დაბრუნება'
+              )}
+            </span>
           </button>
 
           <div className="px-2 pb-3 border-b border-slate-800">
@@ -1067,65 +1210,73 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="space-y-6">
             <div>
               <h1 className="text-xl font-bold text-white">
-                {isRu ? 'Панель управления платформой' : 'Vue globale de la plateforme'}
+                {L(
+                  'Vue globale de la plateforme',
+                  'Панель управления платформой',
+                  'Հարթակի կառավարման վահանակ',
+                  'პლატფორმის მართვის პანელი'
+                )}
               </h1>
               <p className="text-xs text-slate-400 mt-1">
-                {isRu
-                  ? 'Ключевые показатели SaaS, активные автосалоны и ежемесячная выручка MRR'
-                  : 'Indicateurs clés SaaS, garages actifs et revenus mensuels récurrents (MRR)'}
+                {L(
+                  'Indicateurs clés SaaS, garages actifs et revenus mensuels récurrents (MRR)',
+                  'Ключевые показатели SaaS, активные автосалоны и ежемесячная выручка MRR',
+                  'SaaS հիմնական ցուցանիշներ, ակտիվ սրահներ և ամսական MRR եկամուտ',
+                  'SaaS ძირითადი მაჩვენებლები, აქტიური გარაჟები და ყოველთვიური MRR შემოსავალი'
+                )}
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{isRu ? 'Всего пользователей' : 'Total Utilisateurs'}</span>
+                  <span>{L('Total Utilisateurs', 'Всего пользователей', 'Ընդամենը օգտատերեր', 'სულ მომხმარებლები')}</span>
                   <Users className="w-4 h-4 text-sky-400" />
                 </div>
                 <p className="text-2xl font-bold text-white tabular-nums mt-2">
                   {metrics.totalUsers}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1 tabular-nums">
-                  {metrics.trialAccounts} {isRu ? 'на триале' : 'en essai'}
+                  {metrics.trialAccounts} {L('en essai', 'на триале', 'փորձնականում', 'საცდელზე')}
                 </p>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{isRu ? 'Активные гаражи' : 'Garages Actifs'}</span>
+                  <span>{L('Garages Actifs', 'Активные гаражи', 'Ակտիվ սրահներ', 'აქტიური გარაჟები')}</span>
                   <Building2 className="w-4 h-4 text-amber-400" />
                 </div>
                 <p className="text-2xl font-bold text-white tabular-nums mt-2">
                   {metrics.activeGarages}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1 tabular-nums">
-                  {metrics.pastDueAccounts} {isRu ? 'просрочка оплаты' : 'impayés'}
+                  {metrics.pastDueAccounts} {L('impayés', 'просрочка оплаты', 'ժամկետանց', 'ვადაგადაცილებული')}
                 </p>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{isRu ? 'Выручка MRR' : 'Revenu Mensuel (MRR)'}</span>
+                  <span>{L('Revenu Mensuel (MRR)', 'Выручка MRR', 'Ամսական MRR', 'ყოველთვიური MRR')}</span>
                   <TrendingUp className="w-4 h-4 text-emerald-400" />
                 </div>
                 <p className="text-2xl font-bold text-emerald-400 tabular-nums mt-2">
                   {formatEuro(metrics.monthlyRevenueMRR)}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  {isRu ? 'По активным подпискам' : 'Abonnements actifs'}
+                  {L('Abonnements actifs', 'По активным подпискам', 'Ակտիվ բաժանորդագրություններից', 'აქტიური გამოწერებიდან')}
                 </p>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{isRu ? 'Авто на платформе' : 'Véhicules gérés'}</span>
+                  <span>{L('Véhicules gérés', 'Авто на платформе', 'Հաշվառված մեքենաներ', 'მართული ავტომობილები')}</span>
                   <Car className="w-4 h-4 text-indigo-400" />
                 </div>
                 <p className="text-2xl font-bold text-white tabular-nums mt-2">
                   {metrics.totalActiveVehicles}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  {isRu ? 'Суммарный инвентарь' : 'Inventaire cumulé'}
+                  {L('Inventaire cumulé', 'Суммарный инвентарь', 'Ընդհանուր պաշար', 'ჯამური ინვენტარი')}
                 </p>
               </div>
             </div>
@@ -1133,7 +1284,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {/* Plan Distribution */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
               <h2 className="text-sm font-bold text-white">
-                {isRu ? 'Распределение по тарифам' : 'Répartition des abonnements'}
+                {L('Répartition des abonnements', 'Распределение по тарифам', 'Բաժանորդագրությունների բաշխում', 'გამოწერების განაწილება')}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {plans.map((plan) => (
@@ -1144,7 +1295,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div>
                       <p className="text-sm font-bold text-white">{plan.name}</p>
                       <p className="text-xs text-slate-400 tabular-nums">
-                        {formatEuro(plan.priceMonthly)} / {isRu ? 'мес' : 'mois'}
+                        {formatEuro(plan.priceMonthly)} / {L('mois', 'мес', 'ամիս', 'თვე')}
                       </p>
                     </div>
                     <span className="text-xl font-bold text-amber-400 tabular-nums">
@@ -1163,12 +1314,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Пользователи и гаражи' : 'Utilisateurs & Garages'}
+                  {L('Utilisateurs & Garages', 'Пользователи и гаражи', 'Օգտատերեր և սրահներ', 'მომხმარებლები და გარაჟები')}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Управление аккаунтами, проверка инвентаря и назначение лимитов'
-                    : 'Gestion des comptes, inspection des parcs et attribution des limites'}
+                  {L(
+                    'Gestion des comptes, inspection des parcs et attribution des limites',
+                    'Управление аккаунтами, проверка инвентаря и назначение лимитов',
+                    'Հաշիվների կառավարում, ավտոպարկի ստուգում և սահմանաչափեր',
+                    'ანგარიშების მართვა, პარკის შემოწმება და ლიმიტების დაყენება'
+                  )}
                 </p>
               </div>
 
@@ -1178,7 +1332,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={isRu ? 'Поиск по имени, email, гаражу...' : 'Rechercher compte ou garage...'}
+                  placeholder={L(
+                    'Rechercher compte ou garage...',
+                    'Поиск по имени, email, гаражу...',
+                    'Որոնել ըստ անվան, email-ի կամ սրահի...',
+                    'ძებნა სახელით, email-ით ან გარაჟით...'
+                  )}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -1188,11 +1347,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-800 text-[11px] font-semibold text-slate-400">
-                    <th className="py-3 px-4">{isRu ? 'Аккаунт / Гараж' : 'Compte / Garage'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Роль' : 'Rôle'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Тариф' : 'Forfait'}</th>
-                    <th className="py-3 px-4 text-right">{isRu ? 'Инвентарь / Лимит' : 'Stock / Limite'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Статус' : 'Statut'}</th>
+                    <th className="py-3 px-4">{L('Compte / Garage', 'Аккаунт / Гараж', 'Հաշիվ / Սրահ', 'ანგარიში / გარაჟი')}</th>
+                    <th className="py-3 px-4">{L('Rôle', 'Роль', 'Դեր', 'როლი')}</th>
+                    <th className="py-3 px-4">{L('Forfait', 'Тариф', 'Սակագին', 'ტარიფი')}</th>
+                    <th className="py-3 px-4 text-right">{L('Stock / Limite', 'Инвентарь / Лимит', 'Պաշար / Սահմանաչափ', 'საწყობი / ლიმიტი')}</th>
+                    <th className="py-3 px-4">{L('Statut', 'Статус', 'Կարգավիճակ', 'სტატუსი')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80 text-xs">
@@ -1223,7 +1382,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           ariaLabel={`Plan for ${acc.garageName}`}
                           value={acc.planId}
                           onChange={(val) => handlePlanChange(acc.uid, val)}
-                          options={plans.map((p) => ({ value: p.id, label: p.name }))}
+                          options={plans.map((p) => ({ value: p.id, label: getPlanDisplayName(p, lang) }))}
                           triggerClassName="bg-[var(--background)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--foreground)]"
                         />
                       </td>
@@ -1249,10 +1408,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           value={acc.subscriptionStatus}
                           onChange={(val) => handleStatusChange(acc.uid, val)}
                           options={[
-                            { value: 'active', label: isRu ? 'Активен' : 'Actif' },
-                            { value: 'trial', label: isRu ? 'Триал' : 'Essai' },
-                            { value: 'past_due', label: isRu ? 'Просрочен' : 'Impayé' },
-                            { value: 'canceled', label: isRu ? 'Отменён' : 'Annulé' },
+                            { value: 'active', label: L('Actif', 'Активен', 'Ակտիվ', 'აქტიური') },
+                            { value: 'trial', label: L('Essai', 'Триал', 'Փորձնական', 'საცდელი') },
+                            { value: 'past_due', label: L('Impayé', 'Просрочен', 'Ժամկետանց', 'ვადაგადაცილებული') },
+                            { value: 'canceled', label: L('Annulé', 'Отменён', 'Չեղարկված', 'გაუქმებული') },
                           ]}
                           triggerClassName="bg-[var(--background)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--foreground)]"
                         />
@@ -1273,71 +1432,83 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           const tokenGroups: {
             id: 'header' | 'cards' | 'vehicle_detail' | 'analytics_tables';
-            titleRu: string;
             titleFr: string;
+            titleRu: string;
+            titleHy: string;
+            titleKa: string;
             previewTarget: 'card' | 'vehicle_detail' | 'header_table';
             rows: {
               key: keyof ThemePaletteTokens;
               cssVar: string;
-              labelRu: string;
               labelFr: string;
+              labelRu: string;
+              labelHy: string;
+              labelKa: string;
             }[];
           }[] = [
             {
               id: 'header',
-              titleRu: 'Шапка и Навигация',
               titleFr: 'En-tête & Navigation',
+              titleRu: 'Шапка и Навигация',
+              titleHy: 'Վերնագիր և Նավիգացիա',
+              titleKa: 'სათაური და ნავიგაცია',
               previewTarget: 'header_table',
               rows: [
-                { key: 'headerBg', cssVar: '--ag-header-bg', labelRu: 'Фон верхней шапки', labelFr: 'Fond barre supérieure' },
-                { key: 'headerText', cssVar: '--ag-header-text', labelRu: 'Текст шапки и иконки', labelFr: 'Texte & icônes en-tête' },
-                { key: 'headerBorder', cssVar: '--ag-header-border', labelRu: 'Нижняя граница шапки', labelFr: 'Bordure inférieure' },
-                { key: 'navActiveBg', cssVar: '--ag-nav-active-bg', labelRu: 'Фон активной вкладки', labelFr: 'Fond onglet actif' },
-                { key: 'navActiveText', cssVar: '--ag-nav-active-text', labelRu: 'Текст активной вкладки', labelFr: 'Texte onglet actif' },
+                { key: 'headerBg', cssVar: '--ag-header-bg', labelFr: 'Fond barre supérieure', labelRu: 'Фон верхней шапки', labelHy: 'Վերին գոտու ֆոն', labelKa: 'ზედა ზოლის ფონი' },
+                { key: 'headerText', cssVar: '--ag-header-text', labelFr: 'Texte & icônes en-tête', labelRu: 'Текст шапки и иконки', labelHy: 'Վերնագրի տեքստ և պատկերակներ', labelKa: 'სათაურის ტექსტი და ხატულები' },
+                { key: 'headerBorder', cssVar: '--ag-header-border', labelFr: 'Bordure inférieure', labelRu: 'Нижняя граница шапки', labelHy: 'Ստորին եզրագիծ', labelKa: 'ქვედა ჩარჩო' },
+                { key: 'navActiveBg', cssVar: '--ag-nav-active-bg', labelFr: 'Fond onglet actif', labelRu: 'Фон активной вкладки', labelHy: 'Ակտիվ ներդիրի ֆոն', labelKa: 'აქტიური ჩანართის ფონი' },
+                { key: 'navActiveText', cssVar: '--ag-nav-active-text', labelFr: 'Texte onglet actif', labelRu: 'Текст активной вкладки', labelHy: 'Ակտիվ ներդիրի տեքստ', labelKa: 'აქტიური ჩანართის ტექსტი' },
               ],
             },
             {
               id: 'cards',
-              titleRu: 'Карточки склада и Общий фон',
               titleFr: 'Cartes d’inventaire & Fond',
+              titleRu: 'Карточки склада и Общий фон',
+              titleHy: 'Ավտոպարկի քարտեր և Ֆոն',
+              titleKa: 'ინვენტარის ბარათები და ფონი',
               previewTarget: 'card',
               rows: [
-                { key: 'background', cssVar: '--background', labelRu: 'Фон страницы (Canvas)', labelFr: 'Fond de page (Canvas)' },
-                { key: 'card', cssVar: '--card', labelRu: 'Фон карточек (Card)', labelFr: 'Surface des cartes (Card)' },
-                { key: 'surfaceMuted', cssVar: '--surface-muted', labelRu: 'Вторичная панель / инпут', labelFr: 'Surface secondaire / champ' },
-                { key: 'primary', cssVar: '--primary', labelRu: 'Основной акцент / кнопки', labelFr: 'Couleur principale / CTA' },
-                { key: 'foreground', cssVar: '--foreground', labelRu: 'Заголовки (Primary Text)', labelFr: 'Titres (Texte principal)' },
-                { key: 'secondaryForeground', cssVar: '--secondary-foreground', labelRu: 'Основной текст', labelFr: 'Texte courant' },
-                { key: 'mutedForeground', cssVar: '--muted-foreground', labelRu: 'Приглушённые подписи', labelFr: 'Textes secondaires' },
-                { key: 'border', cssVar: '--border', labelRu: 'Рамки и разделители', labelFr: 'Bordures & séparateurs' },
-                { key: 'success', cssVar: '--success', labelRu: 'Успех / В продаже', labelFr: 'Succès / En vente' },
-                { key: 'warning', cssVar: '--warning', labelRu: 'Подготовка / Внимание', labelFr: 'Préparation / Alerte' },
+                { key: 'background', cssVar: '--background', labelFr: 'Fond de page (Canvas)', labelRu: 'Фон страницы (Canvas)', labelHy: 'Էջի ֆոն (Canvas)', labelKa: 'გვერდის ფონი (Canvas)' },
+                { key: 'card', cssVar: '--card', labelFr: 'Surface des cartes (Card)', labelRu: 'Фон карточек (Card)', labelHy: 'Քարտերի ֆոն (Card)', labelKa: 'ბარათების ფონი (Card)' },
+                { key: 'surfaceMuted', cssVar: '--surface-muted', labelFr: 'Surface secondaire / champ', labelRu: 'Вторичная панель / инпут', labelHy: 'Երկրորդական վահանակ / դաշտ', labelKa: 'მეორადი პანელი / ველი' },
+                { key: 'primary', cssVar: '--primary', labelFr: 'Couleur principale / CTA', labelRu: 'Основной акцент / кнопки', labelHy: 'Հիմնական շեշտադրում / կոճակներ', labelKa: 'ძირითადი აქცენტი / ღილაკები' },
+                { key: 'foreground', cssVar: '--foreground', labelFr: 'Titres (Texte principal)', labelRu: 'Заголовки (Primary Text)', labelHy: 'Վերնագրեր (Primary Text)', labelKa: 'სათაურები (Primary Text)' },
+                { key: 'secondaryForeground', cssVar: '--secondary-foreground', labelFr: 'Texte courant', labelRu: 'Основной текст', labelHy: 'Հիմնական տեքստ', labelKa: 'ძირითადი ტექსტი' },
+                { key: 'mutedForeground', cssVar: '--muted-foreground', labelFr: 'Textes secondaires', labelRu: 'Приглушённые подписи', labelHy: 'Երկրորդական գրառումներ', labelKa: 'მეორადი წარწერები' },
+                { key: 'border', cssVar: '--border', labelFr: 'Bordures & séparateurs', labelRu: 'Рамки и разделители', labelHy: 'Եզրագծեր և բաժանիչներ', labelKa: 'ჩარჩოები და გამყოფები' },
+                { key: 'success', cssVar: '--success', labelFr: 'Succès / En vente', labelRu: 'Успех / В продаже', labelHy: 'Հաջողություն / Վաճառքում', labelKa: 'წარმატება / გაყიდვაში' },
+                { key: 'warning', cssVar: '--warning', labelFr: 'Préparation / Alerte', labelRu: 'Подготовка / Внимание', labelHy: 'Նախապատրաստում / Զգուշացում', labelKa: 'მომზადება / ყურადღება' },
               ],
             },
             {
               id: 'vehicle_detail',
-              titleRu: 'Страница авто и Финансовый отчёт',
               titleFr: 'Fiche Véhicule & Rapport P&L',
+              titleRu: 'Страница авто и Финансовый отчёт',
+              titleHy: 'Մեքենայի էջ և P&L հաշվետվություն',
+              titleKa: 'ავტომობილის გვერდი და P&L ანგარიში',
               previewTarget: 'vehicle_detail',
               rows: [
-                { key: 'detailContainerBg', cssVar: '--ag-detail-bg', labelRu: 'Контейнер баланса P&L', labelFr: 'Fond bilan P&L véhicule' },
-                { key: 'detailHeadingColor', cssVar: '--ag-detail-heading', labelRu: 'Заголовок баланса и отчёта', labelFr: 'Titre bilan & rapport' },
-                { key: 'metricBoxBg', cssVar: '--ag-metric-bg', labelRu: 'Фон мини-карточек (Закупка/Ремонт)', labelFr: 'Fond blocs métriques' },
-                { key: 'saleReceiptBg', cssVar: '--ag-receipt-bg', labelRu: 'Фон чека продажи (Receipt)', labelFr: 'Fond reçu financier' },
-                { key: 'profitColor', cssVar: '--ag-profit-color', labelRu: 'Положительная прибыль (+€)', labelFr: 'Profit positif (+€)' },
-                { key: 'expenseColor', cssVar: '--ag-expense-color', labelRu: 'Затраты и налоги (-€)', labelFr: 'Coûts & taxes (-€)' },
+                { key: 'detailContainerBg', cssVar: '--ag-detail-bg', labelFr: 'Fond bilan P&L véhicule', labelRu: 'Контейнер баланса P&L', labelHy: 'P&L հաշվեկշռի ֆոն', labelKa: 'P&L ბალანსის ფონი' },
+                { key: 'detailHeadingColor', cssVar: '--ag-detail-heading', labelFr: 'Titre bilan & rapport', labelRu: 'Заголовок баланса и отчёта', labelHy: 'Հաշվեկշռի և հաշվետվության վերնագիր', labelKa: 'ბალანსისა და ანგარიშის სათაური' },
+                { key: 'metricBoxBg', cssVar: '--ag-metric-bg', labelFr: 'Fond blocs métriques', labelRu: 'Фон мини-карточек (Закупка/Ремонт)', labelHy: 'Չափիչ բլոկների ֆոն', labelKa: 'მეტრიკის ბლოკების ფონი' },
+                { key: 'saleReceiptBg', cssVar: '--ag-receipt-bg', labelFr: 'Fond reçu financier', labelRu: 'Фон чека продажи (Receipt)', labelHy: 'Վաճառքի անդորրագրի ֆոն', labelKa: 'გაყიდვის ქვითრის ფონი' },
+                { key: 'profitColor', cssVar: '--ag-profit-color', labelFr: 'Profit positif (+€)', labelRu: 'Положительная прибыль (+€)', labelHy: 'Դրական շահույթ (+€)', labelKa: 'დადებითი მოგება (+€)' },
+                { key: 'expenseColor', cssVar: '--ag-expense-color', labelFr: 'Coûts & taxes (-€)', labelRu: 'Затраты и налоги (-€)', labelHy: 'Ծախսեր և հարկեր (-€)', labelKa: 'ხარჯები და გადასახადები (-€)' },
               ],
             },
             {
               id: 'analytics_tables',
-              titleRu: 'Аналитика, Таблицы и Модалки',
               titleFr: 'Analytique, Tableaux & Modales',
+              titleRu: 'Аналитика, Таблицы и Модалки',
+              titleHy: 'Վերլուծություն, Աղյուսակներ և Մոդալներ',
+              titleKa: 'ანალიტიკა, ცხრილები და მოდალები',
               previewTarget: 'header_table',
               rows: [
-                { key: 'tableHeaderBg', cssVar: '--ag-table-header-bg', labelRu: 'Шапка таблиц списка', labelFr: 'En-tête des tableaux' },
-                { key: 'tableRowHover', cssVar: '--ag-table-row-hover', labelRu: 'Подсветка строки при наведении', labelFr: 'Survol ligne tableau' },
-                { key: 'chartAccent', cssVar: '--ag-chart-accent', labelRu: 'Акцент графиков и KPI', labelFr: 'Accent graphiques & KPI' },
-                { key: 'modalBg', cssVar: '--ag-modal-bg', labelRu: 'Фон модальных окон', labelFr: 'Fond des fenêtres modales' },
+                { key: 'tableHeaderBg', cssVar: '--ag-table-header-bg', labelFr: 'En-tête des tableaux', labelRu: 'Шапка таблиц списка', labelHy: 'Աղյուսակների վերնագիր', labelKa: 'ცხრილების სათაური' },
+                { key: 'tableRowHover', cssVar: '--ag-table-row-hover', labelFr: 'Survol ligne tableau', labelRu: 'Подсветка строки при наведении', labelHy: 'Տողի լուսավորում (hover)', labelKa: 'მწკრივის გამოკვეთა (hover)' },
+                { key: 'chartAccent', cssVar: '--ag-chart-accent', labelFr: 'Accent graphiques & KPI', labelRu: 'Акцент графиков и KPI', labelHy: 'Գրաֆիկների և KPI շեշտադրում', labelKa: 'გრაფიკების და KPI აქცენტი' },
+                { key: 'modalBg', cssVar: '--ag-modal-bg', labelFr: 'Fond des fenêtres modales', labelRu: 'Фон модальных окон', labelHy: 'Մոդալ պատուհանների ֆոն', labelKa: 'მოდალური ფანჯრების ფონი' },
               ],
             },
           ];
@@ -1364,7 +1535,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedPreviewKey(translationKey)}
-                title={isRu ? `Нажмите для редактирования «${translationKey}»` : `Cliquer pour modifier «${translationKey}»`}
+                title={L(
+                  `Cliquer pour modifier «${translationKey}»`,
+                  `Нажмите для редактирования «${translationKey}»`,
+                  `Սեղմեք՝ խմբագրելու «${translationKey}»`,
+                  `დააჭირეთ «${translationKey}»-ის რედაქტირებისთვის`
+                )}
                 className={`text-left transition rounded px-1 -mx-1 hover:underline ${
                   isSelected ? 'ring-1 ring-amber-400' : ''
                 } ${className}`}
@@ -1431,7 +1607,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           color: palette.warning,
                         }}
                       >
-                        {isRu ? 'В подготовке' : 'Préparation'}
+                        {L('Préparation', 'В подготовке', 'Նախապատրաստում', 'მომზადება')}
                       </span>
                       <span
                         className="text-[10px] font-semibold px-2 py-0.5 rounded-md border whitespace-nowrap"
@@ -1441,7 +1617,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           color: palette.success,
                         }}
                       >
-                        {isRu ? 'В продаже' : 'En vente'}
+                        {L('En vente', 'В продаже', 'Վաճառքում', 'გაყიდვაში')}
                       </span>
                     </div>
                   </div>
@@ -1451,7 +1627,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     style={{ backgroundColor: palette.surfaceMuted, borderColor: palette.border }}
                   >
                     <span className="text-xs font-medium" style={{ color: palette.secondaryForeground }}>
-                      {isRu ? 'Цена продажи' : 'Prix affiché'}
+                      {L('Prix affiché', 'Цена продажи', 'Վաճառքի գին', 'გასაყიდი ფასი')}
                     </span>
                     <span className="text-sm font-bold tabular-nums" style={{ color: palette.foreground }}>
                       16 900 €
@@ -1482,7 +1658,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         color: palette.primaryForeground || getContrastForeground(palette.primary),
                       }}
                     >
-                      {isRu ? 'Открыть карту' : 'Voir fiche'}
+                      {L('Voir fiche', 'Открыть карту', 'Բացել քարտը', 'ბარათის ნახვა')}
                     </span>
                   </div>
                 </div>
@@ -1561,7 +1737,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         style={{ backgroundColor: metricBg, borderColor: palette.border }}
                       >
                         <span className="text-[10px] block truncate" style={{ color: palette.mutedForeground }}>
-                          {isRu ? 'Продажа' : 'Vente'}
+                          {L('Vente', 'Продажа', 'Վաճառք', 'გაყიდვა')}
                         </span>
                         <div className="text-xs font-bold tabular-nums mt-0.5" style={{ color: palette.foreground }}>
                           5 000 €
@@ -1660,10 +1836,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="px-2 py-0.5 rounded-md text-[10px] font-bold"
                       style={{ backgroundColor: navActiveBg, color: navActiveText }}
                     >
-                      {isRu ? 'Склад (8)' : 'Parc (8)'}
+                      {L('Parc (8)', 'Склад (8)', 'Ավտոպարկ (8)', 'პარკი (8)')}
                     </span>
                     <span className="px-2 py-0.5 rounded-md text-[10px]" style={{ color: headerText }}>
-                      {isRu ? 'Аналитика' : 'Analytique'}
+                      {L('Analytique', 'Аналитика', 'Վերլուծություն', 'ანალიტიკა')}
                     </span>
                   </div>
                 </div>
@@ -1685,9 +1861,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       color: palette.mutedForeground,
                     }}
                   >
-                    <span>{isRu ? 'Авто' : 'Véhicule'}</span>
-                    <span className="text-right">{isRu ? 'Ремонт' : 'Atelier'}</span>
-                    <span className="text-right">{isRu ? 'Прибыль' : 'Marge'}</span>
+                    <span>{L('Véhicule', 'Авто', 'Մեքենա', 'ავტო')}</span>
+                    <span className="text-right">{L('Atelier', 'Ремонт', 'Վերանոր.', 'შეკეთ.')}</span>
+                    <span className="text-right">{L('Marge', 'Прибыль', 'Շահույթ', 'მოგება')}</span>
                   </div>
                   <div
                     className="grid grid-cols-3 px-3 py-2 tabular-nums"
@@ -1727,7 +1903,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     }}
                   >
                     <div className="text-[10px] font-bold" style={{ color: palette.foreground }}>
-                      {isRu ? 'Модальное окно' : 'Fenêtre Modale'}
+                      {L('Fenêtre Modale', 'Модальное окно', 'Մոդալ պատուհան', 'მოდალური ფანჯარა')}
                     </div>
                     <div className="text-[10px]" style={{ color: palette.mutedForeground }}>
                       --ag-modal-bg
@@ -1768,21 +1944,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div>
                       <h2 className="text-sm font-bold text-white">
                         {isLightCol
-                          ? isRu
-                            ? 'Светлая тема (Light Theme)'
-                            : 'Thème Clair (Light Palette)'
-                          : isRu
-                            ? 'Тёмная тема (Dark Theme)'
-                            : 'Thème Sombre (Dark Palette)'}
+                          ? L('Thème Clair (Light Palette)', 'Светлая тема (Light Theme)', 'Լուսավոր թեմա (Light Theme)', 'ნათელი თემა (Light Theme)')
+                          : L('Thème Sombre (Dark Palette)', 'Тёмная тема (Dark Theme)', 'Մուգ թեմա (Dark Theme)', 'მուգი თემა (Dark Theme)')}
                       </h2>
                       <p className="text-[11px] text-slate-400">
                         {isLightCol
-                          ? isRu
-                            ? 'Дневной режим интерфейса и отчётов'
-                            : 'Mode jour pour postes lumineux'
-                          : isRu
-                            ? 'Ночной режим и контрастные акценты'
-                            : 'Mode nuit et contrastes élevés'}
+                          ? L('Mode jour pour postes lumineux', 'Дневной режим интерфейса и отчётов', 'Ցերեկային ռեժիմ և հաշվետվություններ', 'დღის რეჟიმი და ანგარიშები')
+                          : L('Mode nuit et contrastes élevés', 'Ночной режим и контрастные акценты', 'Գիշերային ռեժիմ և բարձր կոնտրաստ', 'ღამის რეჟიმი და მაღალი კონტრასტი')}
                       </p>
                     </div>
                   </div>
@@ -1799,12 +1967,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <Eye className="w-3.5 h-3.5" />
                       <span>
                         {isActiveAppMode
-                          ? isRu
-                            ? 'Активна сейчас'
-                            : 'Actif'
-                          : isRu
-                            ? 'Включить на сайте'
-                            : 'Tester en direct'}
+                          ? L('Actif', 'Активна сейчас', 'Ակտիվ է', 'აქტიურია')
+                          : L('Tester en direct', 'Включить на сайте', 'Փորձարկել կայքում', 'საიტზე ჩართვა')}
                       </span>
                     </button>
                   )}
@@ -1816,14 +1980,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div key={`${mode}-${group.id}`} className="space-y-2">
                       <div className="flex items-center justify-between px-1">
                         <span className="text-[11px] font-bold uppercase tracking-wide text-amber-400">
-                          {isRu ? group.titleRu : group.titleFr}
+                          {L(group.titleFr, group.titleRu, group.titleHy, group.titleKa)}
                         </span>
                         <button
                           type="button"
                           onClick={() => setPreviewPage(group.previewTarget)}
                           className="text-[10px] font-semibold text-slate-400 hover:text-white transition"
                         >
-                          {isRu ? 'Показать в превью' : 'Voir aperçu'}
+                          {L('Voir aperçu', 'Показать в превью', 'Տեսնել նախադիտումը', 'გადახედვაში ჩვენება')}
                         </button>
                       </div>
                       <div className="grid grid-cols-1 gap-1.5">
@@ -1837,7 +2001,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="text-xs font-semibold text-white truncate">
-                                  {isRu ? row.labelRu : row.labelFr}
+                                  {L(row.labelFr, row.labelRu, row.labelHy, row.labelKa)}
                                 </span>
                                 <span className="text-[10px] font-mono text-slate-500 shrink-0 hidden sm:inline">
                                   {row.cssVar}
@@ -1877,12 +2041,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-slate-400">
                       {isLightCol
-                        ? isRu
-                          ? 'Предпросмотр светлой темы'
-                          : 'Aperçu Thème Clair'
-                        : isRu
-                          ? 'Предпросмотр тёмной темы'
-                          : 'Aperçu Thème Sombre'}
+                        ? L('Aperçu Thème Clair', 'Предпросмотр светлой темы', 'Լուսավոր թեմայի նախադիտում', 'ნათელი თემის გადახედვა')
+                        : L('Aperçu Thème Sombre', 'Предпросмотр тёмной темы', 'Մուգ թեմայի նախադիտում', 'მუქი თემის გადახედვა')}
                     </span>
                     <span className="text-[10px] font-mono text-slate-500 tabular-nums truncate">
                       {palette.background} · {palette.detailContainerBg || palette.card} · {palette.primary}
@@ -1921,12 +2081,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                 <div className="min-w-0">
                   <h1 className="text-xl font-bold text-white">
-                    {isRu ? 'Дизайн и Брендинг' : 'Design & Branding Studio'}
+                    {L('Design & Branding Studio', 'Дизайн и Брендинг', 'Դիզայն և Բրենդինգ', 'დიზაინი და ბრენდინგი')}
                   </h1>
                   <p className="text-xs text-slate-400 mt-1">
-                    {isRu
-                      ? 'Посекционная настройка цветов для шапки, карточек, страницы авто, чека P&L, таблиц и модальных окон'
-                      : 'Contrôle complet des couleurs par section : en-tête, cartes, fiche véhicule, reçu P&L, tableaux et modales'}
+                    {L(
+                      'Contrôle complet des couleurs par section : en-tête, cartes, fiche véhicule, reçu P&L, tableaux et modales',
+                      'Посекционная настройка цветов для шапки, карточек, страницы авто, чека P&L, таблиц и модальных окон',
+                      'Բաժին առ բաժին գույների կարգավորում՝ վերնագիր, քարտեր, մեքենայի էջ, P&L կտրոն, աղյուսակներ և մոդալներ',
+                      'ფერების სრული მართვა სექციების მიხედვით: სათაური, ბარათები, ავტო-გვერდი, P&L ქვითარი და ცხრილები'
+                    )}
                   </p>
                 </div>
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
@@ -1939,12 +2102,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
                       <span>
                         {theme === 'dark'
-                          ? isRu
-                            ? 'Тёмная'
-                            : 'Sombre'
-                          : isRu
-                            ? 'Светлая'
-                            : 'Clair'}
+                          ? L('Sombre', 'Тёмная', 'Մուգ', 'მუქი')
+                          : L('Clair', 'Светлая', 'Լուսավոր', 'ნათელი')}
                       </span>
                     </button>
                   )}
@@ -1954,7 +2113,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition whitespace-nowrap shrink-0"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Сбросить по умолчанию' : 'Réinitialiser par défaut'}</span>
+                    <span>{L('Réinitialiser par défaut', 'Сбросить по умолчанию', 'Վերականգնել լռելյայնը', 'ნაგულისხმევის დაბრუნება')}</span>
                   </button>
                   <button
                     type="button"
@@ -1962,7 +2121,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap shrink-0"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Применить глобально' : 'Enregistrer & Appliquer'}</span>
+                    <span>{L('Enregistrer & Appliquer', 'Применить глобально', 'Պահպանել և կիրառել', 'შენახვა და გამოყენება')}</span>
                   </button>
                 </div>
               </div>
@@ -1973,11 +2132,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-400" />
                     <span className="text-xs font-bold text-white">
-                      {isRu ? 'Готовые палитры бренда (Light + Dark)' : 'Préréglages de marque (Clair + Sombre)'}
+                      {L('Préréglages de marque (Clair + Sombre)', 'Готовые палитры бренда (Light + Dark)', 'Բրենդի պատրաստի գունապնակներ (Light + Dark)', 'ბრენდის მზა პალიტრები (Light + Dark)')}
                     </span>
                   </div>
                   <span className="text-[11px] text-slate-400">
-                    {isRu ? 'Изменения применяются к предпросмотру мгновенно' : 'Aperçu instantané sans rechargement'}
+                    {L('Aperçu instantané sans rechargement', 'Изменения применяются к предпросмотру мгновенно', 'Փոփոխությունները կիրառվում են անմիջապես նախադիտումում', 'ცვლილებები მყისიერად აისახება გადახედვაში')}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2007,7 +2166,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             style={{ backgroundColor: preset.darkPalette.card }}
                           />
                         </span>
-                        <span>{isRu ? preset.nameRu : preset.nameFr}</span>
+                        <span>{L(preset.nameFr, preset.nameRu, preset.nameHy, preset.nameKa)}</span>
                       </button>
                     );
                   })}
@@ -2018,15 +2177,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-bold text-slate-400 mr-1">
-                    {isRu ? 'Секция:' : 'Section :'}
+                    {L('Section :', 'Секция:', 'Բաժին՝', 'სექცია:')}
                   </span>
                   {(
                     [
-                      { id: 'all', labelRu: 'Все секции', labelFr: 'Toutes', target: null },
-                      { id: 'header', labelRu: 'Шапка и Навигация', labelFr: 'En-tête & Nav', target: 'header_table' },
-                      { id: 'cards', labelRu: 'Карточки склада', labelFr: 'Cartes Stock', target: 'card' },
-                      { id: 'vehicle_detail', labelRu: 'Страница авто и Чек', labelFr: 'Fiche & Reçu P&L', target: 'vehicle_detail' },
-                      { id: 'analytics_tables', labelRu: 'Аналитика, Таблицы и Модалки', labelFr: 'Analytique & Modales', target: 'header_table' },
+                      { id: 'all', labelFr: 'Toutes', labelRu: 'Все секции', labelHy: 'Բոլոր բաժինները', labelKa: 'ყველა სექცია', target: null },
+                      { id: 'header', labelFr: 'En-tête & Nav', labelRu: 'Шапка и Навигация', labelHy: 'Վերնագիր և Նավ', labelKa: 'სათაური და ნავ.', target: 'header_table' },
+                      { id: 'cards', labelFr: 'Cartes Stock', labelRu: 'Карточки склада', labelHy: 'Պահեստի քարտեր', labelKa: 'ბარათები', target: 'card' },
+                      { id: 'vehicle_detail', labelFr: 'Fiche & Reçu P&L', labelRu: 'Страница авто и Чек', labelHy: 'Մեքենայի էջ և P&L', labelKa: 'ავტო და P&L', target: 'vehicle_detail' },
+                      { id: 'analytics_tables', labelFr: 'Analytique & Modales', labelRu: 'Аналитика, Таблицы и Модалки', labelHy: 'Վերլուծություն և Մոդալներ', labelKa: 'ანალიტიკა და მოდალები', target: 'header_table' },
                     ] as const
                   ).map((sec) => {
                     const active = designSection === sec.id;
@@ -2044,7 +2203,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        {isRu ? sec.labelRu : sec.labelFr}
+                        {L(sec.labelFr, sec.labelRu, sec.labelHy, sec.labelKa)}
                       </button>
                     );
                   })}
@@ -2052,13 +2211,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                   <span className="text-[11px] font-bold text-slate-400 mr-1">
-                    {isRu ? 'Превью экрана:' : 'Aperçu écran :'}
+                    {L('Aperçu écran :', 'Превью экрана:', 'Էկրանի նախադիտում՝', 'ეკრანის გადახედვა:')}
                   </span>
                   {(
                     [
-                      { id: 'card', labelRu: 'Карточка авто', labelFr: 'Carte Stock' },
-                      { id: 'vehicle_detail', labelRu: 'Страница авто и Чек', labelFr: 'Fiche & Reçu P&L' },
-                      { id: 'header_table', labelRu: 'Шапка и Таблица', labelFr: 'En-tête & Tableau' },
+                      { id: 'card', labelFr: 'Carte Stock', labelRu: 'Карточка авто', labelHy: 'Մեքենայի քարտ', labelKa: 'ავტო ბარათი' },
+                      { id: 'vehicle_detail', labelFr: 'Fiche & Reçu P&L', labelRu: 'Страница авто и Чек', labelHy: 'Մեքենայի էջ և P&L', labelKa: 'ავტო და P&L' },
+                      { id: 'header_table', labelFr: 'En-tête & Tableau', labelRu: 'Шапка и Таблица', labelHy: 'Վերնագիր և Աղյուսակ', labelKa: 'სათაური და ცხრილი' },
                     ] as const
                   ).map((pg) => {
                     const active = previewPage === pg.id;
@@ -2073,7 +2232,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        {isRu ? pg.labelRu : pg.labelFr}
+                        {L(pg.labelFr, pg.labelRu, pg.labelHy, pg.labelKa)}
                       </button>
                     );
                   })}
@@ -2087,7 +2246,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="flex items-center gap-2">
                       <Type className="w-4 h-4 text-amber-400" />
                       <span className="text-xs font-bold text-white">
-                        {isRu ? 'Быстрое редактирование текста и цвета:' : 'Édition rapide texte & couleur :'}
+                        {L('Édition rapide texte & couleur :', 'Быстрое редактирование текста и цвета:', 'Տեքստի և գույնի արագ խմբագրում՝', 'ტექსტისა და ფერის სწრაფი რედაქტირება:')}
                       </span>
                       <span className="text-xs font-mono text-amber-400">{selectedTypedKey}</span>
                     </div>
@@ -2096,11 +2255,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       onClick={() => setSelectedPreviewKey(null)}
                       className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-800"
                     >
-                      {isRu ? 'Закрыть' : 'Fermer'}
+                      {L('Fermer', 'Закрыть', 'Փակել', 'დახურვა')}
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                    <div className="md:col-span-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                    <div className="lg:col-span-2">
                       <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                         FR
                       </label>
@@ -2115,7 +2274,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                       />
                     </div>
-                    <div className="md:col-span-4">
+                    <div className="lg:col-span-2">
                       <label className="block text-[11px] font-semibold text-slate-400 mb-1">
                         RU
                       </label>
@@ -2130,9 +2289,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div className="lg:col-span-2">
                       <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                        {isRu ? 'Цвет текста' : 'Couleur'}
+                        HY
+                      </label>
+                      <input
+                        type="text"
+                        aria-label={`Quick edit ${selectedTypedKey} HY`}
+                        value={selectedOverrideEntry?.hy ?? ''}
+                        onChange={(e) =>
+                          handleTextOverrideChange(selectedTypedKey, 'hy', e.target.value)
+                        }
+                        placeholder={translations.hy[selectedTypedKey]}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        KA
+                      </label>
+                      <input
+                        type="text"
+                        aria-label={`Quick edit ${selectedTypedKey} KA`}
+                        value={selectedOverrideEntry?.ka ?? ''}
+                        onChange={(e) =>
+                          handleTextOverrideChange(selectedTypedKey, 'ka', e.target.value)
+                        }
+                        placeholder={translations.ka[selectedTypedKey]}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <div className="lg:col-span-2">
+                      <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                        {L('Couleur', 'Цвет текста', 'Տեքստի գույն', 'ტექსტის ფერი')}
                       </label>
                       <div className="flex items-center gap-1.5">
                         <input
@@ -2156,20 +2345,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               handleTextOverrideChange(selectedTypedKey, 'color', '')
                             }
                             className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
-                            title={isRu ? 'Сбросить цвет' : 'Réinitialiser couleur'}
+                            title={L('Réinitialiser couleur', 'Сбросить цвет', 'Վերականգնել գույնը', 'ფერის განულება')}
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
                     </div>
-                    <div className="md:col-span-2 flex justify-end">
+                    <div className="lg:col-span-2 flex justify-end">
                       <button
                         type="button"
                         onClick={() => handleSaveTextOverrides(textOverrides)}
                         className="w-full py-1.5 px-3 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap"
                       >
-                        {isRu ? 'Сохранить' : 'Enregistrer'}
+                        {L('Enregistrer', 'Сохранить', 'Պահպանել', 'შენახვა')}
                       </button>
                     </div>
                   </div>
@@ -2186,7 +2375,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 <div className="lg:col-span-4 space-y-2.5">
                   <label className="block text-xs font-bold text-white">
-                    {isRu ? 'Скругление карточек (--ag-card-radius)' : 'Rayon des bordures de cartes (--ag-card-radius)'}
+                    {L('Rayon des bordures de cartes (--ag-card-radius)', 'Скругление карточек (--ag-card-radius)', 'Քարտերի եզրերի կլորացում (--ag-card-radius)', 'ბარათების კუთხეები (--ag-card-radius)')}
                   </label>
                   <div className="grid grid-cols-4 gap-2">
                     {(['6px', '12px', '16px', '24px'] as const).map((rad) => (
@@ -2210,7 +2399,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 <div className="lg:col-span-4 space-y-2.5">
                   <label className="block text-xs font-bold text-white">
-                    {isRu ? 'Вид инвентаря по умолчанию' : 'Vue par défaut de l’inventaire'}
+                    {L('Vue par défaut de l’inventaire', 'Вид инвентаря по умолчанию', 'Ավտոպարկի լռելյայն տեսք', 'ინვენტარის ნაგულისხმევი ხედი')}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -2224,7 +2413,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {isRu ? 'Сетка (Grid)' : 'Grille (Grid)'}
+                      {L('Grille (Grid)', 'Сетка (Grid)', 'Ցանց (Grid)', 'ბადე (Grid)')}
                     </button>
                     <button
                       type="button"
@@ -2237,16 +2426,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {isRu ? 'Список (List)' : 'Liste (List)'}
+                      {L('Liste (List)', 'Список (List)', 'Ցանկ (List)', 'სია (List)')}
                     </button>
                   </div>
                 </div>
 
                 <div className="lg:col-span-4 space-y-2">
                   <p className="text-xs font-bold text-white">
-                    {isRu
-                      ? `Активные CSS-токены (${theme === 'light' ? 'Light' : 'Dark'})`
-                      : `Variables CSS actives (${theme === 'light' ? 'Light' : 'Dark'})`}
+                    {L(
+                      `Variables CSS actives (${theme === 'light' ? 'Light' : 'Dark'})`,
+                      `Активные CSS-токены (${theme === 'light' ? 'Light' : 'Dark'})`,
+                      `Ակտիվ CSS թոքեններ (${theme === 'light' ? 'Light' : 'Dark'})`,
+                      `აქტიური CSS ტოკენები (${theme === 'light' ? 'Light' : 'Dark'})`
+                    )}
                   </p>
                   <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-[11px] font-mono text-slate-400 space-y-1 tabular-nums">
                     <div>
@@ -2267,37 +2459,55 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
         {/* 4. SUBSCRIPTION & BILLING */}
         {activeTab === 'billing' && (() => {
-          const featuresFieldKey: 'featuresRu' | 'featuresFr' =
-            planFeaturesLang === 'ru' ? 'featuresRu' : 'featuresFr';
+          const featuresFieldKey: 'featuresFr' | 'featuresRu' | 'featuresHy' | 'featuresKa' =
+            planFeaturesLang === 'ru'
+              ? 'featuresRu'
+              : planFeaturesLang === 'hy'
+              ? 'featuresHy'
+              : planFeaturesLang === 'ka'
+              ? 'featuresKa'
+              : 'featuresFr';
           const moduleToggleDefs: {
             key: keyof PlanModulesConfig;
-            labelRu: string;
             labelFr: string;
+            labelRu: string;
+            labelHy: string;
+            labelKa: string;
           }[] = [
             {
               key: 'cerfaAutofill',
-              labelRu: 'Автозаполнение и PDF Cerfa 15776*02',
               labelFr: 'Auto-remplissage & PDF Cerfa 15776*02',
+              labelRu: 'Автозаполнение и PDF Cerfa 15776*02',
+              labelHy: 'Cerfa 15776*02 ավտոլրացում և PDF',
+              labelKa: 'Cerfa 15776*02 ავტოშევსება და PDF',
             },
             {
               key: 'suppliers',
-              labelRu: 'Поставщики и запчасти',
               labelFr: 'Fournisseurs & pièces',
+              labelRu: 'Поставщики и запчасти',
+              labelHy: 'Մատակարարներ և պահեստամասեր',
+              labelKa: 'მომწოდებლები და ნაწილები',
             },
             {
               key: 'analytics',
-              labelRu: 'Аналитика и P&L',
               labelFr: 'Analytique & P&L',
+              labelRu: 'Аналитика и P&L',
+              labelHy: 'Վերլուծություն և P&L',
+              labelKa: 'ანალიტიკა და P&L',
             },
             {
               key: 'exportsBackup',
-              labelRu: 'Экспорт и бэкап',
               labelFr: 'Exports & sauvegardes',
+              labelRu: 'Экспорт и бэкап',
+              labelHy: 'Արտահանում և պահուստավորում',
+              labelKa: 'ექსპორტი და სარეზერვო ასლი',
             },
             {
               key: 'multiGarage',
-              labelRu: 'Режим Мультигараж',
               labelFr: 'Mode Multi-garages',
+              labelRu: 'Режим Мультигараж',
+              labelHy: 'Մուլտի-ավտոսրահ ռեժիմ',
+              labelKa: 'მულტი-გარაჟის რეჟიმი',
             },
           ];
 
@@ -2307,43 +2517,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h1 className="text-xl font-bold text-white">
-                    {isRu ? 'Подписки и биллинг' : 'Abonnements & Facturation'}
+                    {L('Abonnements & Facturation', 'Подписки и биллинг', 'Բաժանորդագրություններ և վճարումներ', 'გამოწერები და ბილინგი')}
                   </h1>
                   <p className="text-xs text-slate-400 mt-1">
-                    {isRu
-                      ? 'Редактируйте названия, цены, лимиты авто, модули и преимущества тарифов (platform_settings/subscription_plans)'
-                      : 'Modifiez noms, tarifs, quotas véhicules, modules et avantages des forfaits (platform_settings/subscription_plans)'}
+                    {L(
+                      'Modifiez noms, sous-titres, tarifs, quotas véhicules, modules et avantages en FR/RU/HY/KA (platform_settings/subscription_plans)',
+                      'Редактируйте названия, подзаголовки, цены, лимиты авто, модули и преимущества в FR/RU/HY/KA (platform_settings/subscription_plans)',
+                      'Խմբագրեք անվանումները, ենթավերնագրերը, գները, սահմանաչափերը և առավելությունները FR/RU/HY/KA լեզուներով (platform_settings/subscription_plans)',
+                      'შეცვალეთ სახელები, ქვესათაურები, ფასები, ლიმიტები, მოდულები და უპირატესობები FR/RU/HY/KA ენებზე (platform_settings/subscription_plans)'
+                    )}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <div
                     role="group"
-                    aria-label={isRu ? 'Язык списка преимуществ' : 'Langue des avantages'}
+                    aria-label={L('Langue des avantages', 'Язык списка преимуществ', 'Առավելությունների լեզու', 'უპირატესობების ენა')}
                     className="inline-flex items-center p-0.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px]"
                   >
-                    <button
-                      type="button"
-                      onClick={() => setPlanFeaturesLang('ru')}
-                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-                        planFeaturesLang === 'ru'
-                          ? 'bg-slate-800 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      RU
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlanFeaturesLang('fr')}
-                      className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer ${
-                        planFeaturesLang === 'fr'
-                          ? 'bg-slate-800 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      FR
-                    </button>
+                    {(['fr', 'ru', 'hy', 'ka'] as Language[]).map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        data-testid={`admin-plan-features-lang-${code}`}
+                        onClick={() => setPlanFeaturesLang(code)}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                          planFeaturesLang === code
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {code.toUpperCase()}
+                      </button>
+                    ))}
                   </div>
 
                   <button
@@ -2353,7 +2559,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    <span>{isRu ? 'Сбросить' : 'Réinitialiser'}</span>
+                    <span>{L('Réinitialiser', 'Сбросить', 'Վերականգնել', 'განულება')}</span>
                   </button>
 
                   <button
@@ -2369,7 +2575,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <Save className="w-3.5 h-3.5" />
                     )}
                     <span>
-                      {isRu ? 'Сохранить изменения' : 'Enregistrer les modifications'}
+                      {L('Enregistrer les modifications', 'Сохранить изменения', 'Պահպանել փոփոխությունները', 'ცვლილებების შენახვა')}
                     </span>
                     {isPlansDirty && (
                       <span
@@ -2407,61 +2613,223 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {plan.isPopular && (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-slate-950">
                                 <Sparkles className="w-3 h-3" />
-                                <span>{isRu ? 'Популярный' : 'Populaire'}</span>
+                                <span>{L('Populaire', 'Популярный', 'Հայտնի', 'პოპულარული')}</span>
                               </span>
                             )}
                           </div>
                           <span className="text-xs font-semibold text-amber-400 tabular-nums">
-                            {metrics.planCounts[plan.id] || 0} {isRu ? 'акк.' : 'comptes'}
+                            {metrics.planCounts[plan.id] || 0} {L('comptes', 'акк.', 'հաշիվ', 'ანგარიში')}
                           </span>
                         </div>
 
-                        {/* Plan Name & Monthly Price */}
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                          <div className="sm:col-span-7">
-                            <label
-                              htmlFor={`admin-plan-name-${plan.id}`}
-                              className="block text-[11px] font-semibold text-slate-400 mb-1"
-                            >
-                              {isRu ? 'Название тарифа' : 'Nom du forfait'}
-                            </label>
-                            <input
-                              id={`admin-plan-name-${plan.id}`}
-                              data-testid={`admin-plan-name-${plan.id}`}
-                              type="text"
-                              value={plan.name}
-                              onChange={(e) =>
-                                updatePlanDraft(plan.id, (curr) => ({
-                                  ...curr,
-                                  name: e.target.value,
-                                }))
-                              }
-                              className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
-                            />
+                        {/* Monthly Price + 4-Language Plan Name */}
+                        <div className="space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                            <div className="sm:col-span-7">
+                              <label
+                                htmlFor={`admin-plan-name-${plan.id}`}
+                                className="block text-[11px] font-semibold text-slate-400 mb-1"
+                              >
+                                {L('Nom du forfait (FR)', 'Название (FR)', 'Անվանում (FR)', 'სახელი (FR)')}
+                              </label>
+                              <input
+                                id={`admin-plan-name-${plan.id}`}
+                                data-testid={`admin-plan-name-${plan.id}`}
+                                type="text"
+                                value={plan.nameFr ?? plan.name}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    name: e.target.value,
+                                    nameFr: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-xs font-bold text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+
+                            <div className="sm:col-span-5">
+                              <label
+                                htmlFor={`admin-plan-price-${plan.id}`}
+                                className="block text-[11px] font-semibold text-slate-400 mb-1"
+                              >
+                                {L('Prix (€ / mois)', 'Цена (€ / мес)', 'Գին (€ / ամիս)', 'ფასი (€ / თვე)')}
+                              </label>
+                              <input
+                                id={`admin-plan-price-${plan.id}`}
+                                data-testid={`admin-plan-price-${plan.id}`}
+                                type="number"
+                                min={0}
+                                step="1"
+                                value={plan.priceMonthly}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    priceMonthly: Math.max(0, Number(e.target.value) || 0),
+                                  }))
+                                }
+                                className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm font-bold text-white tabular-nums focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
                           </div>
 
-                          <div className="sm:col-span-5">
-                            <label
-                              htmlFor={`admin-plan-price-${plan.id}`}
-                              className="block text-[11px] font-semibold text-slate-400 mb-1"
-                            >
-                              {isRu ? 'Цена (€ / мес)' : 'Prix (€ / mois)'}
-                            </label>
-                            <input
-                              id={`admin-plan-price-${plan.id}`}
-                              data-testid={`admin-plan-price-${plan.id}`}
-                              type="number"
-                              min={0}
-                              step="1"
-                              value={plan.priceMonthly}
-                              onChange={(e) =>
-                                updatePlanDraft(plan.id, (curr) => ({
-                                  ...curr,
-                                  priceMonthly: Math.max(0, Number(e.target.value) || 0),
-                                }))
-                              }
-                              className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl px-3 text-sm font-bold text-white tabular-nums focus:outline-none focus:border-amber-500"
-                            />
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-name-${plan.id}-ru`}
+                                className="block text-[10px] font-semibold text-slate-400 mb-1"
+                              >
+                                {L('Nom (RU)', 'Название (RU)', 'Անվանում (RU)', 'სახელი (RU)')}
+                              </label>
+                              <input
+                                id={`admin-plan-name-${plan.id}-ru`}
+                                data-testid={`admin-plan-name-${plan.id}-ru`}
+                                type="text"
+                                value={plan.nameRu ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    nameRu: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-name-${plan.id}-hy`}
+                                className="block text-[10px] font-semibold text-slate-400 mb-1"
+                              >
+                                {L('Nom (HY)', 'Название (HY)', 'Անվանում (HY)', 'სახელი (HY)')}
+                              </label>
+                              <input
+                                id={`admin-plan-name-${plan.id}-hy`}
+                                data-testid={`admin-plan-name-${plan.id}-hy`}
+                                type="text"
+                                value={plan.nameHy ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    nameHy: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-name-${plan.id}-ka`}
+                                className="block text-[10px] font-semibold text-slate-400 mb-1"
+                              >
+                                {L('Nom (KA)', 'Название (KA)', 'Անվանում (KA)', 'სახელი (KA)')}
+                              </label>
+                              <input
+                                id={`admin-plan-name-${plan.id}-ka`}
+                                data-testid={`admin-plan-name-${plan.id}-ka`}
+                                type="text"
+                                value={plan.nameKa ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    nameKa: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 4-Language Plan Subtitle / Tagline */}
+                        <div className="pt-3 border-t border-slate-800 space-y-2">
+                          <span className="block text-[11px] font-semibold text-slate-400">
+                            {L('Sous-titre / Description du forfait', 'Подзаголовок / описание тарифа', 'Սակագնի ենթավերնագիր / նկարագրություն', 'ტარიფის ქვესათაური / აღწერა')}
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-tagline-${plan.id}-fr`}
+                                className="block text-[10px] font-semibold text-slate-500 mb-1"
+                              >
+                                FR
+                              </label>
+                              <input
+                                id={`admin-plan-tagline-${plan.id}-fr`}
+                                data-testid={`admin-plan-tagline-${plan.id}-fr`}
+                                type="text"
+                                value={plan.taglineFr ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    taglineFr: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-tagline-${plan.id}-ru`}
+                                className="block text-[10px] font-semibold text-slate-500 mb-1"
+                              >
+                                RU
+                              </label>
+                              <input
+                                id={`admin-plan-tagline-${plan.id}-ru`}
+                                data-testid={`admin-plan-tagline-${plan.id}-ru`}
+                                type="text"
+                                value={plan.taglineRu ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    taglineRu: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-tagline-${plan.id}-hy`}
+                                className="block text-[10px] font-semibold text-slate-500 mb-1"
+                              >
+                                HY
+                              </label>
+                              <input
+                                id={`admin-plan-tagline-${plan.id}-hy`}
+                                data-testid={`admin-plan-tagline-${plan.id}-hy`}
+                                type="text"
+                                value={plan.taglineHy ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    taglineHy: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`admin-plan-tagline-${plan.id}-ka`}
+                                className="block text-[10px] font-semibold text-slate-500 mb-1"
+                              >
+                                KA
+                              </label>
+                              <input
+                                id={`admin-plan-tagline-${plan.id}-ka`}
+                                data-testid={`admin-plan-tagline-${plan.id}-ka`}
+                                type="text"
+                                value={plan.taglineKa ?? ''}
+                                onChange={(e) =>
+                                  updatePlanDraft(plan.id, (curr) => ({
+                                    ...curr,
+                                    taglineKa: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                              />
+                            </div>
                           </div>
                         </div>
 
@@ -2472,7 +2840,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               htmlFor={`admin-plan-limit-${plan.id}`}
                               className="text-[11px] font-semibold text-slate-400"
                             >
-                              {isRu ? 'Лимит автомобилей' : 'Limite de véhicules'}
+                              {L('Limite de véhicules', 'Лимит автомобилей', 'Մեքենաների սահմանաչափ', 'ავტომობილების ლიმიტი')}
                             </label>
                             <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-200 cursor-pointer select-none">
                               <input
@@ -2484,7 +2852,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 }
                                 className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-amber-500 cursor-pointer"
                               />
-                              <span>{isRu ? 'Безлимит' : 'Illimité'}</span>
+                              <span>{L('Illimité', 'Безлимит', 'Անսահմանափակ', 'ულიმიტო')}</span>
                             </label>
                           </div>
 
@@ -2496,7 +2864,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             max={9998}
                             disabled={isUnlimited}
                             value={isUnlimited ? '' : (plan.vehicleLimit ?? 5)}
-                            placeholder={isUnlimited ? (isRu ? '∞ Безлимит' : '∞ Illimité') : '5'}
+                            placeholder={isUnlimited ? L('∞ Illimité', '∞ Безлимит', '∞ Անսահմանափակ', '∞ ულიმიტო') : '5'}
                             onChange={(e) => {
                               const parsed = Math.max(1, Math.min(9998, Math.round(Number(e.target.value) || 1)));
                               updatePlanDraft(plan.id, (curr) => ({
@@ -2511,13 +2879,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {/* Popular Badge Switch */}
                         <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
                           <span className="text-xs font-semibold text-slate-200">
-                            {isRu ? 'Бейдж «Популярный»' : 'Badge « Populaire »'}
+                            {L('Badge « Populaire »', 'Бейдж «Популярный»', '«Հայտնի» նշան', 'ბეიჯი «პოპულარული»')}
                           </span>
                           <button
                             type="button"
                             role="switch"
                             aria-checked={Boolean(plan.isPopular)}
-                            aria-label={isRu ? `Популярный тариф ${plan.name}` : `Populaire ${plan.name}`}
+                            aria-label={`${L('Populaire', 'Популярный тариф', 'Հայտնի սակագին', 'პოპულარული ტარიფი')} ${getPlanDisplayName(plan, lang)}`}
                             data-testid={`admin-plan-popular-${plan.id}`}
                             onClick={() => handleTogglePlanPopular(plan.id)}
                             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
@@ -2535,7 +2903,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {/* Plan Feature Module Toggles */}
                         <div className="pt-3 border-t border-slate-800 space-y-2">
                           <p className="text-[11px] font-semibold text-slate-400">
-                            {isRu ? 'Доступные функции тарифа' : 'Modules inclus dans le forfait'}
+                            {L('Modules inclus dans le forfait', 'Доступные функции тарифа', 'Սակագնում ներառված մոդուլներ', 'ტარიფში შემავალი მოდულები')}
                           </p>
                           <div className="space-y-1.5">
                             {moduleToggleDefs.map((mod) => {
@@ -2546,7 +2914,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   className="flex items-center justify-between gap-2 py-1 px-2 rounded-lg hover:bg-slate-800/50 cursor-pointer select-none transition"
                                 >
                                   <span className="text-xs text-slate-200">
-                                    {isRu ? mod.labelRu : mod.labelFr}
+                                    {L(mod.labelFr, mod.labelRu, mod.labelHy, mod.labelKa)}
                                   </span>
                                   <input
                                     type="checkbox"
@@ -2565,9 +2933,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="pt-3 border-t border-slate-800 space-y-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-[11px] font-semibold text-slate-400">
-                              {isRu
-                                ? `Список преимуществ (${planFeaturesLang.toUpperCase()})`
-                                : `Points affichés (${planFeaturesLang.toUpperCase()})`}
+                              {L(
+                                `Points affichés (${planFeaturesLang.toUpperCase()})`,
+                                `Список преимуществ (${planFeaturesLang.toUpperCase()})`,
+                                `Առավելությունների ցանկ (${planFeaturesLang.toUpperCase()})`,
+                                `უპირატესობების სია (${planFeaturesLang.toUpperCase()})`
+                              )}
                             </span>
                             <button
                               type="button"
@@ -2576,7 +2947,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 transition cursor-pointer"
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              <span>{isRu ? 'Добавить пункт' : 'Ajouter'}</span>
+                              <span>{L('Ajouter', 'Добавить пункт', 'Ավելացնել կետ', 'დამატება')}</span>
                             </button>
                           </div>
 
@@ -2586,7 +2957,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <input
                                   type="text"
                                   data-testid={`admin-plan-feature-${plan.id}-${idx}`}
-                                  aria-label={`${plan.name} feature ${idx + 1}`}
+                                  aria-label={`${getPlanDisplayName(plan, planFeaturesLang)} feature ${idx + 1} (${planFeaturesLang.toUpperCase()})`}
                                   value={feat}
                                   onChange={(e) =>
                                     handleUpdatePlanFeature(
@@ -2601,7 +2972,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <button
                                   type="button"
                                   data-testid={`admin-plan-remove-feature-${plan.id}-${idx}`}
-                                  aria-label={isRu ? 'Удалить пункт' : 'Supprimer'}
+                                  aria-label={L('Supprimer', 'Удалить пункт', 'Հեռացնել', 'წაშლა')}
                                   onClick={() =>
                                     handleRemovePlanFeature(plan.id, featuresFieldKey, idx)
                                   }
@@ -2613,9 +2984,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             ))}
                             {featuresList.length === 0 && (
                               <p className="text-[11px] text-slate-500">
-                                {isRu
-                                  ? 'Нет добавленных пунктов — нажмите «Добавить пункт».'
-                                  : 'Aucun point — cliquez sur « Ajouter ».'}
+                                {L(
+                                  'Aucun point — cliquez sur « Ajouter ».',
+                                  'Нет добавленных пунктов — нажмите «Добавить пункт».',
+                                  'Կետեր չկան — սեղմեք «Ավելացնել կետ»։',
+                                  'პუნქტები არ არის — დააჭირეთ «დამატებას».'
+                                )}
                               </p>
                             )}
                           </div>
@@ -2630,7 +3004,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-bold text-white">
-                    {isRu ? 'Статусы платежей' : 'Journal des paiements'}
+                    {L('Journal des paiements', 'Статусы платежей', 'Վճարումների կարգավիճակներ', 'გადახდების სტატუსები')}
                   </h2>
                   <span className="text-sm font-bold text-emerald-400 tabular-nums">
                     MRR: {formatEuro(metrics.monthlyRevenueMRR)}
@@ -2647,7 +3021,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div>
                           <span className="font-semibold text-white">{acc.garageName || acc.displayName || acc.email}</span>
                           <span className="text-slate-400 ml-2">
-                            ({matchedPlan?.name || acc.planId})
+                            ({matchedPlan ? getPlanDisplayName(matchedPlan, lang) : acc.planId})
                           </span>
                         </div>
                         <div className="flex items-center gap-3 tabular-nums">
@@ -2726,7 +3100,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="text-xl font-bold text-white">
-                      {isRu ? 'Калибровка бланка Cerfa 15776*02' : 'Calibration du modèle Cerfa 15776*02'}
+                      {L('Calibration du modèle Cerfa 15776*02', 'Калибровка бланка Cerfa 15776*02', 'Cerfa 15776*02 ձևաթղթի կալիբրացիա', 'Cerfa 15776*02 ბლანკის კალიბრაცია')}
                     </h1>
                     <span
                       data-testid="admin-cerfa-dummy-badge"
@@ -2734,16 +3108,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     >
                       <Sparkles className="w-3 h-3" />
                       <span>
-                        {isRu
-                          ? '100% тестовых данных • без привязки к гаражу'
-                          : 'Données de test complètes • indépendant du stock'}
+                        {L(
+                          'Données de test complètes • indépendant du stock',
+                          '100% тестовых данных • без привязки к гаражу',
+                          '100% փորձնական տվյալներ • անկախ պահեստից',
+                          '100% სატესტო მონაცემები • მარაგისგან დამოუკიდებელი'
+                        )}
                       </span>
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    {isRu
-                      ? 'Облачная калибровка координат полей (x, y, шрифт) с подсветкой выбранного поля на живом бланке (platform_settings/cerfa_templates)'
-                      : 'Calibration cloud des coordonnées (x, y, police) avec surbrillance du champ sélectionné (platform_settings/cerfa_templates)'}
+                    {L(
+                      'Calibration cloud des coordonnées (x, y, police) avec surbrillance du champ sélectionné (platform_settings/cerfa_templates)',
+                      'Облачная калибровка координат полей (x, y, шрифт) с подсветкой выбранного поля на живом бланке (platform_settings/cerfa_templates)',
+                      'Դաշտերի կոորդինատների ամպային կալիբրացիա (x, y, տառաչափ)՝ ընտրված դաշտի լուսավորմամբ (platform_settings/cerfa_templates)',
+                      'ველების კოორდინატების ღრუბლოვანი კალიბრაცია (x, y, შრიფტი) არჩეული ველის მონიშვნით (platform_settings/cerfa_templates)'
+                    )}
                   </p>
                 </div>
                 <button
@@ -2752,7 +3132,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition self-start"
                 >
                   <Sliders className="w-4 h-4" />
-                  <span>{isRu ? 'Открыть Aligner Mode' : 'Ouvrir Aligner Mode'}</span>
+                  <span>{L('Ouvrir Aligner Mode', 'Открыть Aligner Mode', 'Բացել Aligner Mode', 'Aligner Mode-ის გახსნა')}</span>
                 </button>
               </div>
 
@@ -2763,12 +3143,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <div>
                   <p className="text-sm font-bold text-amber-400">
-                    Cerfa N° 15776*02 — {isRu ? 'Акт передачи ТС (Certificat de cession)' : 'Certificat de cession d’un véhicule d’occasion'}
+                    Cerfa N° 15776*02 — {L('Certificat de cession d’un véhicule d’occasion', 'Акт передачи ТС (Certificat de cession)', 'ՏՄ հանձնման վկայական (Certificat de cession)', 'ავტომობილის გადაცემის აქტი (Certificat de cession)')}
                   </p>
                   <p className="text-[11px] text-slate-300 mt-0.5">
-                    {isRu
-                      ? 'Единый поддерживаемый правительственный шаблон PDF (экземпляры 1 и 2)'
-                      : 'Modèle gouvernemental officiel actif (Exemplaires 1 & 2)'}
+                    {L(
+                      'Modèle gouvernemental officiel actif (Exemplaires 1 & 2)',
+                      'Единый поддерживаемый правительственный шаблон PDF (экземпляры 1 и 2)',
+                      'Պաշտոնական կառավարական PDF ձևանմուշ (Օրինակ 1 և 2)',
+                      'ოფიციალური სამთავრობო PDF შაბლონი (ეგზემპლარები 1 და 2)'
+                    )}
                   </p>
                 </div>
               </div>
@@ -2780,7 +3163,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3.5">
                     <div className="flex items-center justify-between gap-2">
                       <h2 className="text-sm font-bold text-white">
-                        {isRu ? 'Глобальные смещения шаблона' : 'Décalages globaux du modèle'}
+                        {L('Décalages globaux du modèle', 'Глобальные смещения шаблона', 'Ձևանմուշի ընդհանուր շեղումներ', 'შაბლონის გლობალური წანაცვლება')}
                       </h2>
                       <button
                         type="button"
@@ -2789,7 +3172,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        <span>{isRu ? 'Сбросить шаблон' : 'Réinitialiser modèle'}</span>
+                        <span>{L('Réinitialiser modèle', 'Сбросить шаблон', 'Վերականգնել ձևանմուշը', 'შაბლონის განულება')}</span>
                       </button>
                     </div>
 
@@ -2799,7 +3182,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           htmlFor="admin-cerfa-offset-x"
                           className="block text-[11px] font-semibold text-slate-300 mb-1"
                         >
-                          {isRu ? 'Смещение X' : 'Décalage X'}
+                          {L('Décalage X', 'Смещение X', 'Շեղում X', 'წანაცვლება X')}
                         </label>
                         <input
                           id="admin-cerfa-offset-x"
@@ -2819,7 +3202,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           htmlFor="admin-cerfa-offset-y"
                           className="block text-[11px] font-semibold text-slate-300 mb-1"
                         >
-                          {isRu ? 'Смещение Y' : 'Décalage Y'}
+                          {L('Décalage Y', 'Смещение Y', 'Շեղում Y', 'წანაცვლება Y')}
                         </label>
                         <input
                           id="admin-cerfa-offset-y"
@@ -2839,7 +3222,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           htmlFor="admin-cerfa-font-delta"
                           className="block text-[11px] font-semibold text-slate-300 mb-1"
                         >
-                          {isRu ? 'Шрифт Δ' : 'Police Δ'}
+                          {L('Police Δ', 'Шрифт Δ', 'Տառաչափ Δ', 'შრიფტი Δ')}
                         </label>
                         <input
                           id="admin-cerfa-font-delta"
@@ -2860,14 +3243,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
                     <div>
                       <h2 className="text-sm font-bold text-white">
-                        {isRu
-                          ? 'Точная калибровка координат поля (pt)'
-                          : 'Calibration précise des coordonnées (pt)'}
+                        {L(
+                          'Calibration précise des coordonnées (pt)',
+                          'Точная калибровка координат поля (pt)',
+                          'Դաշտի կոորդինատների ճշգրիտ կալիբրացիա (pt)',
+                          'ველის კოორდინატების ზუსტი კალიბრაცია (pt)'
+                        )}
                       </h2>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        {isRu
-                          ? 'Выбранное поле подсвечивается янтарно-красной рамкой на бланке справа'
-                          : 'Le champ actif est surligné en ambre/rouge sur l’aperçu à droite'}
+                        {L(
+                          'Le champ actif est surligné en ambre/rouge sur l’aperçu à droite',
+                          'Выбранное поле подсвечивается янтарно-красной рамкой на бланке справа',
+                          'Ընտրված դաշտը լուսավորվում է աջ կողմի նախադիտման վրա',
+                          'არჩეული ველი მონიშნულია მარჯვენა წინასწარ ხედზე'
+                        )}
                       </p>
                     </div>
 
@@ -2877,7 +3266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           htmlFor="admin-cerfa-field-select"
                           className="block text-xs font-semibold text-slate-300 mb-1.5"
                         >
-                          {isRu ? 'Поле документа' : 'Champ du document'}
+                          {L('Champ du document', 'Поле документа', 'Փաստաթղթի դաշտ', 'დოკუმენტის ველი')}
                         </label>
                         <select
                           id="admin-cerfa-field-select"
@@ -2945,7 +3334,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               htmlFor="admin-cerfa-field-size"
                               className="block text-[11px] font-semibold text-slate-400 mb-1"
                             >
-                              {isRu ? 'Шрифт (pt)' : 'Taille (pt)'}
+                              {L('Taille (pt)', 'Шрифт (pt)', 'Չափս (pt)', 'ზომა (pt)')}
                             </label>
                             <input
                               id="admin-cerfa-field-size"
@@ -2997,7 +3386,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <div className="space-y-2 pt-1">
                         <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
                           <span className="text-[11px] font-semibold text-slate-400">
-                            {isRu ? 'Сдвиг X:' : 'Ajuster X :'}
+                            {L('Ajuster X :', 'Сдвиг X:', 'Տեղաշարժ X՝', 'წანაცვლება X:')}
                           </span>
                           <div className="flex items-center gap-1.5">
                             {[-5, -1, 1, 5].map((delta) => (
@@ -3015,7 +3404,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                         <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
                           <span className="text-[11px] font-semibold text-slate-400">
-                            {isRu ? 'Сдвиг Y:' : 'Ajuster Y :'}
+                            {L('Ajuster Y :', 'Сдвиг Y:', 'Տեղաշարժ Y՝', 'წანაცვლება Y:')}
                           </span>
                           <div className="flex items-center gap-1.5">
                             {[-5, -1, 1, 5].map((delta) => (
@@ -3056,7 +3445,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         ) : (
                           <Save className="w-3.5 h-3.5" />
                         )}
-                        <span>{isRu ? 'Сохранить' : 'Enregistrer'}</span>
+                        <span>{L('Enregistrer', 'Сохранить', 'Պահպանել', 'შენახვა')}</span>
                       </button>
                     </div>
                   </div>
@@ -3065,7 +3454,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Right: Live PDF Preview with Full Dummy Test Data & Highlighted Selected Field */}
                 <div className="xl:col-span-7">
                   <CerfaLivePreviewSheet
-                    title="Живой предпросмотр Cerfa N° 15776*02"
+                    title={L(
+                      'Aperçu en direct Cerfa N° 15776*02',
+                      'Живой предпросмотр Cerfa N° 15776*02',
+                      'Cerfa N° 15776*02 ուղիղ նախադիտում',
+                      'Cerfa N° 15776*02 ცოცხალი წინასწარი ხედი'
+                    )}
                     activeFieldLabel={activeCerfaPreviewLabel}
                     generatePdfBytes={generateAdminCerfaPreviewBytes}
                     dependencyKey={adminCerfaPreviewDepKey}
@@ -3084,12 +3478,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Управление категориями расходов' : 'Gestion des catégories de dépenses'}
+                  {L('Gestion des catégories de dépenses', 'Управление категориями расходов', 'Ծախսերի կատեգորիաների կառավարում', 'ხარჯების კატეგორიების მართვა')}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Создавайте, переименовывайте, настраивайте иконки, суммы по умолчанию и порядок отображения (/system_config/expenses)'
-                    : 'Créez, renommez et ordonnez les catégories globales de dépenses (/system_config/expenses)'}
+                  {L(
+                    'Créez, renommez et ordonnez les catégories globales de dépenses (/system_config/expenses)',
+                    'Создавайте, переименовывайте, настраивайте иконки, суммы по умолчанию и порядок отображения (/system_config/expenses)',
+                    'Ստեղծեք, վերանվանեք և կարգավորեք պատկերակները, լռելյայն գումարները և հերթականությունը (/system_config/expenses)',
+                    'შექმენით, გადაარქვით და დაალაგეთ ხარჯების გლობალური კატეგორიები (/system_config/expenses)'
+                  )}
                 </p>
               </div>
               <button
@@ -3098,7 +3495,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition self-start"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>{isRu ? 'Сбросить по умолчанию' : 'Réinitialiser'}</span>
+                <span>{L('Réinitialiser', 'Сбросить по умолчанию', 'Վերականգնել լռելյայնը', 'ნაგულისხმევის დაბრუნება')}</span>
               </button>
             </div>
 
@@ -3110,12 +3507,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-white">
                   {editingCategoryId
-                    ? isRu
-                      ? 'Редактировать категорию'
-                      : 'Modifier la catégorie'
-                    : isRu
-                    ? 'Добавить новую категорию'
-                    : 'Ajouter une nouvelle catégorie'}
+                    ? L('Modifier la catégorie', 'Редактировать категорию', 'Խմբագրել կատեգորիան', 'კატეგორიის რედაქტირება')
+                    : L('Ajouter une nouvelle catégorie', 'Добавить новую категорию', 'Ավելացնել նոր կատեգորիա', 'ახალი კატეგორიის დამატება')}
                 </h2>
                 {editingCategoryId && (
                   <button
@@ -3123,7 +3516,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     onClick={resetCategoryForm}
                     className="text-xs text-slate-400 hover:text-white"
                   >
-                    {isRu ? 'Отмена' : 'Annuler'}
+                    {L('Annuler', 'Отмена', 'Չեղարկել', 'გაუქმება')}
                   </button>
                 )}
               </div>
@@ -3132,7 +3525,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Название (FR) *' : 'Nom (FR) *'}
+                    {L('Nom (FR) *', 'Название (FR) *', 'Անվանում (FR) *', 'სახელი (FR) *')}
                   </label>
                   <input
                     type="text"
@@ -3146,7 +3539,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Название (RU) *' : 'Nom (RU) *'}
+                    {L('Nom (RU) *', 'Название (RU) *', 'Անվանում (RU) *', 'სახელი (RU) *')}
                   </label>
                   <input
                     type="text"
@@ -3160,7 +3553,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Название (HY)' : 'Nom (HY)'}
+                    {L('Nom (HY)', 'Название (HY)', 'Անվանում (HY)', 'სახელი (HY)')}
                   </label>
                   <input
                     type="text"
@@ -3173,7 +3566,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Название (KA)' : 'Nom (KA)'}
+                    {L('Nom (KA)', 'Название (KA)', 'Անվանում (KA)', 'სახელი (KA)')}
                   </label>
                   <input
                     type="text"
@@ -3190,7 +3583,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'ID категории (опционально)' : 'ID catégorie (optionnel)'}
+                    {L('ID catégorie (optionnel)', 'ID категории (опционально)', 'Կատեգորիայի ID (ըստ ցանկության)', 'კატეგორიის ID (არასავალდებულო)')}
                   </label>
                   <input
                     type="text"
@@ -3202,29 +3595,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       setCatFormId(e.target.value);
                       if (catFormError) setCatFormError(null);
                     }}
-                    placeholder={
-                      isRu
-                        ? 'Авто из названия (напр. diagnostic_auto)'
-                        : 'Auto depuis le nom (ex. diagnostic_auto)'
-                    }
+                    placeholder={L(
+                      'Auto depuis le nom (ex. diagnostic_auto)',
+                      'Авто из названия (напр. diagnostic_auto)',
+                      'Ավտոմատ անունից (օր. diagnostic_auto)',
+                      'ავტო სახელიდან (მაგ. diagnostic_auto)'
+                    )}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   <p className="text-[10px] text-slate-500 mt-1 font-mono">
                     {editingCategoryId
-                      ? isRu
-                        ? 'ID существующей категории фиксирован'
-                        : 'ID verrouillé après création'
+                      ? L(
+                          'ID verrouillé après création',
+                          'ID существующей категории фиксирован',
+                          'Գոյություն ունեցող կատեգորիայի ID-ն ֆիքսված է',
+                          'არსებული კატეგორიის ID დაფიქსირებულია'
+                        )
                       : catFormId.trim()
-                      ? `${isRu ? 'Будет сохранён' : 'ID normalisé'}: ${normalizeExpenseCategorySlug(catFormId) || '—'}`
-                      : isRu
-                      ? 'Латиница, цифры, _ или - (1–64 симв.)'
-                      : 'Lettres, chiffres, _ ou - (1–64 car.)'}
+                      ? `${L('ID normalisé', 'Будет сохранён', 'Կպահպանվի որպես', 'შეინახება როგორც')}: ${normalizeExpenseCategorySlug(catFormId) || '—'}`
+                      : L(
+                          'Lettres, chiffres, _ ou - (1–64 car.)',
+                          'Латиница, цифры, _ или - (1–64 симв.)',
+                          'Լատինատառ, թվեր, _ կամ - (1–64 նշան)',
+                          'ლათინური ასოები, ციფრები, _ ან - (1–64 სიმბ.)'
+                        )}
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Сумма по умолчанию (€)' : 'Montant par défaut (€)'}
+                    {L('Montant par défaut (€)', 'Сумма по умолчанию (€)', 'Լռելյայն գումար (€)', 'ნაგულისხმევი თანხა (€)')}
                   </label>
                   <input
                     type="number"
@@ -3239,7 +3639,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Live Category Preview */}
                 <div>
                   <span className="block text-[11px] font-semibold text-slate-400 mb-1">
-                    {isRu ? 'Предпросмотр' : 'Aperçu en direct'}
+                    {L('Aperçu en direct', 'Предпросмотр', 'Ուղիղ նախադիտում', 'ცოცხალი წინასწარი ხედი')}
                   </span>
                   <div
                     data-testid="admin-cat-live-preview"
@@ -3250,10 +3650,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         {renderExpenseCategoryIcon(catFormIcon, 'w-3.5 h-3.5')}
                       </span>
                       <span className="text-xs font-semibold text-white truncate">
-                        {(isRu ? catFormRu : catFormFr) ||
+                        {L(catFormFr, catFormRu, catFormHy, catFormKa) ||
                           catFormFr ||
                           catFormRu ||
-                          (isRu ? 'Новая категория' : 'Nouvelle catégorie')}
+                          L('Nouvelle catégorie', 'Новая категория', 'Նոր կատեգորիա', 'ახალი კატეგორია')}
                       </span>
                     </div>
                     <span className="text-[10px] font-mono text-amber-400 shrink-0">
@@ -3267,7 +3667,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Иконка категории' : 'Icône de la catégorie'}
+                    {L('Icône de la catégorie', 'Иконка категории', 'Կատեգորիայի պատկերակ', 'კატეგორიის ხატულა')}
                   </label>
                   <span className="text-[11px] font-mono text-amber-400" data-testid="admin-cat-selected-icon">
                     {catFormIcon}
@@ -3276,10 +3676,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <div
                   className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2"
                   role="radiogroup"
-                  aria-label={isRu ? 'Иконка категории' : 'Icône de la catégorie'}
+                  aria-label={L('Icône de la catégorie', 'Иконка категории', 'Կատեգորիայի պատկերակ', 'კატეგორიის ხატულა')}
                 >
                   {EXPENSE_CATEGORY_ICON_OPTIONS.map((opt) => {
                     const isSelected = catFormIcon === opt.id;
+                    const optLabel = L(opt.labelFr, opt.labelRu, opt.labelHy, opt.labelKa);
                     return (
                       <button
                         key={opt.id}
@@ -3288,7 +3689,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         aria-checked={isSelected}
                         data-testid={`admin-cat-icon-${opt.id}`}
                         onClick={() => setCatFormIcon(opt.id)}
-                        title={isRu ? opt.labelRu : opt.labelFr}
+                        title={optLabel}
                         className={`flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left transition ${
                           isSelected
                             ? 'bg-amber-500/15 border-amber-500 text-white shadow-sm'
@@ -3305,7 +3706,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="min-w-0 leading-tight">
                           <div className="text-[11px] font-mono font-semibold truncate">{opt.id}</div>
                           <div className="text-[10px] text-slate-400 truncate">
-                            {isRu ? opt.labelRu : opt.labelFr}
+                            {optLabel}
                           </div>
                         </div>
                       </button>
@@ -3332,12 +3733,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <Plus className="w-3.5 h-3.5" />
                   <span>
                     {editingCategoryId
-                      ? isRu
-                        ? 'Сохранить изменения'
-                        : 'Mettre à jour'
-                      : isRu
-                      ? 'Создать категорию'
-                      : 'Créer la catégorie'}
+                      ? L('Mettre à jour', 'Сохранить изменения', 'Պահպանել փոփոխությունները', 'ცვლილებების შენახვა')
+                      : L('Créer la catégorie', 'Создать категорию', 'Ստեղծել կատեգորիա', 'კატეგორიის შექმნა')}
                   </span>
                 </button>
               </div>
@@ -3350,13 +3747,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <tr className="border-b border-slate-800 text-[11px] font-semibold text-slate-400">
                     <th className="py-3 px-4">#</th>
                     <th className="py-3 px-4">ID</th>
-                    <th className="py-3 px-4">{isRu ? 'Название (FR)' : 'Nom (FR)'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Название (RU)' : 'Nom (RU)'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Название (HY)' : 'Nom (HY)'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Название (KA)' : 'Nom (KA)'}</th>
-                    <th className="py-3 px-4">{isRu ? 'Иконка' : 'Icône'}</th>
-                    <th className="py-3 px-4 text-right">{isRu ? 'По умолч.' : 'Défaut'}</th>
-                    <th className="py-3 px-4 text-right">{isRu ? 'Действия' : 'Actions'}</th>
+                    <th className="py-3 px-4">{L('Nom (FR)', 'Название (FR)', 'Անվանում (FR)', 'სახელი (FR)')}</th>
+                    <th className="py-3 px-4">{L('Nom (RU)', 'Название (RU)', 'Անվանում (RU)', 'სახელი (RU)')}</th>
+                    <th className="py-3 px-4">{L('Nom (HY)', 'Название (HY)', 'Անվանում (HY)', 'სახელი (HY)')}</th>
+                    <th className="py-3 px-4">{L('Nom (KA)', 'Название (KA)', 'Անվանում (KA)', 'სახელი (KA)')}</th>
+                    <th className="py-3 px-4">{L('Icône', 'Иконка', 'Պատկերակ', 'ხატულა')}</th>
+                    <th className="py-3 px-4 text-right">{L('Défaut', 'По умолч.', 'Լռելյայն', 'ნაგულისხმევი')}</th>
+                    <th className="py-3 px-4 text-right">{L('Actions', 'Действия', 'Գործողություններ', 'მოქმედებები')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
@@ -3383,7 +3780,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="button"
                             disabled={idx === 0}
                             onClick={() => handleMoveCategory(idx, -1)}
-                            title={isRu ? 'Выше' : 'Monter'}
+                            title={L('Monter', 'Выше', 'Բարձրացնել', 'ზემოთ')}
                             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
@@ -3392,7 +3789,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             type="button"
                             disabled={idx === expenseCategories.length - 1}
                             onClick={() => handleMoveCategory(idx, 1)}
-                            title={isRu ? 'Ниже' : 'Descendre'}
+                            title={L('Descendre', 'Ниже', 'Իջեցնել', 'ქვემოთ')}
                             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 transition"
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
@@ -3400,7 +3797,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <button
                             type="button"
                             onClick={() => handleEditCategory(cat)}
-                            title={isRu ? 'Редактировать' : 'Modifier'}
+                            title={L('Modifier', 'Редактировать', 'Խմբագրել', 'რედაქტირება')}
                             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -3408,7 +3805,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDeleteCategory(cat.id)}
-                            title={isRu ? 'Удалить' : 'Supprimer'}
+                            title={L('Supprimer', 'Удалить', 'Հեռացնել', 'წაშლა')}
                             className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-950/60 text-red-400 transition"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -3429,12 +3826,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Управление функциями (Feature Controls)' : 'Contrôle Global des Fonctions'}
+                  {L('Contrôle Global des Fonctions', 'Управление функциями (Feature Controls)', 'Ֆունկցիաների գլոբալ կառավարում', 'ფუნქციების გლობალური მართვა')}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Мгновенное включение/отключение модулей для всех пользователей платформы (platform_settings/feature_flags)'
-                    : 'Activation ou désactivation instantanée des modules pour tous les utilisateurs (platform_settings/feature_flags)'}
+                  {L(
+                    'Activation ou désactivation instantanée des modules pour tous les utilisateurs (platform_settings/feature_flags)',
+                    'Мгновенное включение/отключение модулей для всех пользователей платформы (platform_settings/feature_flags)',
+                    'Մոդուլների ակնթարթային միացում/անջատում հարթակի բոլոր օգտատերերի համար (platform_settings/feature_flags)',
+                    'მოდულების მყისიერი ჩართვა/გამორთვა პლატფორმის ყველა მომხმარებლისთვის (platform_settings/feature_flags)'
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 self-start">
@@ -3445,7 +3845,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition disabled:opacity-60"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Включить все' : 'Tout activer'}</span>
+                  <span>{L('Tout activer', 'Включить все', 'Միացնել բոլորը', 'ყველას ჩართვა')}</span>
                 </button>
                 <button
                   type="button"
@@ -3459,7 +3859,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   ) : (
                     <Save className="w-3.5 h-3.5" />
                   )}
-                  <span>{isRu ? 'Сохранить изменения' : 'Enregistrer'}</span>
+                  <span>{L('Enregistrer', 'Сохранить изменения', 'Պահպանել փոփոխությունները', 'ცვლილებების შენახვა')}</span>
                 </button>
               </div>
             </div>
@@ -3469,63 +3869,97 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 [
                   {
                     key: 'multiGarage',
-                    titleRu: 'Multi-garage / Мультигараж и переключатель пространств',
                     titleFr: 'Multi-Garage & Sélecteur d’espaces de travail',
-                    descRu: 'При отключении скрывает «+ Создать новый гараж» и «РАБОЧИЙ ГАРАЖ», автоматически загружая основной гараж пользователя.',
+                    titleRu: 'Multi-garage / Мультигараж и переключатель пространств',
+                    titleHy: 'Multi-garage / Բազմագարաժ և աշխատանքային տիրույթների ընտրիչ',
+                    titleKa: 'Multi-garage / მრავალფარეხი და სივრცეების გადამრთველი',
                     descFr: 'Masque la création/sélection multi-garages et charge directement le garage principal.',
+                    descRu: 'При отключении скрывает «+ Создать новый гараж» и «РАБОЧИЙ ГАРАЖ», автоматически загружая основной гараж пользователя.',
+                    descHy: 'Անջատելիս թաքցնում է «+ Ստեղծել նոր գարաժ» և «ԱՇԽԱՏԱՆՔԱՅԻՆ ԳԱՐԱԺ» բաժինները՝ բեռնելով հիմնական գարաժը։',
+                    descKa: 'გამორთვისას მალავს «+ ახალი ავტოფარეხის შექმნა»-ს და პირდაპირ ტვირთავს მთავარ ავტოფარეხს.',
                   },
                   {
                     key: 'expenseAnalytics',
-                    titleRu: 'Аналитика и P&L (графики и разбивка расходов)',
                     titleFr: 'Analytique détaillée & Graphiques P&L',
-                    descRu: 'Скрывает раздел «Аналитика и P&L» в боковом меню и блокирует прямой доступ к графикам.',
+                    titleRu: 'Аналитика и P&L (графики и разбивка расходов)',
+                    titleHy: 'Վերլուծություն և P&L (գրաֆիկներ և ծախսերի բաշխում)',
+                    titleKa: 'ანალიტიკა და P&L (გრაფიკები და ხარჯების დეტალიზაცია)',
                     descFr: 'Masque l’onglet « Analytique & P&L » et bloque l’accès au module.',
+                    descRu: 'Скрывает раздел «Аналитика и P&L» в боковом меню и блокирует прямой доступ к графикам.',
+                    descHy: 'Թաքցնում է «Վերլուծություն և P&L» բաժինը կողային ընտրացանկում և արգելափակում մուտքը գրաֆիկներին։',
+                    descKa: 'მალავს «ანალიტიკა და P&L» ჩანართს გვერდითა მენიუში და ბლოკავს გრაფიკებზე წვდომას.',
                   },
                   {
                     key: 'suppliersModule',
-                    titleRu: 'Поставщики и закупки',
                     titleFr: 'Fournisseurs & Achats',
-                    descRu: 'Скрывает раздел «Поставщики и закупки» в боковом меню и блокирует доступ к модулю.',
+                    titleRu: 'Поставщики и закупки',
+                    titleHy: 'Մատակարարներ և գնումներ',
+                    titleKa: 'მომწოდებლები და შესყიდვები',
                     descFr: 'Masque l’onglet « Fournisseurs & Achats » et bloque l’accès au module.',
+                    descRu: 'Скрывает раздел «Поставщики и закупки» в боковом меню и блокирует доступ к модулю.',
+                    descHy: 'Թաքցնում է «Մատակարարներ և գնումներ» բաժինը և արգելափակում մուտքը մոդուլին։',
+                    descKa: 'მალავს «მომწოდებლები და შესყიდვები» ჩანართს და ბლოკავს მოდულზე წვდომას.',
                   },
                   {
                     key: 'documentsModule',
-                    titleRu: 'Документы (хранилище досье и файлов)',
                     titleFr: 'Documents (Coffre-fort documentaire)',
-                    descRu: 'Скрывает раздел «Документы» в боковом меню и блокирует доступ к хранилищу документов.',
+                    titleRu: 'Документы (хранилище досье и файлов)',
+                    titleHy: 'Փաստաթղթեր (ֆայլերի և գործերի պահոց)',
+                    titleKa: 'დოკუმენტები (დოსიეების და ფაილების საცავი)',
                     descFr: 'Masque l’onglet « Documents » et bloque l’accès au coffre-fort.',
+                    descRu: 'Скрывает раздел «Документы» в боковом меню и блокирует доступ к хранилищу документов.',
+                    descHy: 'Թաքցնում է «Փաստաթղթեր» բաժինը և արգելափակում փաստաթղթերի պահոցի մուտքը։',
+                    descKa: 'მალავს «დოკუმენტები» ჩანართს და ბლოკავს საცავზე წვდომას.',
                   },
                   {
                     key: 'cerfaGenerator',
-                    titleRu: 'Документы Cerfa 15776*02 и Aligner Mode',
                     titleFr: 'Générateur Cerfa 15776*02 & Aligner Mode',
-                    descRu: 'Скрывает генерацию и кнопки Cerfa в карточке автомобиля и разделе Документы.',
+                    titleRu: 'Документы Cerfa 15776*02 и Aligner Mode',
+                    titleHy: 'Cerfa 15776*02 գեներատոր և Aligner Mode',
+                    titleKa: 'Cerfa 15776*02 გენერატორი და Aligner Mode',
                     descFr: 'Masque le bouton Cerfa dans les fiches véhicules et Documents.',
+                    descRu: 'Скрывает генерацию и кнопки Cerfa в карточке автомобиля и разделе Документы.',
+                    descHy: 'Թաքցնում է Cerfa կոճակներն ու գեներացումը մեքենայի քարտում և Փաստաթղթեր բաժնում։',
+                    descKa: 'მალავს Cerfa ღილაკებსა და გენერაციას მანქანის ბარათსა და დოკუმენტებში.',
                   },
                   {
                     key: 'exportsBackup',
-                    titleRu: 'Экспорт и Бэкап (CSV / Excel / Factur-X / Снимки)',
                     titleFr: 'Exports & Sauvegardes (CSV / Excel / Factur-X)',
-                    descRu: 'Скрывает раздел «Экспорт и Бэкап» в боковом меню и блокирует доступ к модулю.',
+                    titleRu: 'Экспорт и Бэкап (CSV / Excel / Factur-X / Снимки)',
+                    titleHy: 'Արտահանում և պահուստավորում (CSV / Excel / Factur-X)',
+                    titleKa: 'ექსპორტი და სარეზერვო ასლი (CSV / Excel / Factur-X)',
                     descFr: 'Masque l’onglet « Exports & Sauvegardes » et bloque l’accès au module.',
+                    descRu: 'Скрывает раздел «Экспорт и Бэкап» в боковом меню и блокирует доступ к модулю.',
+                    descHy: 'Թաքցնում է «Արտահանում և պահուստավորում» բաժինը և արգելափակում մուտքը։',
+                    descKa: 'მალავს «ექსპორტი და ბექაფი» ჩანართს და ბლოკავს მოდულზე წვდომას.',
                   },
                   {
                     key: 'pnlCalculator',
-                    titleRu: 'Калькулятор маржи P&L в карточках и досье',
                     titleFr: 'Calculateur P&L & Rentabilité en temps réel',
-                    descRu: 'Скрывает общую маржу в шапке, блоки прибыли на карточках и P&L баннер в досье.',
+                    titleRu: 'Калькулятор маржи P&L в карточках и досье',
+                    titleHy: 'P&L շահութաբերության հաշվիչ քարտերում և գործերում',
+                    titleKa: 'P&L მარჟის კალკულატორი ბარათებსა და დოსიეში',
                     descFr: 'Masque la marge globale, les blocs P&L sur les cartes et le bandeau P&L.',
+                    descRu: 'Скрывает общую маржу в шапке, блоки прибыли на карточках и P&L баннер в досье.',
+                    descHy: 'Թաքցնում է ընդհանուր մարժան վերնագրում, շահույթի բլոկները և P&L վահանակը։',
+                    descKa: 'მალავს საერთო მარჟას, მოგების ბლოკებს ბარათებზე და P&L ბანერს.',
                   },
                   {
                     key: 'repairChecklist',
-                    titleRu: 'Чек-лист ремонта и задач сервиса',
                     titleFr: 'Checklist Réparations & Travaux Atelier',
-                    descRu: 'Скрывает вкладку «Ремонт и чек-лист» и виджет прогресса ремонта в досье.',
+                    titleRu: 'Чек-лист ремонта и задач сервиса',
+                    titleHy: 'Վերանորոգման ստուգացանկ և սպասարկման առաջադրանքներ',
+                    titleKa: 'შეკეთების ჩეკ-ლისტი და სერვისის დავალებები',
                     descFr: 'Masque l’onglet « Travaux & Réparations » et le widget d’avancement.',
+                    descRu: 'Скрывает вкладку «Ремонт и чек-лист» и виджет прогресса ремонта в досье.',
+                    descHy: 'Թաքցնում է «Վերանորոգում և ստուգացանկ» ներդիրը և առաջընթացի վիդջեթը։',
+                    descKa: 'მალავს «შეკეთება და ჩეკ-ლისტი» ჩანართს და პროგრესის ვიჯეტს.',
                   },
                 ] as const
               ).map((item) => {
                 const enabled = featureFlags[item.key];
+                const itemTitle = L(item.titleFr, item.titleRu, item.titleHy, item.titleKa);
+                const itemDesc = L(item.descFr, item.descRu, item.descHy, item.descKa);
                 return (
                   <div
                     key={item.key}
@@ -3536,7 +3970,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <h2 className="text-sm font-bold text-white">
-                          {isRu ? item.titleRu : item.titleFr}
+                          {itemTitle}
                         </h2>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -3549,7 +3983,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 leading-relaxed">
-                        {isRu ? item.descRu : item.descFr}
+                        {itemDesc}
                       </p>
                     </div>
 
@@ -3557,7 +3991,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       type="button"
                       role="switch"
                       aria-checked={enabled}
-                      aria-label={isRu ? item.titleRu : item.titleFr}
+                      aria-label={itemTitle}
                       onClick={() => handleToggleFeatureFlag(item.key)}
                       className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
                         enabled ? 'bg-emerald-500' : 'bg-slate-700'
@@ -3934,12 +4368,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-xl font-bold text-white">
-                  {isRu ? 'Студия UI, макета и текстов' : 'Studio UI, Mise en page & Textes'}
+                  {L('Studio UI, Mise en page & Textes', 'Студия UI, макета и текстов', 'UI, դասավորության և տեքստերի ստուդիա', 'UI-ის, განლაგებისა და ტექსტების სტუდია')}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  {isRu
-                    ? 'Глобальное управление отступами, скруглениями, отчётом продажи и всеми текстами (settings/ui_customization)'
-                    : 'Contrôle global des rayons, espacements, fiches véhicules et libellés (settings/ui_customization)'}
+                  {L(
+                    'Contrôle global des rayons, espacements, fiches véhicules et libellés (settings/ui_customization)',
+                    'Глобальное управление отступами, скруглениями, отчётом продажи и всеми текстами (settings/ui_customization)',
+                    'Մեքենաների քարտերի բացատների, կորությունների և բոլոր տեքստերի գլոբալ կառավարում (settings/ui_customization)',
+                    'ბარათების დაშორებების, მომრგვალებებისა და ყველა ტექსტის გლობალური მართვა (settings/ui_customization)'
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3949,7 +4386,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition whitespace-nowrap shrink-0"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сбросить тексты' : 'Réinitialiser textes'}</span>
+                  <span>{L('Réinitialiser textes', 'Сбросить тексты', 'Վերականգնել տեքստերը', 'ტექსტების განულება')}</span>
                 </button>
                 <button
                   type="button"
@@ -3957,7 +4394,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition whitespace-nowrap shrink-0"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{isRu ? 'Сохранить UI и тексты' : 'Enregistrer UI & Textes'}</span>
+                  <span>{L('Enregistrer UI & Textes', 'Сохранить UI и тексты', 'Պահպանել UI-ն և տեքստերը', 'UI-ის და ტექსტების შენახვა')}</span>
                 </button>
               </div>
             </div>
@@ -3969,9 +4406,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex items-center gap-2">
                     <Sliders className="w-4 h-4 text-amber-400" />
                     <h2 className="text-sm font-bold text-white">
-                      {isRu
-                        ? 'Токены макета карточки авто и P&L'
-                        : 'Tokens de mise en page (Fiche & P&L)'}
+                      {L(
+                        'Tokens de mise en page (Fiche & P&L)',
+                        'Токены макета карточки авто и P&L',
+                        'Մեքենայի քարտի և P&L դասավորության տոկեններ',
+                        'ავტომობილის ბარათისა და P&L განლაგების ტოკენები'
+                      )}
                     </h2>
                   </div>
                   <button
@@ -3987,14 +4427,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     }
                     className="text-[11px] font-semibold text-slate-400 hover:text-amber-400 transition"
                   >
-                    {isRu ? 'Сбросить макет' : 'Réinitialiser layout'}
+                    {L('Réinitialiser layout', 'Сбросить макет', 'Վերականգնել դասավորությունը', 'განლაგების განულება')}
                   </button>
                 </div>
 
                 {/* Card Radius */}
                 <div className="space-y-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Скругление карточек (--ag-card-radius)' : 'Rayon des cartes (--ag-card-radius)'}
+                    {L('Rayon des cartes (--ag-card-radius)', 'Скругление карточек (--ag-card-radius)', 'Քարտերի կորություն (--ag-card-radius)', 'ბარათების მომრგვალება (--ag-card-radius)')}
                   </label>
                   <div className="grid grid-cols-4 gap-2">
                     {(['6px', '12px', '16px', '24px'] as const).map((r) => {
@@ -4022,7 +4462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Button Radius */}
                 <div className="space-y-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Скругление кнопок и вкладок (--ag-button-radius)' : 'Rayon des boutons & onglets (--ag-button-radius)'}
+                    {L('Rayon des boutons & onglets (--ag-button-radius)', 'Скругление кнопок и вкладок (--ag-button-radius)', 'Կոճակների կորություն (--ag-button-radius)', 'ღილაკების მომრგვალება (--ag-button-radius)')}
                   </label>
                   <div className="grid grid-cols-4 gap-2">
                     {(['6px', '10px', '12px', '16px'] as ButtonBorderRadius[]).map((r) => {
@@ -4050,15 +4490,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Card Padding Density */}
                 <div className="space-y-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Внутренние отступы карточек (--ag-card-padding)' : 'Marge interne des cartes (--ag-card-padding)'}
+                    {L('Marge interne des cartes (--ag-card-padding)', 'Внутренние отступы карточек (--ag-card-padding)', 'Քարտերի ներքին բացատ (--ag-card-padding)', 'ბარათების შიდა დაშორება (--ag-card-padding)')}
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {(
                       [
-                        { id: 'compact', labelFr: 'Compact', labelRu: 'Компакт' },
-                        { id: 'comfortable', labelFr: 'Confort', labelRu: 'Стандарт' },
-                        { id: 'spacious', labelFr: 'Spacieux', labelRu: 'Просторно' },
-                      ] as { id: CardPaddingDensity; labelFr: string; labelRu: string }[]
+                        { id: 'compact', labelFr: 'Compact', labelRu: 'Компакт', labelHy: 'Կոմպակտ', labelKa: 'კომპაქტური' },
+                        { id: 'comfortable', labelFr: 'Confort', labelRu: 'Стандарт', labelHy: 'Ստանդարտ', labelKa: 'სტანდარტული' },
+                        { id: 'spacious', labelFr: 'Spacieux', labelRu: 'Просторно', labelHy: 'Ընդարձակ', labelKa: 'თავისუფალი' },
+                      ] as { id: CardPaddingDensity; labelFr: string; labelRu: string; labelHy: string; labelKa: string }[]
                     ).map((opt) => {
                       const active = (draftConfig.cardPadding || 'comfortable') === opt.id;
                       return (
@@ -4074,7 +4514,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                           }`}
                         >
-                          {isRu ? opt.labelRu : opt.labelFr} ({CARD_PADDING_VALUES[opt.id]})
+                          {L(opt.labelFr, opt.labelRu, opt.labelHy, opt.labelKa)} ({CARD_PADDING_VALUES[opt.id]})
                         </button>
                       );
                     })}
@@ -4084,7 +4524,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {/* Section Gap */}
                 <div className="space-y-1.5">
                   <label className="block text-[11px] font-semibold text-slate-400">
-                    {isRu ? 'Интервал между секциями (--ag-section-gap)' : 'Espacement des sections (--ag-section-gap)'}
+                    {L('Espacement des sections (--ag-section-gap)', 'Интервал между секциями (--ag-section-gap)', 'Բաժինների միջակայք (--ag-section-gap)', 'სექციებს შორის დაშორება (--ag-section-gap)')}
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {(['16px', '24px', '32px'] as SectionGapSize[]).map((gap) => {
@@ -4116,11 +4556,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex items-center gap-2">
                     <Eye className="w-4 h-4 text-emerald-400" />
                     <h2 className="text-sm font-bold text-white">
-                      {isRu ? 'Предпросмотр карточки авто и P&L' : 'Aperçu Fiche Véhicule & P&L'}
+                      {L('Aperçu Fiche Véhicule & P&L', 'Предпросмотр карточки авто и P&L', 'Մեքենայի քարտի և P&L նախադիտում', 'ავტომობილის ბარათისა და P&L წინასწარი ხედი')}
                     </h2>
                   </div>
                   <span className="text-[11px] font-semibold text-slate-400">
-                    {theme === 'light' ? (isRu ? 'Светлая' : 'Clair') : isRu ? 'Тёмная' : 'Sombre'}
+                    {theme === 'light'
+                      ? L('Clair', 'Светлая', 'Լուսավոր', 'ნათელი')
+                      : L('Sombre', 'Тёмная', 'Մութ', 'მუქი')}
                   </span>
                 </div>
 
@@ -4328,7 +4770,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    {isRu ? cat.labelRu : cat.labelFr} ({translationCategoryCounts[cat.id]})
+                    {L(cat.labelFr, cat.labelRu, cat.labelHy, cat.labelKa)} ({translationCategoryCounts[cat.id]})
                   </button>
                 );
               })}
@@ -4341,13 +4783,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   type="text"
                   value={textSearch}
                   onChange={(e) => setTextSearch(e.target.value)}
-                  placeholder={isRu ? 'Поиск по ключу или тексту...' : 'Rechercher une clé ou un texte...'}
+                  placeholder={L(
+                    'Rechercher une clé ou un texte...',
+                    'Поиск по ключу или тексту...',
+                    'Որոնել բանալիով կամ տեքստով...',
+                    'ძიება გასაღებით ან ტექსტით...'
+                  )}
                   className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-xs text-slate-400 tabular-nums">
-                  {isRu ? `Показано: ${allTranslationKeys.length}` : `Affichés : ${allTranslationKeys.length}`}
+                  {L(
+                    `Affichés : ${allTranslationKeys.length}`,
+                    `Показано: ${allTranslationKeys.length}`,
+                    `Ցուցադրված է՝ ${allTranslationKeys.length}`,
+                    `ნაჩვენებია: ${allTranslationKeys.length}`
+                  )}
                 </span>
                 <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                   <input
@@ -4356,20 +4808,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     onChange={(e) => setOnlyModifiedTexts(e.target.checked)}
                     className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500"
                   />
-                  <span>{isRu ? 'Только изменённые' : 'Modifiés uniquement'}</span>
+                  <span>{L('Modifiés uniquement', 'Только изменённые', 'Միայն փոփոխվածները', 'მხოლოდ შეცვლილები')}</span>
                 </label>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto max-h-[600px] overflow-y-auto">
-              <table className="w-full table-fixed text-left border-collapse text-xs">
+              <table className="w-full min-w-[920px] table-fixed text-left border-collapse text-xs">
                 <thead className="sticky top-0 bg-slate-950 z-10 border-b border-slate-800">
                   <tr className="text-[11px] font-semibold text-slate-400">
-                    <th className="py-3 px-3 w-40">{isRu ? 'Ключ' : 'Clé'}</th>
-                    <th className="py-3 px-3">{isRu ? 'Французский (FR)' : 'Français (FR)'}</th>
-                    <th className="py-3 px-3">{isRu ? 'Русский (RU)' : 'Russe (RU)'}</th>
-                    <th className="py-3 px-3 w-36">{isRu ? 'Цвет текста' : 'Couleur'}</th>
-                    <th className="py-3 px-3 text-right w-14">{isRu ? 'Сброс' : 'Reset'}</th>
+                    <th className="py-3 px-2.5 w-36">{L('Clé', 'Ключ', 'Բանալի', 'გასაღები')}</th>
+                    <th className="py-3 px-2">{L('Français (FR)', 'Французский (FR)', 'Ֆրանսերեն (FR)', 'ფრანგული (FR)')}</th>
+                    <th className="py-3 px-2">{L('Russe (RU)', 'Русский (RU)', 'Ռուսերեն (RU)', 'რუსული (RU)')}</th>
+                    <th className="py-3 px-2">{L('Arménien (HY)', 'Армянский (HY)', 'Հայերեն (HY)', 'სომხური (HY)')}</th>
+                    <th className="py-3 px-2">{L('Géorgien (KA)', 'Грузинский (KA)', 'Վրացերեն (KA)', 'ქართული (KA)')}</th>
+                    <th className="py-3 px-2.5 w-32">{L('Couleur', 'Цвет текста', 'Գույն', 'ფერი')}</th>
+                    <th className="py-3 px-2 text-right w-12">{L('Reset', 'Сброс', 'Վերակ.', 'განულ.')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
@@ -4377,7 +4831,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     const custom = textOverrides[key];
                     const hasCustomColor = Boolean(custom?.color?.trim());
                     const isModified = Boolean(
-                      custom?.fr?.trim() || custom?.ru?.trim() || hasCustomColor
+                      custom?.fr?.trim() ||
+                        custom?.ru?.trim() ||
+                        custom?.hy?.trim() ||
+                        custom?.ka?.trim() ||
+                        hasCustomColor
                     );
                     const safeColorVal =
                       custom?.color && /^#[0-9a-fA-F]{6}$/.test(custom.color)
@@ -4387,7 +4845,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     const catObj = TRANSLATION_CATEGORIES.find((c) => c.id === catId);
                     return (
                       <tr key={key} className="hover:bg-slate-800/30 transition">
-                        <td className="py-2.5 px-3 align-top">
+                        <td className="py-2.5 px-2.5 align-top">
                           <div
                             className={`font-mono text-[11px] font-semibold truncate ${
                               isModified ? 'text-amber-400' : 'text-slate-300'
@@ -4397,41 +4855,69 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {key}
                           </div>
                           {catObj && (
-                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400">
-                              {isRu ? catObj.labelRu : catObj.labelFr}
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 max-w-full truncate">
+                              {L(catObj.labelFr, catObj.labelRu, catObj.labelHy, catObj.labelKa)}
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 align-top space-y-1">
+                        <td className="py-2.5 px-2 align-top space-y-1">
                           <input
                             type="text"
                             aria-label={`${key} FR`}
                             value={custom?.fr ?? ''}
                             onChange={(e) => handleTextOverrideChange(key, 'fr', e.target.value)}
                             placeholder={translations.fr[key]}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                             style={hasCustomColor ? { color: custom?.color } : undefined}
                           />
-                          <div className="text-[10px] text-slate-500 truncate">
+                          <div className="text-[10px] text-slate-500 truncate" title={translations.fr[key]}>
                             {translations.fr[key]}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 align-top space-y-1">
+                        <td className="py-2.5 px-2 align-top space-y-1">
                           <input
                             type="text"
                             aria-label={`${key} RU`}
                             value={custom?.ru ?? ''}
                             onChange={(e) => handleTextOverrideChange(key, 'ru', e.target.value)}
                             placeholder={translations.ru[key]}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                             style={hasCustomColor ? { color: custom?.color } : undefined}
                           />
-                          <div className="text-[10px] text-slate-500 truncate">
+                          <div className="text-[10px] text-slate-500 truncate" title={translations.ru[key]}>
                             {translations.ru[key]}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 align-top">
-                          <div className="flex items-center gap-1.5">
+                        <td className="py-2.5 px-2 align-top space-y-1">
+                          <input
+                            type="text"
+                            aria-label={`${key} HY`}
+                            value={custom?.hy ?? ''}
+                            onChange={(e) => handleTextOverrideChange(key, 'hy', e.target.value)}
+                            placeholder={translations.hy[key]}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            style={hasCustomColor ? { color: custom?.color } : undefined}
+                          />
+                          <div className="text-[10px] text-slate-500 truncate" title={translations.hy[key]}>
+                            {translations.hy[key]}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2 align-top space-y-1">
+                          <input
+                            type="text"
+                            aria-label={`${key} KA`}
+                            value={custom?.ka ?? ''}
+                            onChange={(e) => handleTextOverrideChange(key, 'ka', e.target.value)}
+                            placeholder={translations.ka[key]}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                            style={hasCustomColor ? { color: custom?.color } : undefined}
+                          />
+                          <div className="text-[10px] text-slate-500 truncate" title={translations.ka[key]}>
+                            {translations.ka[key]}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2.5 align-top">
+                          <div className="flex items-center gap-1">
                             <input
                               type="color"
                               aria-label={`${key} color`}
@@ -4439,7 +4925,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onChange={(e) =>
                                 handleTextOverrideChange(key, 'color', e.target.value)
                               }
-                              className="w-7 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
+                              className="w-6 h-7 rounded-lg bg-transparent border border-slate-700 cursor-pointer p-0.5 shrink-0"
                             />
                             <input
                               type="text"
@@ -4450,13 +4936,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               onChange={(e) =>
                                 handleTextOverrideChange(key, 'color', e.target.value)
                               }
-                              className="w-[74px] bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-500 tabular-nums focus:outline-none focus:border-amber-500"
+                              className="w-[64px] bg-slate-950 border border-slate-800 rounded-lg px-1.5 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-500 tabular-nums focus:outline-none focus:border-amber-500"
                             />
                             {hasCustomColor && (
                               <button
                                 type="button"
                                 onClick={() => handleTextOverrideChange(key, 'color', '')}
-                                title={isRu ? 'Сбросить цвет' : 'Réinitialiser couleur'}
+                                title={L('Réinitialiser couleur', 'Сбросить цвет', 'Վերականգնել գույնը', 'ფერის განულება')}
                                 className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
                               >
                                 <RotateCcw className="w-3 h-3" />
@@ -4469,7 +4955,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <button
                               type="button"
                               onClick={() => handleResetSingleText(key)}
-                              title={isRu ? 'Сбросить' : 'Réinitialiser'}
+                              title={L('Réinitialiser', 'Сбросить', 'Վերականգնել', 'განულება')}
                               className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />

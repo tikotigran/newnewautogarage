@@ -5,7 +5,7 @@ import {
   VehiclePurchaseStatus,
   VehicleStatus,
 } from '../types/garage';
-import { roundToTwo } from './finance';
+import { calculateVehicleFinancials, roundToTwo } from './finance';
 import { Language, pickLocalized } from './i18nUtils';
 
 export interface VehicleFormInput {
@@ -307,8 +307,9 @@ export function buildVehicleSubmitPayload(
     fallbackTotalExpenses > 0 ? fallbackTotalExpenses : repairCostTotal + generalExpensesTotal
   );
   const totalInvested = roundToTwo(parsedPurchasePrice + totalExpenses);
+  const nextStatus: VehicleStatus = input.status || 'preparation';
   const effectiveSalePrice =
-    (input.status || initialVehicle?.status) === 'sold' && initialVehicle?.buyerInfo?.salePrice
+    nextStatus === 'sold' && initialVehicle?.buyerInfo?.salePrice
       ? Number(initialVehicle.buyerInfo.salePrice)
       : parsedTargetPrice;
   const netProfit = effectiveSalePrice > 0 ? roundToTwo(effectiveSalePrice - totalInvested) : 0;
@@ -361,11 +362,11 @@ export function buildVehicleSubmitPayload(
     purchaseDate: input.purchaseDate || new Date().toISOString().split('T')[0],
     purchasePrice: parsedPurchasePrice,
     targetSalePrice: parsedTargetPrice,
-    status: input.status || 'preparation',
+    status: nextStatus,
     purchaseStatus: resolvedPurchaseStatus,
     photos: input.photos,
     documents: initialVehicle?.documents || [],
-    buyerInfo: initialVehicle?.buyerInfo,
+    buyerInfo: nextStatus === 'sold' ? initialVehicle?.buyerInfo : undefined,
     repairCostTotal,
     generalExpensesTotal,
     totalExpenses,
@@ -373,6 +374,91 @@ export function buildVehicleSubmitPayload(
     netProfit,
     marginPercentage,
   };
+}
+
+/**
+ * Builds update fields when reverting a vehicle from 'sold' to an unsold status
+ * ('preparation', 'repair', or 'for_sale'), clearing stale buyerInfo and
+ * recalculating expected P&L against targetSalePrice.
+ */
+export function buildSoldRevertUpdate(
+  prevVehicle: Pick<
+    Vehicle,
+    | 'status'
+    | 'purchasePrice'
+    | 'targetSalePrice'
+    | 'repairCostTotal'
+    | 'generalExpensesTotal'
+    | 'totalExpenses'
+    | 'totalInvested'
+    | 'buyerInfo'
+  >,
+  nextStatus: VehicleStatus,
+  overrides: Partial<Vehicle> = {}
+): { shouldClearBuyerInfo: boolean; updates: Partial<Vehicle> } {
+  const isLeavingSold = prevVehicle.status === 'sold' && nextStatus !== 'sold';
+  if (!isLeavingSold) {
+    return {
+      shouldClearBuyerInfo: false,
+      updates: { ...overrides, status: nextStatus },
+    };
+  }
+
+  const purchasePrice =
+    overrides.purchasePrice !== undefined
+      ? Number(overrides.purchasePrice) || 0
+      : Number(prevVehicle.purchasePrice) || 0;
+  const targetSalePrice =
+    overrides.targetSalePrice !== undefined
+      ? Number(overrides.targetSalePrice) || 0
+      : Number(prevVehicle.targetSalePrice) || 0;
+  const repairCostTotal = roundToTwo(
+    Math.max(0, Number(overrides.repairCostTotal ?? prevVehicle.repairCostTotal) || 0)
+  );
+  const generalExpensesTotal = roundToTwo(
+    Math.max(0, Number(overrides.generalExpensesTotal ?? prevVehicle.generalExpensesTotal) || 0)
+  );
+  const totalExpenses = roundToTwo(
+    overrides.totalExpenses !== undefined
+      ? Math.max(0, Number(overrides.totalExpenses) || 0)
+      : repairCostTotal + generalExpensesTotal > 0
+      ? repairCostTotal + generalExpensesTotal
+      : Math.max(0, Number(prevVehicle.totalExpenses) || 0)
+  );
+
+  const fin = calculateVehicleFinancials({
+    purchasePrice,
+    targetSalePrice,
+    finalSalePrice: undefined,
+    repairs: repairCostTotal > 0 ? [{ partsCost: repairCostTotal, laborCost: 0 }] : [],
+    expenses: totalExpenses > repairCostTotal ? [{ amount: roundToTwo(totalExpenses - repairCostTotal) }] : [],
+  });
+
+  return {
+    shouldClearBuyerInfo: true,
+    updates: {
+      ...overrides,
+      status: nextStatus,
+      buyerInfo: undefined,
+      totalExpenses: fin.totalExpenses,
+      totalInvested: fin.totalInvested,
+      netProfit: fin.netProfit,
+      marginPercentage: fin.marginPercentage,
+    },
+  };
+}
+
+/**
+ * Resolves a newly created vehicle from the current reactive vehicles list.
+ * Returns null while the vehicle is not yet present in the resolved list so
+ * callers wait until subscription/store updates deliver the created record.
+ */
+export function resolvePendingVehicleSelection(
+  pendingVehicleId: string | null | undefined,
+  resolvedVehicles: readonly Vehicle[]
+): Vehicle | null {
+  if (!pendingVehicleId) return null;
+  return resolvedVehicles.find((v) => v.id === pendingVehicleId) || null;
 }
 
 export function hasVehicleCerfaDetails(vehicle: Partial<Vehicle>): boolean {

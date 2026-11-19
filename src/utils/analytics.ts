@@ -462,6 +462,122 @@ export function isWithinTimeRange(
   return itemMs >= cutoff.getTime() && itemMs <= now.getTime() + 86400000;
 }
 
+export function resolveRepairExpenseDate(
+  repair: Pick<RepairTask, 'date' | 'createdAt' | 'updatedAt'>,
+  vehicle?: Pick<Vehicle, 'purchaseDate' | 'createdAt'>
+): string {
+  const candidates = [
+    repair.date,
+    repair.createdAt,
+    repair.updatedAt,
+    vehicle?.purchaseDate,
+    vehicle?.createdAt,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      if (parseExpenseDateMs(candidate) !== null) {
+        return candidate.trim();
+      }
+    }
+  }
+  return '';
+}
+
+export function resolveGeneralExpenseDate(
+  expense: Pick<GeneralExpense, 'date' | 'createdAt' | 'updatedAt'>,
+  vehicle?: Pick<Vehicle, 'purchaseDate' | 'createdAt'>
+): string {
+  const candidates = [
+    expense.date,
+    expense.createdAt,
+    expense.updatedAt,
+    vehicle?.purchaseDate,
+    vehicle?.createdAt,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      if (parseExpenseDateMs(candidate) !== null) {
+        return candidate.trim();
+      }
+    }
+  }
+  return '';
+}
+
+export interface CorporateIsAllocationBucket {
+  bucketKey: string;
+  amount: number;
+}
+
+export function allocateCorporateIsToBuckets(params: {
+  corporateIsAmount: number;
+  corporateSales: Array<{ saleDate?: string; profitBeforeTax: number }>;
+  useMonthly: boolean;
+}): CorporateIsAllocationBucket[] {
+  const { corporateIsAmount, corporateSales, useMonthly } = params;
+  const totalTax = roundToTwo(corporateIsAmount);
+  if (totalTax <= 0 || corporateSales.length === 0) return [];
+
+  const grouped = new Map<string, { positiveProfit: number; saleCount: number }>();
+  for (const sale of corporateSales) {
+    const dayKey = extractDayKey(sale.saleDate);
+    if (!dayKey) continue;
+    const bucketKey = useMonthly ? dayKey.slice(0, 7) : dayKey;
+    const prev = grouped.get(bucketKey) || { positiveProfit: 0, saleCount: 0 };
+    grouped.set(bucketKey, {
+      positiveProfit: prev.positiveProfit + Math.max(0, Number(sale.profitBeforeTax) || 0),
+      saleCount: prev.saleCount + 1,
+    });
+  }
+
+  if (grouped.size === 0) return [];
+
+  const sortedEntries = Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const totalPositiveProfit = sortedEntries.reduce((sum, [, v]) => sum + v.positiveProfit, 0);
+
+  const weighted = sortedEntries
+    .map(([bucketKey, stats]) => ({
+      bucketKey,
+      weight: totalPositiveProfit > 0 ? stats.positiveProfit : stats.saleCount,
+    }))
+    .filter((entry) => entry.weight > 0);
+
+  if (weighted.length === 0) return [];
+
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  const totalCents = Math.round(totalTax * 100);
+
+  const allocations = weighted.map((entry, idx) => {
+    const exactCents = (totalCents * entry.weight) / totalWeight;
+    const floorCents = Math.floor(exactCents);
+    return {
+      idx,
+      bucketKey: entry.bucketKey,
+      cents: floorCents,
+      remainder: exactCents - floorCents,
+    };
+  });
+
+  const allocatedFloorCents = allocations.reduce((sum, item) => sum + item.cents, 0);
+  const leftoverCents = totalCents - allocatedFloorCents;
+  if (leftoverCents > 0) {
+    const byRemainder = [...allocations].sort((a, b) => {
+      if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+      return a.bucketKey.localeCompare(b.bucketKey);
+    });
+    for (let i = 0; i < leftoverCents && i < byRemainder.length; i += 1) {
+      byRemainder[i].cents += 1;
+    }
+  }
+
+  return allocations
+    .filter((item) => item.cents > 0)
+    .map((item) => ({
+      bucketKey: item.bucketKey,
+      amount: roundToTwo(item.cents / 100),
+    }));
+}
+
 export function computeFleetExpenseAnalytics(params: {
   vehicles: Vehicle[];
   repairs: RepairTask[];
@@ -498,7 +614,7 @@ export function computeFleetExpenseAnalytics(params: {
     const amount = Number(r.totalCost ?? (Number(r.partsCost) || 0) + (Number(r.laborCost) || 0)) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(r.vehicleId);
-    const effectiveDate = r.createdAt || veh?.purchaseDate || '';
+    const effectiveDate = resolveRepairExpenseDate(r, veh);
     if (!isWithinTimeRange(effectiveDate, timeRange, now, customRange)) continue;
     normalized.push({
       id: r.id,
@@ -514,7 +630,7 @@ export function computeFleetExpenseAnalytics(params: {
     const amount = Number(e.amount) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(e.vehicleId);
-    const effectiveDate = e.date || e.createdAt || veh?.purchaseDate || '';
+    const effectiveDate = resolveGeneralExpenseDate(e, veh);
     if (!isWithinTimeRange(effectiveDate, timeRange, now, customRange)) continue;
     normalized.push({
       id: e.id,
@@ -876,7 +992,7 @@ export function computeDealershipAnalytics(params: {
     );
     vatAmount = roundToTwo(vatAmount + report.vatAmount);
 
-    const effectiveSaleDate = v.buyerInfo?.saleDate || v.updatedAt?.slice(0, 10) || '';
+    const effectiveSaleDate = v.buyerInfo?.saleDate || v.updatedAt || v.purchaseDate || '';
     const daysToSell = getDaysBetween(v.purchaseDate, effectiveSaleDate);
     if (daysToSell !== null) {
       daysToSellSamples.push(daysToSell);
@@ -909,6 +1025,7 @@ export function computeDealershipAnalytics(params: {
   // Corporate IS (SARL / SAS) calculated progressively on company annual/period taxable profit
   let corporateIsAmount = 0;
   let corporateIsBreakdown: CorporateIsResult | undefined;
+  const corporateSalesForIs: Array<{ saleDate: string; profitBeforeTax: number }> = [];
   if (
     !isParticulierMode &&
     (normalizedTaxConfig.businessTaxRegime === 'sarl' ||
@@ -924,9 +1041,14 @@ export function computeDealershipAnalytics(params: {
         return sum;
       }
       const { purchasePrice, repairsTotal, generalExpensesTotal } = getVehicleLifetimeCosts(v);
-      return roundToTwo(
-        sum + (getRealizedSalePrice(v) - purchasePrice - repairsTotal - generalExpensesTotal)
+      const vehicleProfit = roundToTwo(
+        getRealizedSalePrice(v) - purchasePrice - repairsTotal - generalExpensesTotal
       );
+      corporateSalesForIs.push({
+        saleDate: v.buyerInfo?.saleDate || v.updatedAt || v.purchaseDate || '',
+        profitBeforeTax: vehicleProfit,
+      });
+      return roundToTwo(sum + vehicleProfit);
     }, 0);
 
     corporateIsBreakdown = calculateCorporateIS({
@@ -992,16 +1114,21 @@ export function computeDealershipAnalytics(params: {
   const useMonthly = shouldUseMonthlyBuckets(timeRange, customRange);
   const buckets = new Map<string, { inflow: number; outflow: number }>();
 
-  const addBucket = (dateStr: string | undefined, type: 'inflow' | 'outflow', amount: number) => {
-    if (amount <= 0) return;
-    const dayKey = extractDayKey(dateStr);
-    if (!dayKey) return;
-    const bucketKey = useMonthly ? dayKey.slice(0, 7) : dayKey;
+  const addBucketByKey = (bucketKey: string, type: 'inflow' | 'outflow', amount: number) => {
+    if (!bucketKey || amount <= 0) return;
     const prev = buckets.get(bucketKey) || { inflow: 0, outflow: 0 };
     buckets.set(bucketKey, {
       inflow: type === 'inflow' ? roundToTwo(prev.inflow + amount) : prev.inflow,
       outflow: type === 'outflow' ? roundToTwo(prev.outflow + amount) : prev.outflow,
     });
+  };
+
+  const addBucket = (dateStr: string | undefined, type: 'inflow' | 'outflow', amount: number) => {
+    if (amount <= 0) return;
+    const dayKey = extractDayKey(dateStr);
+    if (!dayKey) return;
+    const bucketKey = useMonthly ? dayKey.slice(0, 7) : dayKey;
+    addBucketByKey(bucketKey, type, amount);
   };
 
   let vehiclePurchasesOutflow = 0;
@@ -1019,7 +1146,7 @@ export function computeDealershipAnalytics(params: {
     const amount = Number(r.totalCost ?? (Number(r.partsCost) || 0) + (Number(r.laborCost) || 0)) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(r.vehicleId);
-    const effectiveDate = r.createdAt || veh?.purchaseDate || '';
+    const effectiveDate = resolveRepairExpenseDate(r, veh);
     if (isWithinTimeRange(effectiveDate, timeRange, now, customRange)) {
       repairsOutflow = roundToTwo(repairsOutflow + amount);
       addBucket(effectiveDate, 'outflow', amount);
@@ -1031,7 +1158,7 @@ export function computeDealershipAnalytics(params: {
     const amount = Number(e.amount) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(e.vehicleId);
-    const effectiveDate = e.date || e.createdAt || veh?.purchaseDate || '';
+    const effectiveDate = resolveGeneralExpenseDate(e, veh);
     if (isWithinTimeRange(effectiveDate, timeRange, now, customRange)) {
       generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
       addBucket(effectiveDate, 'outflow', amount);
@@ -1044,8 +1171,19 @@ export function computeDealershipAnalytics(params: {
       addBucket(row.saleDate, 'outflow', row.taxAmount);
     }
   }
-  if (corporateIsAmount > 0 && mostProfitableVehicles.length > 0) {
-    addBucket(mostProfitableVehicles[0].saleDate, 'outflow', corporateIsAmount);
+  if (corporateIsAmount > 0) {
+    const isAllocations = allocateCorporateIsToBuckets({
+      corporateIsAmount,
+      corporateSales: corporateSalesForIs,
+      useMonthly,
+    });
+    if (isAllocations.length > 0) {
+      for (const alloc of isAllocations) {
+        addBucketByKey(alloc.bucketKey, 'outflow', alloc.amount);
+      }
+    } else if (mostProfitableVehicles.length > 0) {
+      addBucket(mostProfitableVehicles[0].saleDate, 'outflow', corporateIsAmount);
+    }
   }
 
   const inflow = revenue;

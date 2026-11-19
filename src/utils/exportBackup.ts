@@ -919,24 +919,57 @@ export function serializeFullBackupV2(payload: FullGarageBackupV2): string {
   return JSON.stringify(payload, null, 2);
 }
 
-export function parseFullBackupPayload(rawJson: string): FullGarageBackupV2 {
+export function parseFullBackupPayload(
+  rawJson: string,
+  lang: Language = 'fr'
+): FullGarageBackupV2 {
+  const L = (fr: string, ru: string, hy: string, ka: string) =>
+    pickLocalized(lang, { fr, ru, hy, ka });
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
   } catch {
-    throw new Error('Fichier JSON invalide ou corrompu.');
+    throw new Error(
+      L(
+        'Fichier JSON invalide ou corrompu.',
+        'Некорректный или повреждённый JSON-файл.',
+        'Անվավեր կամ վնասված JSON ֆայլ։',
+        'არასწორი ან დაზიანებული JSON ფაილი.'
+      )
+    );
   }
 
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Format de sauvegarde non reconnu.');
+    throw new Error(
+      L(
+        'Format de sauvegarde non reconnu.',
+        'Неизвестный формат резервной копии.',
+        'Պահուստային կրկնօրինակի անհայտ ձևաչափ։',
+        'სარეზერვო ასლის ამოუცნობი ფორმატი.'
+      )
+    );
   }
 
   const obj = parsed as Record<string, unknown>;
   if (!Array.isArray(obj.vehicles)) {
-    throw new Error('La sauvegarde doit contenir un tableau "vehicles".');
+    throw new Error(
+      L(
+        'La sauvegarde doit contenir un tableau "vehicles".',
+        'Резервная копия должна содержать массив "vehicles".',
+        'Պահուստային կրկնօրինակը պետք է պարունակի "vehicles" զանգվածը։',
+        'სარეზერვო ასლი უნდა შეიცავდეს "vehicles" მასივს.'
+      )
+    );
   }
   if (!obj.settings || typeof obj.settings !== 'object') {
-    throw new Error('La sauvegarde doit contenir un objet "settings".');
+    throw new Error(
+      L(
+        'La sauvegarde doit contenir un objet "settings".',
+        'Резервная копия должна содержать объект "settings".',
+        'Պահուստային կրկնօրինակը պետք է պարունակի "settings" օբյեկտը։',
+        'სარეზერვო ასლი უნდა შეიცავდეს "settings" ობიექტს.'
+      )
+    );
   }
 
   return {

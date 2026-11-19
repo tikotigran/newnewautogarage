@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildSoldRevertUpdate,
   buildVehicleSubmitPayload,
   hasVehicleCerfaDetails,
   mapProfileTypeToPurchaseStatus,
   resolveDefaultPurchaseStatus,
+  resolvePendingVehicleSelection,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
   validateQuickVehicleForm,
@@ -295,6 +297,117 @@ test('resolveTargetGarageId and buildVehicleSubmitPayload enforce strict per-gar
     'garage_beta'
   );
   assert.equal(editedLegacy.garageId, 'garage_beta');
+});
+
+test('buildVehicleSubmitPayload and buildSoldRevertUpdate clear stale buyerInfo when leaving sold status', () => {
+  const soldVehicle = {
+    id: 'veh_sold_1',
+    userId: 'user_1',
+    make: 'Audi',
+    model: 'A3',
+    trim: 'S-Line',
+    year: 2022,
+    mileage: 30000,
+    vin: 'WAUZZZ11111111111',
+    registrationNumber: 'AA-123-BB',
+    purchaseDate: '2026-09-01',
+    purchasePrice: 15000,
+    targetSalePrice: 20000,
+    status: 'sold' as const,
+    photos: [],
+    documents: [],
+    buyerInfo: {
+      fullName: 'Jean Dupont',
+      address: '10 Rue de Rivoli, Paris',
+      phone: '0600000000',
+      email: 'jean@dupont.fr',
+      salePrice: 19500,
+      saleDate: '2026-10-15',
+    },
+    repairCostTotal: 600,
+    generalExpensesTotal: 400,
+    totalExpenses: 1000,
+    totalInvested: 16000,
+    netProfit: 3500,
+    marginPercentage: 17.95,
+    createdAt: '2026-09-01T10:00:00Z',
+    updatedAt: '2026-10-15T10:00:00Z',
+  };
+
+  // Staying sold keeps buyerInfo and realized margin
+  const stillSold = buildVehicleSubmitPayload(
+    createBaseInput({
+      make: 'Audi',
+      model: 'A3',
+      purchasePrice: 15000,
+      targetSalePrice: 20000,
+      status: 'sold',
+    }),
+    'user_1',
+    soldVehicle
+  );
+  assert.equal(stillSold.buyerInfo?.fullName, 'Jean Dupont');
+  assert.equal(stillSold.netProfit, 3500);
+
+  // Reverting to for_sale clears buyerInfo and computes expected profit from targetSalePrice
+  const revertedViaModal = buildVehicleSubmitPayload(
+    createBaseInput({
+      make: 'Audi',
+      model: 'A3',
+      purchasePrice: 15000,
+      targetSalePrice: 20000,
+      status: 'for_sale',
+    }),
+    'user_1',
+    soldVehicle
+  );
+  assert.equal(revertedViaModal.buyerInfo, undefined);
+  assert.equal(revertedViaModal.totalInvested, 16000);
+  assert.equal(revertedViaModal.netProfit, 4000);
+  assert.equal(revertedViaModal.marginPercentage, 20);
+
+  // Reverting via quick status change to preparation or for_sale clears buyerInfo
+  const prepRevert = buildSoldRevertUpdate(soldVehicle, 'preparation');
+  assert.equal(prepRevert.shouldClearBuyerInfo, true);
+  assert.equal(prepRevert.updates.status, 'preparation');
+  assert.equal(prepRevert.updates.buyerInfo, undefined);
+  assert.equal(prepRevert.updates.totalInvested, 16000);
+  assert.equal(prepRevert.updates.netProfit, 4000);
+  assert.equal(prepRevert.updates.marginPercentage, 20);
+
+  const forSaleRevert = buildSoldRevertUpdate(soldVehicle, 'for_sale');
+  assert.equal(forSaleRevert.shouldClearBuyerInfo, true);
+  assert.equal(forSaleRevert.updates.status, 'for_sale');
+  assert.equal(forSaleRevert.updates.buyerInfo, undefined);
+
+  // Non-sold transitions do not flag buyerInfo cleanup
+  const nonSold = buildSoldRevertUpdate({ ...soldVehicle, status: 'preparation', buyerInfo: undefined }, 'for_sale');
+  assert.equal(nonSold.shouldClearBuyerInfo, false);
+  assert.equal(nonSold.updates.status, 'for_sale');
+});
+
+test('resolvePendingVehicleSelection waits until created vehicle exists in resolved list', () => {
+  const existingVehicle = {
+    ...buildVehicleSubmitPayload(createBaseInput(), 'user_1'),
+    id: 'veh_1',
+    createdAt: '2026-10-01T10:00:00Z',
+    updatedAt: '2026-10-01T10:00:00Z',
+  };
+  const newlyCreatedVehicle = {
+    ...buildVehicleSubmitPayload(createBaseInput({ make: 'BMW', model: '320d' }), 'user_1'),
+    id: 'veh_new_2',
+    createdAt: '2026-11-18T10:00:00Z',
+    updatedAt: '2026-11-18T10:00:00Z',
+  };
+
+  // Before subscription / store includes new vehicle -> returns null
+  assert.equal(resolvePendingVehicleSelection('veh_new_2', [existingVehicle]), null);
+  assert.equal(resolvePendingVehicleSelection(null, [existingVehicle, newlyCreatedVehicle]), null);
+
+  // Once resolved list receives the new vehicle -> returns it
+  const resolved = resolvePendingVehicleSelection('veh_new_2', [existingVehicle, newlyCreatedVehicle]);
+  assert.equal(resolved?.id, 'veh_new_2');
+  assert.equal(resolved?.make, 'BMW');
 });
 
 

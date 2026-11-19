@@ -254,6 +254,7 @@ export interface RepairTask {
   partsCost: number;
   laborCost: number;
   totalCost: number;
+  date?: string;
   categoryPreset?: string;
   notes?: string;
   createdAt: string;

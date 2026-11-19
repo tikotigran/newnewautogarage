@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  allocateCorporateIsToBuckets,
   computeDealershipAnalytics,
   computeFleetExpenseAnalytics,
   formatCustomExpenseCategoryLabel,
   isWithinTimeRange,
   mapGeneralExpenseCategory,
+  resolveRepairExpenseDate,
 } from './analytics';
 import { DynamicExpenseCategory, GeneralExpense, RepairTask, Vehicle } from '../types/garage';
 
@@ -823,6 +825,220 @@ test('computeFleetExpenseAnalytics and computeDealershipAnalytics resolve config
     dealershipReport.expenseBreakdown.categories.find((c) => c.id === 'parking-stock_extern')?.labelFr,
     'Parking stock extern'
   );
+});
+
+test('resolveRepairExpenseDate resolves explicit date with clean fallback chain and plots Cash Flow in the proper period', () => {
+  const vehicle = {
+    ...mockVehicles[0],
+    id: 'v_rep_dates',
+    purchaseDate: '2026-08-01',
+    createdAt: '2026-08-01T10:00:00Z',
+  };
+
+  // Explicit repair.date takes precedence over createdAt/updatedAt/vehicle dates
+  assert.equal(
+    resolveRepairExpenseDate(
+      {
+        date: '2026-10-12',
+        createdAt: '2026-11-05T10:00:00Z',
+        updatedAt: '2026-11-06T10:00:00Z',
+      },
+      vehicle
+    ),
+    '2026-10-12'
+  );
+
+  // Blank or invalid date skips cleanly to createdAt -> updatedAt -> vehicle.purchaseDate
+  assert.equal(
+    resolveRepairExpenseDate(
+      {
+        date: 'not-a-date',
+        createdAt: '2026-09-18T10:00:00Z',
+        updatedAt: '2026-09-20T10:00:00Z',
+      },
+      vehicle
+    ),
+    '2026-09-18T10:00:00Z'
+  );
+
+  assert.equal(
+    resolveRepairExpenseDate(
+      {
+        date: '',
+        createdAt: '',
+        updatedAt: '',
+      },
+      vehicle
+    ),
+    '2026-08-01'
+  );
+
+  // Cash Flow places repair with explicit date in August (vs createdAt in November)
+  const augustRepair: RepairTask = {
+    id: 'r_aug',
+    vehicleId: 'v_rep_dates',
+    userId: 'u1',
+    title: 'Carrosserie',
+    status: 'done',
+    partsCost: 600,
+    laborCost: 400,
+    totalCost: 1000,
+    date: '2026-08-14',
+    createdAt: '2026-11-08T10:00:00Z',
+    updatedAt: '2026-11-08T10:00:00Z',
+  };
+  const missingDateRepair: RepairTask = {
+    id: 'r_fallback',
+    vehicleId: 'v_rep_dates',
+    userId: 'u1',
+    title: 'Diagnostic',
+    status: 'done',
+    partsCost: 100,
+    laborCost: 150,
+    totalCost: 250,
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  const report = computeDealershipAnalytics({
+    vehicles: [vehicle],
+    repairs: [augustRepair, missingDateRepair],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'none',
+    now: fixedNow,
+  });
+
+  // 1000 (August repair) + 250 (fallback to purchaseDate 2026-08-01) = 1250 repairs outflow
+  assert.equal(report.cashFlow.repairsOutflow, 1250);
+  const augBucket = report.cashFlow.series.find((b) => b.key === '2026-08');
+  assert.ok(augBucket);
+  // 2026-08 bucket includes purchase 11000 + repairs 1250 = 12250
+  assert.equal(augBucket.outflow, 12250);
+  // Should NOT create a November bucket from createdAt when repair.date is August
+  assert.equal(report.cashFlow.series.find((b) => b.key === '2026-11'), undefined);
+});
+
+test('allocateCorporateIsToBuckets and Cash Flow distribute progressive corporate IS across profitable periods', () => {
+  // Unit test largest-remainder rounding for 3-way split (e.g. 1000 / 3)
+  const split = allocateCorporateIsToBuckets({
+    corporateIsAmount: 1000,
+    corporateSales: [
+      { saleDate: '2026-06-10', profitBeforeTax: 10000 },
+      { saleDate: '2026-07-10', profitBeforeTax: 10000 },
+      { saleDate: '2026-08-10', profitBeforeTax: 10000 },
+    ],
+    useMonthly: true,
+  });
+  assert.equal(split.length, 3);
+  const splitSum = Math.round(split.reduce((s, b) => s + b.amount, 0) * 100) / 100;
+  assert.equal(splitSum, 1000);
+  assert.equal(split[0].amount, 333.34);
+  assert.equal(split[1].amount, 333.33);
+  assert.equal(split[2].amount, 333.33);
+
+  // Loss period must not absorb IS when profitable periods exist
+  const lossSkipped = allocateCorporateIsToBuckets({
+    corporateIsAmount: 900,
+    corporateSales: [
+      { saleDate: '2026-06-10', profitBeforeTax: -2000 },
+      { saleDate: '2026-07-10', profitBeforeTax: 3000 },
+      { saleDate: '2026-08-10', profitBeforeTax: 6000 },
+    ],
+    useMonthly: true,
+  });
+  assert.equal(lossSkipped.find((b) => b.bucketKey === '2026-06'), undefined);
+  assert.equal(lossSkipped.find((b) => b.bucketKey === '2026-07')?.amount, 300);
+  assert.equal(lossSkipped.find((b) => b.bucketKey === '2026-08')?.amount, 600);
+
+  // Full computeDealershipAnalytics verification across June, July (loss), and August under SARL progressive 15%/25% IS
+  const saleJune: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_is_june',
+    purchaseDate: '2026-05-01',
+    purchasePrice: 20000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 20000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Corp Buyer 1',
+      address: 'Paris',
+      phone: '0600000001',
+      email: 'c1@test.fr',
+      salePrice: 40000, // +20,000 gross profit (1/3 of +60k positive profit)
+      saleDate: '2026-06-15',
+      vatRegime: 'tva_marge',
+    },
+  };
+  const saleJulyLoss: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_is_july_loss',
+    purchaseDate: '2026-05-01',
+    purchasePrice: 15000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 15000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Corp Buyer 2',
+      address: 'Lyon',
+      phone: '0600000002',
+      email: 'c2@test.fr',
+      salePrice: 10000, // -5,000 loss
+      saleDate: '2026-07-15',
+      vatRegime: 'tva_marge',
+    },
+  };
+  const saleAug: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_is_aug',
+    purchaseDate: '2026-05-01',
+    purchasePrice: 30000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 30000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Corp Buyer 3',
+      address: 'Nice',
+      phone: '0600000003',
+      email: 'c3@test.fr',
+      salePrice: 70000, // +40,000 gross profit (2/3 of +60k positive profit)
+      saleDate: '2026-08-15',
+      vatRegime: 'tva_marge',
+    },
+  };
+
+  const report = computeDealershipAnalytics({
+    vehicles: [saleJune, saleJulyLoss, saleAug],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'sarl',
+    now: fixedNow,
+  });
+
+  // Net taxable profit = 20000 - 5000 + 40000 = 55000
+  // IS progressive: 42500*0.15 (6375) + 12500*0.25 (3125) = 9500
+  assert.equal(report.salesPerformance.corporateIsAmount, 9500);
+  assert.equal(report.cashFlow.taxesOutflow, 9500);
+
+  const juneBucket = report.cashFlow.series.find((b) => b.key === '2026-06');
+  const julyBucket = report.cashFlow.series.find((b) => b.key === '2026-07');
+  const augBucket = report.cashFlow.series.find((b) => b.key === '2026-08');
+  assert.ok(juneBucket && julyBucket && augBucket);
+
+  // June gets 1/3 of 9500 = 3166.67; July gets 0; August gets 2/3 of 9500 = 6333.33
+  assert.equal(juneBucket.outflow, 3166.67);
+  assert.equal(julyBucket.outflow, 0);
+  assert.equal(augBucket.outflow, 6333.33);
+
+  const seriesOutflowSum = Math.round(report.cashFlow.series.reduce((s, b) => s + b.outflow, 0) * 100) / 100;
+  assert.equal(seriesOutflowSum, report.cashFlow.outflow);
 });
 
 

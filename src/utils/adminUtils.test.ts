@@ -4,6 +4,7 @@ import {
   applySystemThemeVariables,
   BRAND_THEME_PRESETS,
   CARD_PADDING_VALUES,
+  cleanGlobalTextOverrides,
   computeAdminDashboardMetrics,
   DEFAULT_DARK_PALETTE,
   DEFAULT_DYNAMIC_EXPENSE_CATEGORIES,
@@ -597,5 +598,48 @@ test('resolveEffectiveFeatureFlagsForPlan grants SuperAdmin full module access r
   assert.equal(proUserFlags.suppliersModule, true);
   assert.equal(proUserFlags.exportsBackup, true);
   assert.equal(proUserFlags.expenseAnalytics, true);
+});
+
+test('cleanGlobalTextOverrides preserves FR, RU, HY, KA and color fields while stripping empty rows', () => {
+  const cleaned = cleanGlobalTextOverrides({
+    appName: { fr: '', ru: '', hy: 'Իմ Ավտոսրահը', ka: '' },
+    newVehicle: { fr: '', ru: '', hy: '', ka: 'ახალი ავტო', color: ' #f59e0b ' },
+    emptyKey: { fr: '  ', ru: '', hy: '', ka: '', color: '   ' },
+  });
+  assert.equal(cleaned.appName?.hy, 'Իմ Ավտոսրահը');
+  assert.equal(cleaned.newVehicle?.ka, 'ახალი ავტო');
+  assert.equal(cleaned.newVehicle?.color, '#f59e0b');
+  assert.equal(cleaned.emptyKey, undefined);
+
+  assert.equal(resolveLocalizedLabel('appName', 'hy', 'AutoGarage Manager', cleaned), 'Իմ Ավտոսրահը');
+  assert.equal(resolveLocalizedLabel('newVehicle', 'ka', 'Nouveau Véhicule', cleaned), 'ახალი ავტო');
+});
+
+test('BRAND_THEME_PRESETS and normalizeSubscriptionPlans support all 4 languages cleanly', () => {
+  for (const preset of BRAND_THEME_PRESETS) {
+    assert.ok(preset.nameFr.trim().length > 0);
+    assert.ok(preset.nameRu.trim().length > 0);
+    assert.ok(preset.nameHy.trim().length > 0);
+    assert.ok(preset.nameKa.trim().length > 0);
+  }
+
+  const normalized = normalizeSubscriptionPlans([
+    {
+      id: 'starter',
+      name: 'Starter',
+      nameHy: 'Ստարտ',
+      nameKa: 'სტარტი',
+      taglineHy: 'Սկսնակների համար',
+      taglineKa: 'დამწყებთათვის',
+      featuresHy: ['Մինչև 5 մեքենա'],
+      featuresKa: ['5 ავტომობილამდე'],
+    },
+  ]);
+  assert.equal(normalized[0].nameHy, 'Ստարտ');
+  assert.equal(normalized[0].nameKa, 'სტარტი');
+  assert.equal(normalized[0].taglineHy, 'Սկսնակների համար');
+  assert.equal(normalized[0].taglineKa, 'დამწყებთათვის');
+  assert.deepEqual(normalized[0].featuresHy, ['Մինչև 5 մեքենա']);
+  assert.deepEqual(normalized[0].featuresKa, ['5 ავტომობილამდე']);
 });
 

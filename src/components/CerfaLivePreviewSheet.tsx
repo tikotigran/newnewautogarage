@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -24,6 +26,8 @@ export const CerfaLivePreviewSheet: React.FC<CerfaLivePreviewSheetProps> = ({
   heightClassName = 'h-full min-h-[480px]',
   maxPageWidthClassName = 'max-w-[740px]',
 }) => {
+  const { lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(false);
@@ -91,7 +95,12 @@ export const CerfaLivePreviewSheet: React.FC<CerfaLivePreviewSheetProps> = ({
           setPreviewError(
             err instanceof Error
               ? err.message
-              : 'Impossible d’afficher l’aperçu PDF Cerfa.'
+              : L(
+                  'Impossible d’afficher l’aperçu PDF Cerfa.',
+                  'Не удалось отобразить предпросмотр PDF Cerfa.',
+                  'Չհաջողվեց ցուցադրել Cerfa PDF նախադիտումը։',
+                  'Cerfa PDF გადახედვის ჩვენება ვერ მოხერხდა.'
+                )
           );
         }
       } finally {
@@ -137,7 +146,7 @@ export const CerfaLivePreviewSheet: React.FC<CerfaLivePreviewSheetProps> = ({
         {isRendering && (
           <span className="flex items-center gap-1.5 text-amber-400 font-semibold">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            <span>Обновление...</span>
+            <span>{L('Actualisation...', 'Обновление...', 'Թարմացում...', 'განახლება...')}</span>
           </span>
         )}
       </div>
@@ -162,7 +171,7 @@ export const CerfaLivePreviewSheet: React.FC<CerfaLivePreviewSheetProps> = ({
             >
               <img
                 src={src}
-                alt={`${title} - Page ${idx + 1}`}
+                alt={`${title} - ${L('Page', 'Стр.', 'Էջ', 'გვ.')} ${idx + 1}`}
                 className="w-full h-auto block"
               />
             </div>
@@ -171,7 +180,7 @@ export const CerfaLivePreviewSheet: React.FC<CerfaLivePreviewSheetProps> = ({
       ) : (
         <div className="flex-1 flex items-center justify-center text-slate-500 text-xs">
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
-          <span>Загрузка предпросмотра PDF...</span>
+          <span>{L('Chargement de l’aperçu PDF...', 'Загрузка предпросмотра PDF...', 'PDF նախադիտման բեռնում...', 'PDF გადახედვის ჩატვირთვა...')}</span>
         </div>
       )}
     </div>

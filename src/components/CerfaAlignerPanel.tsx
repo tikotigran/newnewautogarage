@@ -11,6 +11,8 @@ import {
 } from '../utils/cerfaConfig';
 import { buildCerfa15776PdfBytes } from '../utils/pdfGenerator';
 import { CerfaLivePreviewSheet } from './CerfaLivePreviewSheet';
+import { useI18n } from '../i18n/I18nContext';
+import { pickLocalized } from '../utils/i18nUtils';
 
 interface CerfaAlignerPanelProps {
   formData: Cerfa15776FormData;
@@ -29,6 +31,8 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
   isSavingCalibration = false,
   saveNotice = null,
 }) => {
+  const { lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
   const [selectedPath, setSelectedPath] = useState<string>(CERFA_ALIGNER_FIELDS[0].path);
   const [copied, setCopied] = useState(false);
 
@@ -85,7 +89,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
             <div className="flex items-center gap-2 text-amber-400">
               <Sliders className="w-4 h-4" />
               <span className="text-xs font-bold uppercase tracking-wider">
-                Калибровка полей (pt)
+                {L('Calibration des champs (pt)', 'Калибровка полей (pt)', 'Դաշտերի չափագրում (pt)', 'ველების კალიბრაცია (pt)')}
               </span>
             </div>
             <button
@@ -94,14 +98,14 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
               className="text-[11px] font-semibold text-slate-400 hover:text-white flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Сбросить</span>
+              <span>{L('Réinitialiser', 'Сбросить', 'Վերականգնել', 'განულება')}</span>
             </button>
           </div>
 
           {/* Field Selector */}
           <div>
             <label htmlFor="aligner-field-select" className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Выберите поле Cerfa 15776*02
+              {L('Champ Cerfa 15776*02', 'Выберите поле Cerfa 15776*02', 'Ընտրեք Cerfa 15776*02 դաշտը', 'აირჩიეთ Cerfa 15776*02 ველი')}
             </label>
             <select
               id="aligner-field-select"
@@ -125,7 +129,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
           <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between">
               <label htmlFor="aligner-x-input" className="text-xs font-bold text-slate-200">
-                Позиция X (горизонталь)
+                {L('Position X (horizontal)', 'Позиция X (горизонталь)', 'X դիրք (հորիզոնական)', 'X პოზიცია (ჰორიზონტ.)')}
               </label>
               <input
                 id="aligner-x-input"
@@ -143,7 +147,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
               step={0.5}
               value={activeField.x}
               onChange={(e) => updateActiveField({ x: Number(e.target.value) })}
-              aria-label="Слайдер X"
+              aria-label={L('Curseur X', 'Слайдер X', 'X սլայդեր', 'X სლაიდერი')}
               className="w-full accent-amber-500"
             />
             <div className="grid grid-cols-4 gap-1.5">
@@ -164,7 +168,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
           <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between">
               <label htmlFor="aligner-y-input" className="text-xs font-bold text-slate-200">
-                Позиция Y (вертикаль)
+                {L('Position Y (vertical)', 'Позиция Y (вертикаль)', 'Y դիրք (ուղղահայաց)', 'Y პოზიცია (ვერტიკ.)')}
               </label>
               <input
                 id="aligner-y-input"
@@ -182,7 +186,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
               step={0.5}
               value={activeField.y}
               onChange={(e) => updateActiveField({ y: Number(e.target.value) })}
-              aria-label="Слайдер Y"
+              aria-label={L('Curseur Y', 'Слайдер Y', 'Y սլայդեր', 'Y სლაიდერი')}
               className="w-full accent-blue-500"
             />
             <div className="grid grid-cols-4 gap-1.5">
@@ -203,7 +207,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
           <div className="grid grid-cols-2 gap-2.5">
             <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
               <label htmlFor="aligner-size-input" className="block text-[11px] font-semibold text-slate-400 mb-1">
-                Размер шрифта (pt)
+                {L('Taille police (pt)', 'Размер шрифта (pt)', 'Տառաչափ (pt)', 'შრიფტის ზომა (pt)')}
               </label>
               <input
                 id="aligner-size-input"
@@ -219,7 +223,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
             {typeof activeField.stepX === 'number' && (
               <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-2.5">
                 <label htmlFor="aligner-stepx-input" className="block text-[11px] font-semibold text-slate-400 mb-1">
-                  Шаг ячеек (stepX)
+                  {L('Pas des cases (stepX)', 'Шаг ячеек (stepX)', 'Վանդակների քայլ (stepX)', 'უჯრების ბიჯი (stepX)')}
                 </label>
                 <input
                   id="aligner-stepx-input"
@@ -257,7 +261,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              <span>Сохранить</span>
+              <span>{L('Enregistrer', 'Сохранить', 'Պահպանել', 'შენახვა')}</span>
             </button>
           )}
           <button
@@ -268,10 +272,10 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
             {copied ? (
               <>
                 <Check className="w-4 h-4" />
-                <span>Конфиг скопирован!</span>
+                <span>{L('Config copiée !', 'Конфиг скопирован!', 'Կարգավորումը պատճենվեց', 'კონფიგურაცია დაკოპირდა!')}</span>
               </>
             ) : (
-              <span>📋 Копировать конфиг (Copy JSON)</span>
+              <span>{L('Copier la config (JSON)', 'Копировать конфиг (JSON)', 'Պատճենել կարգավորումը (JSON)', 'კონფიგურაციის კოპირება (JSON)')}</span>
             )}
           </button>
         </div>
@@ -280,7 +284,7 @@ export const CerfaAlignerPanel: React.FC<CerfaAlignerPanelProps> = ({
       {/* Right: Real-time Live PDF Preview (pdfjs canvas rendered — iframe-safe) */}
       <div className="lg:col-span-8 min-h-0 flex flex-col">
         <CerfaLivePreviewSheet
-          title="Живой предпросмотр Cerfa N° 15776*02"
+          title={L('Aperçu en direct Cerfa N° 15776*02', 'Живой предпросмотр Cerfa N° 15776*02', 'Cerfa N° 15776*02 ուղիղ նախադիտում', 'Cerfa N° 15776*02 ცოცხალი გადახედვა')}
           activeFieldLabel={activeFieldMeta?.label}
           generatePdfBytes={generatePdfBytes}
           dependencyKey={previewDependencyKey}

@@ -492,6 +492,8 @@ export interface BrandThemePreset {
   id: string;
   nameFr: string;
   nameRu: string;
+  nameHy: string;
+  nameKa: string;
   primaryHex: string;
   lightPalette: ThemePaletteTokens;
   darkPalette: ThemePaletteTokens;
@@ -502,6 +504,8 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
     id: 'stock_amber',
     nameFr: 'Stock SaaS Amber',
     nameRu: 'Стандарт (Amber)',
+    nameHy: 'Ստանդարտ (Amber)',
+    nameKa: 'სტანდარტული (Amber)',
     primaryHex: '#f59e0b',
     lightPalette: DEFAULT_LIGHT_PALETTE,
     darkPalette: DEFAULT_DARK_PALETTE,
@@ -510,6 +514,8 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
     id: 'cobalt_executive',
     nameFr: 'Cobalt Executive',
     nameRu: 'Кобальт Бизнес',
+    nameHy: 'Կոբալտ Բիզնես',
+    nameKa: 'კობალტი ბიზნესი',
     primaryHex: '#2563eb',
     lightPalette: {
       ...DEFAULT_LIGHT_PALETTE,
@@ -558,6 +564,8 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
     id: 'emerald_atelier',
     nameFr: 'Emerald Atelier',
     nameRu: 'Изумрудный Сервис',
+    nameHy: 'Զմրուխտյա Սերվիս',
+    nameKa: 'ზურმუხტის სერვისი',
     primaryHex: '#10b981',
     lightPalette: {
       ...DEFAULT_LIGHT_PALETTE,
@@ -610,6 +618,8 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
     id: 'crimson_motorsport',
     nameFr: 'Crimson Motorsport',
     nameRu: 'Спорт Карбон',
+    nameHy: 'Սպորտ Կարբոն',
+    nameKa: 'სპორტ კარბონი',
     primaryHex: '#e11d48',
     lightPalette: {
       ...DEFAULT_LIGHT_PALETTE,
@@ -658,6 +668,8 @@ export const BRAND_THEME_PRESETS: BrandThemePreset[] = [
     id: 'violet_studio',
     nameFr: 'Violet Studio',
     nameRu: 'Фиолетовая Студия',
+    nameHy: 'Մանուշակագույն Ստուդիա',
+    nameKa: 'იისფერი სტუდია',
     primaryHex: '#7c3aed',
     lightPalette: {
       ...DEFAULT_LIGHT_PALETTE,
@@ -1144,6 +1156,34 @@ export function resolveLocalizedLabel(
     }
   }
   return baseText;
+}
+
+export function cleanGlobalTextOverrides(raw: GlobalTextOverrides): GlobalTextOverrides {
+  const cleaned: GlobalTextOverrides = {};
+  for (const [k, v] of Object.entries(raw || {})) {
+    if (!v || typeof v !== 'object') continue;
+    const fr = v.fr || '';
+    const ru = v.ru || '';
+    const hy = v.hy || '';
+    const ka = v.ka || '';
+    const color = v.color?.trim() || '';
+    if (
+      fr.trim() !== '' ||
+      ru.trim() !== '' ||
+      hy.trim() !== '' ||
+      ka.trim() !== '' ||
+      color !== ''
+    ) {
+      cleaned[k] = {
+        fr,
+        ru,
+        hy,
+        ka,
+        ...(color ? { color } : {}),
+      };
+    }
+  }
+  return cleaned;
 }
 
 export function resolveLocalizedColor(

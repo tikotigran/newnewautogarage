@@ -1189,7 +1189,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               <input
                 id="cerfa-seller-type"
                 type="text"
-                placeholder="Rue, Avenue..."
+                placeholder={L('Rue, Avenue...', 'ул., пр-т...', 'փ., պող...', 'ქ., გამზ...')}
                 value={formData.seller.streetType}
                 onChange={(e) => updateSellerField('streetType', e.target.value)}
                 className={inputClass}
@@ -1499,7 +1499,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               <input
                 id="cerfa-buyer-type"
                 type="text"
-                placeholder="Rue, Square..."
+                placeholder={L('Rue, Square...', 'ул., пер...', 'փ., նրբ...', 'ქ., შეს...')}
                 value={formData.buyer.streetType}
                 onChange={(e) => updateBuyerField('streetType', e.target.value)}
                 className={inputClass}

@@ -383,7 +383,17 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       actorEmail: userEmail,
       action: 'export_csv',
       targetLabel: fileName,
-      details: `${vehicles.length} véhicules · Revenue ${formatEuro(analyticsReport.salesPerformance.revenue)}`,
+      details: `${vehicles.length} ${pickLocalized(lang, {
+        fr: 'véhicules',
+        ru: 'авто',
+        hy: 'մեքենա',
+        ka: 'ავტო',
+      })} · ${pickLocalized(lang, {
+        fr: 'Revenu',
+        ru: 'Выручка',
+        hy: 'Շրջանառություն',
+        ka: 'შემოსავალი',
+      })} ${formatEuro(analyticsReport.salesPerformance.revenue)}`,
     });
     setStatusBanner({
       type: 'success',
@@ -421,7 +431,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       actorEmail: userEmail,
       action: 'export_excel',
       targetLabel: fileName,
-      details: `3 feuilles (Synthèse P&L, Ventes & Marges, Dépenses & Achats)`,
+      details: pickLocalized(lang, {
+        fr: '3 feuilles (Synthèse P&L, Ventes & Marges, Dépenses & Achats)',
+        ru: '3 листа (Synthèse P&L, Ventes & Marges, Dépenses & Achats)',
+        hy: '3 թերթ (Synthèse P&L, Ventes & Marges, Dépenses & Achats)',
+        ka: '3 ფურცელი (Synthèse P&L, Ventes & Marges, Dépenses & Achats)',
+      }),
     });
     setStatusBanner({
       type: 'success',
@@ -451,7 +466,22 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       actorEmail: userEmail,
       action: 'export_excel',
       targetLabel: fileName,
-      details: `${vehicles.length} véhicules · ${fleetData.repairs.length} réparations · ${fleetData.expenses.length} frais`,
+      details: `${vehicles.length} ${pickLocalized(lang, {
+        fr: 'véhicules',
+        ru: 'авто',
+        hy: 'մեքենա',
+        ka: 'ავტო',
+      })} · ${fleetData.repairs.length} ${pickLocalized(lang, {
+        fr: 'réparations',
+        ru: 'ремонтов',
+        hy: 'վերանորոգում',
+        ka: 'შეკეთება',
+      })} · ${fleetData.expenses.length} ${pickLocalized(lang, {
+        fr: 'frais',
+        ru: 'расходов',
+        hy: 'ծախս',
+        ka: 'ხარჯი',
+      })}`,
     });
     setStatusBanner({
       type: 'success',
@@ -476,7 +506,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       actorEmail: userEmail,
       action: 'export_csv',
       targetLabel: fileName,
-      details: `${vehicles.length} véhicules`,
+      details: `${vehicles.length} ${pickLocalized(lang, {
+        fr: 'véhicules',
+        ru: 'авто',
+        hy: 'մեքենա',
+        ka: 'ავტო',
+      })}`,
     });
     setStatusBanner({
       type: 'success',
@@ -501,8 +536,23 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       garageId: activeGarageId,
       actorEmail: userEmail,
       action: 'export_pdf',
-      targetLabel: `Rapport P&L Concession (${periodLabelMap[periodRange] || periodRange})`,
-      details: `${vehicles.length} véhicules · Net Profit ${formatEuro(analyticsReport.salesPerformance.netProfit)}`,
+      targetLabel: `${pickLocalized(lang, {
+        fr: 'Rapport P&L Concession',
+        ru: 'Отчёт P&L салона',
+        hy: 'Ավտոսրահի P&L հաշվետվություն',
+        ka: 'ავტოსალონის P&L ანგარიში',
+      })} (${periodLabelMap[periodRange] || periodRange})`,
+      details: `${vehicles.length} ${pickLocalized(lang, {
+        fr: 'véhicules',
+        ru: 'авто',
+        hy: 'մեքենա',
+        ka: 'ავტო',
+      })} · ${pickLocalized(lang, {
+        fr: 'Bénéfice net',
+        ru: 'Чистая прибыль',
+        hy: 'Զուտ շահույթ',
+        ka: 'წმინდა მოგება',
+      })} ${formatEuro(analyticsReport.salesPerformance.netProfit)}`,
     });
     setStatusBanner({
       type: 'success',
@@ -527,8 +577,23 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       action: 'export_pdf',
       entityType: 'vehicle',
       entityId: selectedPdfVehicle.id,
-      targetLabel: `Bilan ${selectedPdfVehicle.make} ${selectedPdfVehicle.model}`,
-      details: `${vRepairs.length} réparations · ${vExpenses.length} frais`,
+      targetLabel: `${pickLocalized(lang, {
+        fr: 'Bilan',
+        ru: 'Отчёт',
+        hy: 'Հաշվետվություն',
+        ka: 'ანგარიში',
+      })} ${selectedPdfVehicle.make} ${selectedPdfVehicle.model}`,
+      details: `${vRepairs.length} ${pickLocalized(lang, {
+        fr: 'réparations',
+        ru: 'ремонтов',
+        hy: 'վերանորոգում',
+        ka: 'შეკეთება',
+      })} · ${vExpenses.length} ${pickLocalized(lang, {
+        fr: 'frais',
+        ru: 'расходов',
+        hy: 'ծախս',
+        ka: 'ხარჯი',
+      })}`,
     });
     setStatusBanner({
       type: 'success',
@@ -587,8 +652,18 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
         action: 'export_facturx',
         entityType: 'vehicle',
         entityId: facturxVehicle.id,
-        targetLabel: `${result.fileName} (PDF Hybride)`,
-        details: `Facture ${result.invoiceNumber} avec factur-x.xml embarqué`,
+        targetLabel: `${result.fileName} (${pickLocalized(lang, {
+          fr: 'PDF Hybride',
+          ru: 'Гибридный PDF',
+          hy: 'Հիբրիդային PDF',
+          ka: 'ჰიბრიდული PDF',
+        })})`,
+        details: `${pickLocalized(lang, {
+          fr: `Facture ${result.invoiceNumber} avec factur-x.xml embarqué`,
+          ru: `Счёт ${result.invoiceNumber} со встроенным factur-x.xml`,
+          hy: `Հաշիվ ${result.invoiceNumber} ներկառուցված factur-x.xml-ով`,
+          ka: `ინვოისი ${result.invoiceNumber} ჩაშენებული factur-x.xml-ით`,
+        })}`,
       });
       setStatusBanner({
         type: 'success',
@@ -641,7 +716,22 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       action: 'backup_created',
       entityType: 'backup',
       targetLabel: fileName,
-      details: `${backup.vehicles.length} véhicules, ${backup.suppliers.length} fournisseurs, ${backup.documents.length} documents`,
+      details: `${backup.vehicles.length} ${pickLocalized(lang, {
+        fr: 'véhicules',
+        ru: 'авто',
+        hy: 'մեքենա',
+        ka: 'ავტო',
+      })}, ${backup.suppliers.length} ${pickLocalized(lang, {
+        fr: 'fournisseurs',
+        ru: 'поставщиков',
+        hy: 'մատակարար',
+        ka: 'მომწოდებელი',
+      })}, ${backup.documents.length} ${pickLocalized(lang, {
+        fr: 'documents',
+        ru: 'документов',
+        hy: 'փաստաթուղթ',
+        ka: 'დოკუმენტი',
+      })}`,
     });
 
     setStatusBanner({
@@ -719,7 +809,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     if (!file) return;
     try {
       const text = await file.text();
-      const parsed = parseFullBackupPayload(text);
+      const parsed = parseFullBackupPayload(text, lang);
       setPendingRestore({
         sourceName: file.name,
         payload: parsed,
@@ -757,7 +847,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       return;
     }
     try {
-      const parsed = parseFullBackupPayload(snap.payloadJson);
+      const parsed = parseFullBackupPayload(snap.payloadJson, lang);
       setPendingRestore({
         sourceName: snap.label,
         payload: parsed,
@@ -1809,6 +1899,69 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                           ka: 'დოკუმენტი',
                         }),
                       },
+                      {
+                        value: 'purchase_created',
+                        label: pickLocalized(lang, {
+                          fr: 'Achat enregistré',
+                          ru: 'Закупка добавлена',
+                          hy: 'Գնումը գրանցված է',
+                          ka: 'შესყიდვა დამატებულია',
+                        }),
+                      },
+                      {
+                        value: 'supplier_created',
+                        label: pickLocalized(lang, {
+                          fr: 'Fournisseur ajouté',
+                          ru: 'Поставщик добавлен',
+                          hy: 'Մատակարարը ավելացված է',
+                          ka: 'მომწოდებელი დამატებულია',
+                        }),
+                      },
+                      {
+                        value: 'vehicle_deleted',
+                        label: pickLocalized(lang, {
+                          fr: 'Véhicule supprimé',
+                          ru: 'Авто удалено',
+                          hy: 'Մեքենան հեռացվել է',
+                          ka: 'ავტო წაშლილია',
+                        }),
+                      },
+                      {
+                        value: 'settings_updated',
+                        label: pickLocalized(lang, {
+                          fr: 'Paramètres mis à jour',
+                          ru: 'Настройки обновлены',
+                          hy: 'Կարգավորումները թարմացվել են',
+                          ka: 'პარამეტრები განახლებულია',
+                        }),
+                      },
+                      {
+                        value: 'tax_settings_updated',
+                        label: pickLocalized(lang, {
+                          fr: 'Fiscalité mise à jour',
+                          ru: 'Налоги обновлены',
+                          hy: 'Հարկային կարգավորումները թարմացվել են',
+                          ka: 'საგადასახადო პარამეტრები განახლდა',
+                        }),
+                      },
+                      {
+                        value: 'is_calculation_recorded',
+                        label: pickLocalized(lang, {
+                          fr: 'Clôture IS',
+                          ru: 'Расчёт IS',
+                          hy: 'IS հաշվարկ',
+                          ka: 'IS გაანგარიშება',
+                        }),
+                      },
+                      {
+                        value: 'auth_login',
+                        label: pickLocalized(lang, {
+                          fr: 'Connexion',
+                          ru: 'Вход',
+                          hy: 'Մուտք',
+                          ka: 'შესვლა',
+                        }),
+                      },
                     ]}
                   />
                 </div>
@@ -1955,7 +2108,28 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                         </td>
                         <td className="px-3.5 py-2.5 whitespace-nowrap">
                           <span className="inline-flex px-2 py-0.5 rounded-md bg-[var(--surface-muted)] border border-[var(--border)] text-[11px] font-bold text-[var(--primary)]">
-                            {log.action}
+                            {(() => {
+                              const actionMap: Record<string, string> = {
+                                export_csv: pickLocalized(lang, { fr: 'Export CSV', ru: 'Экспорт CSV', hy: 'CSV արտահանում', ka: 'CSV ექსპორტი' }),
+                                export_excel: pickLocalized(lang, { fr: 'Export Excel', ru: 'Экспорт Excel', hy: 'Excel արտահանում', ka: 'Excel ექსპორტი' }),
+                                export_pdf: pickLocalized(lang, { fr: 'Export PDF', ru: 'Экспорт PDF', hy: 'PDF արտահանում', ka: 'PDF ექსპორტი' }),
+                                export_facturx: 'Factur-X',
+                                backup_created: pickLocalized(lang, { fr: 'Backup créé', ru: 'Бэкап создан', hy: 'Պահուստավորում ստեղծվեց', ka: 'სარეზერვო ასლი შეიქმნა' }),
+                                backup_restored: pickLocalized(lang, { fr: 'Restauration', ru: 'Восстановление', hy: 'Վերականգնում', ka: 'აღდგენა' }),
+                                vehicle_created: pickLocalized(lang, { fr: 'Véhicule ajouté', ru: 'Авто добавлено', hy: 'Մեքենան ավելացվել է', ka: 'ავტო დამატებულია' }),
+                                vehicle_updated: pickLocalized(lang, { fr: 'Véhicule modifié', ru: 'Авто обновлено', hy: 'Մեքենան թարմացվել է', ka: 'ავტო განახლებულია' }),
+                                vehicle_sold: pickLocalized(lang, { fr: 'Vente clôturée', ru: 'Продажа авто', hy: 'Վաճառք', ka: 'გაყიდვა' }),
+                                vehicle_deleted: pickLocalized(lang, { fr: 'Véhicule supprimé', ru: 'Авто удалено', hy: 'Մեքենան հեռացվել է', ka: 'ავტო წაშლილია' }),
+                                supplier_created: pickLocalized(lang, { fr: 'Fournisseur ajouté', ru: 'Поставщик добавлен', hy: 'Մատակարարը ավելացված է', ka: 'მომწოდებელი დამატებულია' }),
+                                purchase_created: pickLocalized(lang, { fr: 'Achat enregistré', ru: 'Закупка добавлена', hy: 'Գնումը գրանցված է', ka: 'შესყიდვა დამატებულია' }),
+                                document_uploaded: pickLocalized(lang, { fr: 'Document', ru: 'Документ', hy: 'Փաստաթուղթ', ka: 'დოკუმენტი' }),
+                                settings_updated: pickLocalized(lang, { fr: 'Paramètres mis à jour', ru: 'Настройки обновлены', hy: 'Կարգավորումները թարմացվել են', ka: 'პარამეტრები განახლებულია' }),
+                                tax_settings_updated: pickLocalized(lang, { fr: 'Fiscalité mise à jour', ru: 'Налоги обновлены', hy: 'Հարկային կարգավորումները թարմացվել են', ka: 'საგადასახადო პარამეტრები განახლდა' }),
+                                is_calculation_recorded: pickLocalized(lang, { fr: 'Clôture IS', ru: 'Расчёт IS', hy: 'IS հաշվարկ', ka: 'IS გაანგარიშება' }),
+                                auth_login: pickLocalized(lang, { fr: 'Connexion', ru: 'Вход', hy: 'Մուտք', ka: 'შესვლა' }),
+                              };
+                              return actionMap[log.action] || log.action;
+                            })()}
                           </span>
                         </td>
                         <td className="px-3.5 py-2.5">
@@ -1999,10 +2173,28 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                             : 'bg-amber-500/15 text-amber-500 border-amber-500/30'
                         }`}
                       >
-                        {entry.operation}
+                        {(() => {
+                          const opMap: Record<string, string> = {
+                            create: pickLocalized(lang, { fr: 'Création', ru: 'Создание', hy: 'Ստեղծում', ka: 'შექმნა' }),
+                            update: pickLocalized(lang, { fr: 'Mise à jour', ru: 'Обновление', hy: 'Թարմացում', ka: 'განახლება' }),
+                            delete: pickLocalized(lang, { fr: 'Suppression', ru: 'Удаление', hy: 'Ջնջում', ka: 'წაშლა' }),
+                            restore: pickLocalized(lang, { fr: 'Restauration', ru: 'Восстановление', hy: 'Վերականգնում', ka: 'აღდგენა' }),
+                          };
+                          return opMap[entry.operation] || entry.operation;
+                        })()}
                       </span>
                       <span className="text-[11px] font-bold uppercase text-[var(--muted-foreground)]">
-                        {entry.entityType}
+                        {(() => {
+                          const entMap: Record<string, string> = {
+                            vehicle: pickLocalized(lang, { fr: 'Véhicule', ru: 'Автомобиль', hy: 'Մեքենա', ka: 'ავტომობილი' }),
+                            supplier: pickLocalized(lang, { fr: 'Fournisseur', ru: 'Поставщик', hy: 'Մատակարար', ka: 'მომწოდებელი' }),
+                            purchase: pickLocalized(lang, { fr: 'Achat', ru: 'Закупка', hy: 'Գնում', ka: 'შესყიდვა' }),
+                            document: pickLocalized(lang, { fr: 'Document', ru: 'Документ', hy: 'Փաստաթուղթ', ka: 'დოკუმენტი' }),
+                            settings: pickLocalized(lang, { fr: 'Paramètres', ru: 'Настройки', hy: 'Կարգավորումներ', ka: 'პარამეტრები' }),
+                            backup: pickLocalized(lang, { fr: 'Sauvegarde', ru: 'Резервная копия', hy: 'Պահուստային պատճեն', ka: 'სარეზერვო ასლი' }),
+                          };
+                          return entMap[entry.entityType] || entry.entityType;
+                        })()}
                       </span>
                       <span className="text-xs font-bold text-[var(--foreground)]">
                         {entry.entityLabel}

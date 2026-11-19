@@ -101,6 +101,7 @@ import { deleteGarageDocument } from '../services/documentService';
 import { DocumentCard } from './DocumentCard';
 import { DocumentUploadModal, DocumentUploadPreset } from './DocumentUploadModal';
 import { DocumentPreviewModal } from './DocumentPreviewModal';
+import { buildSoldRevertUpdate } from '../utils/vehicleFormUtils';
 
 interface VehicleDetailProps {
   vehicle: Vehicle;
@@ -275,6 +276,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [taskPartsCost, setTaskPartsCost] = useState<number | ''>('');
   const [taskLaborCost, setTaskLaborCost] = useState<number | ''>('');
   const [taskStatus, setTaskStatus] = useState<RepairTaskStatus>('todo');
+  const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
   const [taskNotes, setTaskNotes] = useState('');
   const [taskPresetKey, setTaskPresetKey] = useState<string>('');
 
@@ -343,7 +345,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const fin = calculateVehicleFinancials({
     purchasePrice: vehicle.purchasePrice,
     targetSalePrice: vehicle.targetSalePrice,
-    finalSalePrice: vehicle.buyerInfo?.salePrice,
+    finalSalePrice: vehicle.status === 'sold' ? vehicle.buyerInfo?.salePrice : undefined,
     repairs,
     expenses,
   });
@@ -451,6 +453,9 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const handleStatusChange = async (newStatus: VehicleStatus) => {
     if (newStatus === 'sold' && !isSold) {
       onOpenSellModal(vehicle);
+    } else if (vehicle.status === 'sold' && newStatus !== 'sold') {
+      const revert = buildSoldRevertUpdate(vehicle, newStatus);
+      await updateVehicle(vehicle.id, revert.updates);
     } else {
       await updateVehicle(vehicle.id, { status: newStatus });
     }
@@ -466,6 +471,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
       status: taskStatus,
       partsCost: Number(taskPartsCost) || 0,
       laborCost: Number(taskLaborCost) || 0,
+      date: taskDate || new Date().toISOString().split('T')[0],
       categoryPreset: taskPresetKey || undefined,
       notes: taskNotes.trim() || undefined,
     });
@@ -475,6 +481,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     setTaskPartsCost('');
     setTaskLaborCost('');
     setTaskStatus('todo');
+    setTaskDate(new Date().toISOString().split('T')[0]);
     setTaskNotes('');
     setTaskPresetKey('');
     setShowAddTask(false);
@@ -1827,8 +1834,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                 />
               </div>
 
-              {/* Cost Breakdown: Separate Parts Cost (€) and Labor Cost (€) */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Cost Breakdown: Separate Parts Cost (€), Labor Cost (€), Date, and Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
                     {t('partsCostLabel')}
@@ -1854,6 +1861,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     value={taskLaborCost}
                     onChange={(e) => setTaskLaborCost(e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="0"
+                    className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="new-repair-date-input" className="block text-xs font-semibold text-[var(--secondary-foreground)] mb-1">
+                    {t('expenseDateLabel')}
+                  </label>
+                  <input
+                    id="new-repair-date-input"
+                    data-testid="new-repair-date-input"
+                    type="date"
+                    required
+                    value={taskDate}
+                    onChange={(e) => setTaskDate(e.target.value)}
                     className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-[var(--primary)]"
                   />
                 </div>
@@ -1929,12 +1950,18 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <tbody className="divide-y divide-[var(--border)] text-xs">
                     {repairs.map((task) => (
                       <tr key={task.id} className="hover:bg-[var(--surface-muted)] transition">
-                        {/* Title and notes */}
+                        {/* Title, date and notes */}
                         <td className="py-3.5 px-4">
                           <div className="font-bold text-[var(--foreground)] text-sm">{task.title}</div>
-                          {task.notes && (
-                            <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">{task.notes}</div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+                            {(task.date || task.createdAt) && (
+                              <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                                <Calendar className="w-3 h-3" />
+                                {formatDate((task.date || task.createdAt).slice(0, 10))}
+                              </span>
+                            )}
+                            {task.notes && <span>· {task.notes}</span>}
+                          </div>
                         </td>
 
                         {/* Status Toggle Badge */}
@@ -2120,8 +2147,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       label: pickLocalized(lang, {
                         fr: cat.labelFr,
                         ru: cat.labelRu,
-                        hy: cat.labelHy || cat.labelFr,
-                        ka: cat.labelKa || cat.labelFr,
+                        hy: cat.labelHy || cat.labelRu || cat.labelFr,
+                        ka: cat.labelKa || cat.labelRu || cat.labelFr,
                       }),
                     }))}
                     triggerClassName="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)]"
@@ -2138,7 +2165,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     step="any"
                     value={expenseAmount}
                     onChange={(e) => setExpenseAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="ex. 120"
+                    placeholder={pickLocalized(lang, { fr: 'ex. 120', ru: 'напр. 120', hy: 'օր.՝ 120', ka: 'მაგ. 120' })}
                     className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-sm text-[var(--foreground)] focus:outline-none focus:border-blue-500 font-bold"
                   />
                 </div>
@@ -2180,7 +2207,12 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   type="text"
                   value={expenseReceipt}
                   onChange={(e) => setExpenseReceipt(e.target.value)}
-                  placeholder="ex. Facture N° 2026-89 Dekra..."
+                  placeholder={pickLocalized(lang, {
+                    fr: 'ex. Facture N° 2026-89 Dekra...',
+                    ru: 'напр. Счёт № 2026-89 Dekra...',
+                    hy: 'օր.՝ Հաշիվ № 2026-89 Dekra...',
+                    ka: 'მაგ. ინვოისი № 2026-89 Dekra...',
+                  })}
                   className="w-full px-3.5 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--ag-button-radius)] text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -2242,8 +2274,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                         ? pickLocalized(lang, {
                             fr: catInfo.labelFr,
                             ru: catInfo.labelRu,
-                            hy: catInfo.labelHy || catInfo.labelFr,
-                            ka: catInfo.labelKa || catInfo.labelFr,
+                            hy: catInfo.labelHy || catInfo.labelRu || catInfo.labelFr,
+                            ka: catInfo.labelKa || catInfo.labelRu || catInfo.labelFr,
                           })
                         : expense.category;
                       return (
@@ -2257,7 +2289,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                             <div className="font-semibold text-[var(--foreground)]">{expense.description}</div>
                             {expense.receiptUrl && (
                               <div className="text-[11px] text-[var(--muted-foreground)]">
-                                Réf : {expense.receiptUrl}
+                                {pickLocalized(lang, { fr: 'Réf :', ru: 'Док.:', hy: 'Հղում՝', ka: 'რეფ.:' })} {expense.receiptUrl}
                               </div>
                             )}
                           </td>

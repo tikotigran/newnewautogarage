@@ -4,6 +4,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   query,
   where,
@@ -32,6 +33,7 @@ import {
 } from '../utils/frenchTaxEngine';
 import { buildGarageUpdatePayload, DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 import { normalizeCerfaTemplateId } from '../utils/cerfaConfig';
+import { buildSoldRevertUpdate } from '../utils/vehicleFormUtils';
 import {
   applyProfileSlotToSettings,
   EMPTY_PARTICULIER_PROFILE,
@@ -1005,13 +1007,14 @@ export async function createVehicle(
   const financials = calculateVehicleFinancials({
     purchasePrice: vehicle.purchasePrice,
     targetSalePrice: vehicle.targetSalePrice,
-    finalSalePrice: vehicle.buyerInfo?.salePrice,
+    finalSalePrice: vehicle.status === 'sold' ? vehicle.buyerInfo?.salePrice : undefined,
     repairs: [],
     expenses: [],
   });
 
   const newVehicle: Vehicle = stripUndefined({
     ...vehicle,
+    buyerInfo: vehicle.status === 'sold' ? vehicle.buyerInfo : undefined,
     id,
     repairCostTotal: financials.repairCostTotal,
     generalExpensesTotal: financials.generalExpensesTotal,
@@ -1047,6 +1050,7 @@ export async function updateVehicle(
   updates: Partial<Vehicle>
 ): Promise<void> {
   const path = `vehicles/${vehicleId}`;
+  const explicitClearBuyerInfo = 'buyerInfo' in updates && updates.buyerInfo === undefined;
   const cleanUpdates = stripUndefined(updates);
   if (cleanUpdates.registrationNumber !== undefined) {
     cleanUpdates.registrationNumber = String(cleanUpdates.registrationNumber).trim().toUpperCase();
@@ -1059,7 +1063,24 @@ export async function updateVehicle(
     const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
     const updated = list.map((v) => {
       if (v.id !== vehicleId) return v;
-      const next = { ...v, ...cleanUpdates };
+      const isRevertingFromSold =
+        v.status === 'sold' &&
+        cleanUpdates.status !== undefined &&
+        cleanUpdates.status !== 'sold';
+
+      let next: Vehicle = isRevertingFromSold
+        ? {
+            ...v,
+            ...stripUndefined(
+              buildSoldRevertUpdate(v, cleanUpdates.status!, cleanUpdates).updates
+            ),
+          }
+        : { ...v, ...cleanUpdates };
+
+      if (isRevertingFromSold || explicitClearBuyerInfo) {
+        delete next.buyerInfo;
+      }
+
       if (cleanUpdates.purchasePrice !== undefined && cleanUpdates.totalInvested === undefined) {
         const exp = Math.max(0, Number(next.totalExpenses) || 0);
         next.totalInvested = Math.round(((Number(cleanUpdates.purchasePrice) || 0) + exp + Number.EPSILON) * 100) / 100;
@@ -1071,18 +1092,45 @@ export async function updateVehicle(
   }
 
   try {
-    const payload = stripUndefined({
+    let payload: Record<string, unknown> = stripUndefined({
       ...cleanUpdates,
       updatedAt: new Date().toISOString(),
     });
-    if (payload.purchasePrice !== undefined && payload.totalInvested === undefined) {
+    let shouldDeleteBuyerInfo = explicitClearBuyerInfo;
+    const needsExistingDoc =
+      payload.purchasePrice !== undefined ||
+      (cleanUpdates.status !== undefined && cleanUpdates.status !== 'sold');
+
+    if (needsExistingDoc) {
       const snap = await getDoc(doc(db, 'vehicles', vehicleId));
       if (snap.exists()) {
-        const existingData = snap.data() as Vehicle;
-        const exp = Math.max(0, Number(existingData.totalExpenses) || 0);
-        payload.totalInvested = Math.round(((Number(payload.purchasePrice) || 0) + exp + Number.EPSILON) * 100) / 100;
+        const existingData = normalizeVehicleRecord(snap.data() as Vehicle, snap.id);
+        const isRevertingFromSold =
+          existingData.status === 'sold' &&
+          cleanUpdates.status !== undefined &&
+          cleanUpdates.status !== 'sold';
+
+        if (isRevertingFromSold) {
+          shouldDeleteBuyerInfo = true;
+          const reverted = stripUndefined(
+            buildSoldRevertUpdate(existingData, cleanUpdates.status!, cleanUpdates).updates
+          );
+          payload = {
+            ...payload,
+            ...reverted,
+            updatedAt: payload.updatedAt,
+          };
+        } else if (payload.purchasePrice !== undefined && payload.totalInvested === undefined) {
+          const exp = Math.max(0, Number(existingData.totalExpenses) || 0);
+          payload.totalInvested = Math.round(((Number(payload.purchasePrice) || 0) + exp + Number.EPSILON) * 100) / 100;
+        }
       }
     }
+
+    if (shouldDeleteBuyerInfo) {
+      payload.buyerInfo = deleteField();
+    }
+
     await updateDoc(doc(db, 'vehicles', vehicleId), payload);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
@@ -1521,7 +1569,7 @@ export async function syncVehicleFinancials(
   const fin = calculateVehicleFinancials({
     purchasePrice: vehicle.purchasePrice,
     targetSalePrice: vehicle.targetSalePrice,
-    finalSalePrice: vehicle.buyerInfo?.salePrice,
+    finalSalePrice: vehicle.status === 'sold' ? vehicle.buyerInfo?.salePrice : undefined,
     repairs,
     expenses,
   });
@@ -1656,6 +1704,7 @@ export async function seedDemoGarageData(
       status: 'in_progress',
       partsCost: 95,
       laborCost: 65,
+      date: '2026-10-17',
       categoryPreset: 'oil_change',
       notes: 'Filtre habitacle charbon actif à remplacer',
     });
@@ -1664,6 +1713,7 @@ export async function seedDemoGarageData(
       status: 'todo',
       partsCost: 140,
       laborCost: 70,
+      date: '2026-10-19',
       categoryPreset: 'brake_pads',
       notes: 'Plaquettes usées à 80%',
     });
@@ -1721,6 +1771,7 @@ export async function seedDemoGarageData(
       status: 'in_progress',
       partsCost: 240,
       laborCost: 260,
+      date: '2026-10-01',
       categoryPreset: 'timing_belt',
       notes: 'Pièces d’origine Gates commandées',
     });
@@ -1729,6 +1780,7 @@ export async function seedDemoGarageData(
       status: 'done',
       partsCost: 0,
       laborCost: 40,
+      date: '2026-10-03',
       categoryPreset: 'diagnostics',
     });
     await addGeneralExpense(v2Id, userId, {
@@ -1779,6 +1831,7 @@ export async function seedDemoGarageData(
       status: 'done',
       partsCost: 190,
       laborCost: 120,
+      date: '2026-08-18',
     });
     await addGeneralExpense(v3Id, userId, {
       category: 'controle_technique',
@@ -1854,6 +1907,7 @@ export async function seedDemoGarageData(
       status: 'done',
       partsCost: 260,
       laborCost: 50,
+      date: '2026-07-14',
       categoryPreset: 'tires',
     });
     await addRepairTask(v4Id, userId, {
@@ -1861,6 +1915,7 @@ export async function seedDemoGarageData(
       status: 'done',
       partsCost: 150,
       laborCost: 120,
+      date: '2026-07-18',
       categoryPreset: 'oil_change',
     });
     await addGeneralExpense(v4Id, userId, {

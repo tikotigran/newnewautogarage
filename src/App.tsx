@@ -109,6 +109,7 @@ import { createDemoCerfaVehicle } from './utils/cerfa15776';
 import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Menu } from 'lucide-react';
 import { useI18n } from './i18n/I18nContext';
 import { pickLocalized } from './utils/i18nUtils';
+import { buildSoldRevertUpdate, resolvePendingVehicleSelection } from './utils/vehicleFormUtils';
 
 export type ActiveAppView = 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
 
@@ -180,6 +181,7 @@ export default function App() {
   const [changeLogs, setChangeLogs] = useState<ChangeLogEntry[]>([]);
   const [backupSnapshots, setBackupSnapshots] = useState<BackupSnapshotRecord[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [pendingSelectedVehicleId, setPendingSelectedVehicleId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ActiveAppView>(() =>
     isAdminUrl() ? 'admin' : 'desktop'
   );
@@ -423,6 +425,7 @@ export default function App() {
     persistActiveGarageId(null);
     setActiveGarageId(null);
     setSelectedVehicle(null);
+    setPendingSelectedVehicleId(null);
     setGarages([]);
     setVehicles([]);
     setFleetRepairs([]);
@@ -470,6 +473,7 @@ export default function App() {
   const handleSelectGarage = (garageId: string | null) => {
     setActiveGarageId(garageId);
     setSelectedVehicle(null);
+    setPendingSelectedVehicleId(null);
     persistActiveGarageId(garageId);
     if (garageId && user?.uid) {
       fetchGarageSettingsFromCloud(user.uid, garageId).catch(() => {});
@@ -550,6 +554,7 @@ export default function App() {
         : garageId === DEFAULT_GARAGE_ID;
       if (belongsToDeleted) {
         setSelectedVehicle(null);
+        setPendingSelectedVehicleId(null);
       }
     }
     if (nextActiveId !== activeGarageId) {
@@ -660,6 +665,17 @@ export default function App() {
     return filterVehiclesByGarage(vehicles, activeGarageId);
   }, [vehicles, activeGarageId]);
 
+  // Wait until a newly created vehicle appears in the resolved list before opening its detail view
+  useEffect(() => {
+    if (!pendingSelectedVehicleId) return;
+    const resolvedList = activeGarageId ? garageVehicles : vehicles;
+    const matched = resolvePendingVehicleSelection(pendingSelectedVehicleId, resolvedList);
+    if (matched) {
+      setSelectedVehicle(matched);
+      setPendingSelectedVehicleId(null);
+    }
+  }, [pendingSelectedVehicleId, activeGarageId, garageVehicles, vehicles]);
+
   const garageSuppliers = useMemo(
     () => filterSuppliersByGarage(suppliers, activeGarageId),
     [suppliers, activeGarageId]
@@ -768,6 +784,7 @@ export default function App() {
     persistActiveGarageId(DEFAULT_GARAGE_ID);
     setActiveGarageId(DEFAULT_GARAGE_ID);
     setSelectedVehicle(null);
+    setPendingSelectedVehicleId(null);
     setDocumentsAlignerMode(false);
     setActiveView('desktop');
     setIsAdminMode(false);
@@ -791,6 +808,7 @@ export default function App() {
     guestDemoAutoSeededRef.current = false;
     setActiveGarageId(null);
     setSelectedVehicle(null);
+    setPendingSelectedVehicleId(null);
     setGarages([]);
     setVehicles([]);
     setFleetRepairs([]);
@@ -854,6 +872,7 @@ export default function App() {
       // ignore
     }
     setSelectedVehicle(null);
+    setPendingSelectedVehicleId(null);
     setDocumentsAlignerMode(false);
     setIsDemoMode(false);
     if (activeView !== 'desktop') {
@@ -898,13 +917,24 @@ export default function App() {
     }
   }, [authReady, user, isDemoMode, activeGarageId, effectiveUserId]);
 
-  // Quick status change
+  // Quick status change (clears buyerInfo if reverting from 'sold')
   const handleQuickStatusChange = async (vehicleId: string, newStatus: VehicleStatus) => {
     const prev = vehicles.find((v) => v.id === vehicleId);
-    await updateVehicle(vehicleId, { status: newStatus });
-    if (prev && prev.status !== newStatus) {
+    if (!prev) {
+      await updateVehicle(vehicleId, { status: newStatus });
+      return;
+    }
+    const revertPlan = buildSoldRevertUpdate(prev, newStatus);
+    await updateVehicle(vehicleId, revertPlan.updates);
+    if (prev.status !== newStatus) {
       const actor = userProfile?.email || user?.email || null;
       const label = `${prev.make} ${prev.model} (${prev.registrationNumber || prev.vin})`;
+      const changes: Array<{ field: string; oldValue: string; newValue: string }> = [
+        { field: 'status', oldValue: prev.status, newValue: newStatus },
+      ];
+      if (revertPlan.shouldClearBuyerInfo && prev.buyerInfo?.fullName) {
+        changes.push({ field: 'buyer', oldValue: prev.buyerInfo.fullName, newValue: '—' });
+      }
       void logUserActivity({
         userId: effectiveUserId,
         garageId: prev.garageId || activeGarageId,
@@ -923,7 +953,7 @@ export default function App() {
         entityType: 'vehicle',
         entityId: vehicleId,
         entityLabel: label,
-        changes: [{ field: 'status', oldValue: prev.status, newValue: newStatus }],
+        changes,
       });
     }
   };
@@ -1048,16 +1078,24 @@ export default function App() {
     if (editingVehicle) {
       const preservedGarageId =
         data.garageId || editingVehicle.garageId || activeGarageId || undefined;
-      await updateVehicle(editingVehicle.id, {
+      const revertPlan = buildSoldRevertUpdate(editingVehicle, data.status, {
         ...data,
         ...(preservedGarageId ? { garageId: preservedGarageId } : {}),
       });
+      await updateVehicle(editingVehicle.id, revertPlan.updates);
       const label = `${data.make} ${data.model} (${data.registrationNumber || data.vin})`;
       const diffs = computeEntityFieldDiffs(
         editingVehicle as unknown as Record<string, unknown>,
         data as unknown as Record<string, unknown>,
         ['make', 'model', 'trim', 'year', 'mileage', 'vin', 'registrationNumber', 'purchasePrice', 'targetSalePrice', 'status']
       );
+      if (revertPlan.shouldClearBuyerInfo && editingVehicle.buyerInfo?.fullName) {
+        diffs.push({
+          field: 'buyer',
+          oldValue: editingVehicle.buyerInfo.fullName,
+          newValue: '—',
+        });
+      }
       void logUserActivity({
         userId: effectiveUserId,
         garageId: editingVehicle.garageId || activeGarageId,
@@ -1132,8 +1170,16 @@ export default function App() {
           ],
         });
       }
-      const created = vehicles.find((v) => v.id === newId);
-      if (created) setSelectedVehicle(created);
+      if (newId) {
+        const resolvedList = activeGarageId ? garageVehicles : vehicles;
+        const immediateCreated = resolvePendingVehicleSelection(newId, resolvedList);
+        if (immediateCreated) {
+          setSelectedVehicle(immediateCreated);
+          setPendingSelectedVehicleId(null);
+        } else {
+          setPendingSelectedVehicleId(newId);
+        }
+      }
     }
   };
 
@@ -1164,6 +1210,7 @@ export default function App() {
         changes: [{ field: 'status', oldValue: prev.status, newValue: 'deleted' }],
       });
     }
+    setPendingSelectedVehicleId(null);
     setSelectedVehicle(null);
   };
 
@@ -1239,6 +1286,7 @@ export default function App() {
 
   const handleSidebarNavigate = (target: SidebarNavTarget) => {
     if (target === 'inventory') {
+      setPendingSelectedVehicleId(null);
       setSelectedVehicle(null);
       handleSetActiveView('desktop');
     } else if (target === 'analytics' && effectiveFeatureFlags.expenseAnalytics) {
@@ -1365,6 +1413,7 @@ export default function App() {
               activeGarageId={activeGarageId}
               profileType={activeProfileType}
               onSelectVehicle={(v) => {
+                setPendingSelectedVehicleId(null);
                 setSelectedVehicle(v);
                 handleSetActiveView('desktop');
               }}
@@ -1379,6 +1428,7 @@ export default function App() {
               userId={effectiveUserId}
               activeGarageId={activeGarageId}
               onSelectVehicle={(v) => {
+                setPendingSelectedVehicleId(null);
                 setSelectedVehicle(v);
                 handleSetActiveView('desktop');
               }}
@@ -1421,6 +1471,7 @@ export default function App() {
                 userEmail={userProfile?.email || user?.email || null}
                 activeGarageId={activeGarageId}
                 onSelectVehicle={(v) => {
+                  setPendingSelectedVehicleId(null);
                   setSelectedVehicle(v);
                   handleSetActiveView('desktop');
                 }}
@@ -1501,7 +1552,10 @@ export default function App() {
           ) : selectedVehicle ? (
             <VehicleDetail
               vehicle={selectedVehicle}
-              onBack={() => setSelectedVehicle(null)}
+              onBack={() => {
+                setPendingSelectedVehicleId(null);
+                setSelectedVehicle(null);
+              }}
               onOpenEdit={(v) => {
                 setEditingVehicle(v);
                 setIsVehicleModalOpen(true);
@@ -1524,7 +1578,10 @@ export default function App() {
               vehicles={garageVehicles}
               repairs={fleetRepairs}
               expenses={fleetExpenses}
-              onSelectVehicle={(v) => setSelectedVehicle(v)}
+              onSelectVehicle={(v) => {
+                setPendingSelectedVehicleId(null);
+                setSelectedVehicle(v);
+              }}
               onEditVehicle={(v) => {
                 setEditingVehicle(v);
                 setIsVehicleModalOpen(true);
