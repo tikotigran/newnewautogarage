@@ -228,6 +228,8 @@ export interface Vehicle {
   purchaseDate: string;
   purchasePrice: number;
   targetSalePrice: number;
+  supplierId?: string;
+  supplierName?: string;
   status: VehicleStatus;
   purchaseStatus?: VehiclePurchaseStatus;
   photos: string[];
@@ -239,6 +241,8 @@ export interface Vehicle {
   totalInvested: number;
   netProfit: number;
   marginPercentage: number;
+  ctPassed?: boolean;
+  docsCompleted?: boolean;
   isDemo?: boolean;
   createdAt: string;
   updatedAt: string;

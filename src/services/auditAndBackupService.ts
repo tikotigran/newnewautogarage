@@ -262,6 +262,62 @@ export async function logEntityChange(input: {
   return entry;
 }
 
+export async function removeVehicleSaleHistory(
+  userId: string,
+  vehicleId: string
+): Promise<void> {
+  // 1. Clean up local cache immediately
+  const remainingActivity = getLocalList<UserActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(
+    (log) => !(log.entityId === vehicleId && log.action === 'vehicle_sold')
+  );
+  setLocalList(LOCAL_ACTIVITY_LOGS_KEY, remainingActivity);
+
+  const isSaleChangeEntry = (entry: ChangeLogEntry): boolean =>
+    entry.entityId === vehicleId &&
+    entry.entityType === 'vehicle' &&
+    Array.isArray(entry.changes) &&
+    entry.changes.some(
+      (c) =>
+        c.field === 'buyer' ||
+        c.field === 'salePrice' ||
+        (c.field === 'status' && c.newValue === 'sold')
+    );
+
+  const remainingChanges = getLocalList<ChangeLogEntry>(LOCAL_CHANGE_LOGS_KEY).filter(
+    (entry) => !isSaleChangeEntry(entry)
+  );
+  setLocalList(LOCAL_CHANGE_LOGS_KEY, remainingChanges);
+
+  if (!auth.currentUser) return;
+
+  try {
+    const uid = auth.currentUser.uid || userId;
+    const [actSnap, chgSnap] = await Promise.all([
+      getDocs(query(collection(db, 'user_activity_logs'), where('userId', '==', uid))),
+      getDocs(query(collection(db, 'change_logs'), where('userId', '==', uid))),
+    ]);
+
+    const deletions: Promise<void>[] = [];
+    actSnap.forEach((d) => {
+      const data = d.data() as UserActivityLog;
+      if (data.entityId === vehicleId && data.action === 'vehicle_sold') {
+        deletions.push(deleteDoc(doc(db, 'user_activity_logs', d.id)).catch(() => undefined));
+      }
+    });
+    chgSnap.forEach((d) => {
+      const data = d.data() as ChangeLogEntry;
+      if (isSaleChangeEntry(data)) {
+        deletions.push(deleteDoc(doc(db, 'change_logs', d.id)).catch(() => undefined));
+      }
+    });
+    if (deletions.length > 0) {
+      await Promise.all(deletions);
+    }
+  } catch (err) {
+    console.warn('removeVehicleSaleHistory warning:', err);
+  }
+}
+
 export async function gatherFleetRepairsAndExpenses(
   vehicles: Vehicle[]
 ): Promise<{ repairs: RepairTask[]; expenses: GeneralExpense[] }> {

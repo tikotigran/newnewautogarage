@@ -3,7 +3,9 @@ import { Sidebar, SidebarNavTarget } from './components/Sidebar';
 import { VehicleList } from './components/VehicleList';
 import { VehicleDetail } from './components/VehicleDetail';
 import { VehicleModal } from './components/VehicleModal';
+import { AddVehiclePage } from './components/AddVehiclePage';
 import { BuyerModal } from './components/BuyerModal';
+import { CancelSaleConfirmModal } from './components/CancelSaleConfirmModal';
 import { Settings, SettingsTab } from './components/Settings';
 import { Cerfa15776Modal } from './components/Cerfa15776Modal';
 import { AnalyticsView } from './components/AnalyticsView';
@@ -14,6 +16,9 @@ import { AdminPanel } from './components/AdminPanel';
 import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
 import { DemoModeBanner } from './components/DemoModeBanner';
+import { QuickCreateAction, QuickCreateDropdown } from './components/QuickCreateDropdown';
+import { HeaderNotifications } from './components/HeaderNotifications';
+import { HeaderLanguageDropdown } from './components/HeaderLanguageDropdown';
 import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense, SubscriptionPlan } from './types/garage';
 import {
   auth,
@@ -34,7 +39,11 @@ import {
   fetchGarageSettingsFromCloud,
   createVehicle,
   updateVehicle,
+  cancelVehicleSale,
   deleteVehicle,
+  addGeneralExpense,
+  deleteGeneralExpense,
+  deleteRepairTask,
   seedDemoGarageData,
   getActiveGarageId,
 } from './services/garageService';
@@ -106,12 +115,20 @@ import {
 } from './services/auditAndBackupService';
 import { computeEntityFieldDiffs, filterAuditLogsByGarage } from './utils/exportBackup';
 import { createDemoCerfaVehicle } from './utils/cerfa15776';
-import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Menu } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Menu, Moon, Sun } from 'lucide-react';
 import { useI18n } from './i18n/I18nContext';
 import { pickLocalized } from './utils/i18nUtils';
 import { buildSoldRevertUpdate, resolvePendingVehicleSelection } from './utils/vehicleFormUtils';
 
-export type ActiveAppView = 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
+export type ActiveAppView =
+  | 'desktop'
+  | 'new_vehicle'
+  | 'analytics'
+  | 'suppliers'
+  | 'documents'
+  | 'exports'
+  | 'settings'
+  | 'admin';
 
 const isAdminUrl = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -121,6 +138,11 @@ const isAdminUrl = (): boolean => {
     params.get('mode') === 'admin' ||
     window.location.pathname === '/admin'
   );
+};
+
+const isNewVehicleUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname === '/vehicles/new';
 };
 
 const isDemoUrl = (): boolean => {
@@ -183,7 +205,7 @@ export default function App() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [pendingSelectedVehicleId, setPendingSelectedVehicleId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ActiveAppView>(() =>
-    isAdminUrl() ? 'admin' : 'desktop'
+    isAdminUrl() ? 'admin' : isNewVehicleUrl() ? 'new_vehicle' : 'desktop'
   );
   const [previousViewBeforeSettings, setPreviousViewBeforeSettings] =
     useState<Exclude<ActiveAppView, 'settings'>>('desktop');
@@ -215,12 +237,28 @@ export default function App() {
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [sellingVehicle, setSellingVehicle] = useState<Vehicle | null>(null);
+  const [cancelSaleTarget, setCancelSaleTarget] = useState<{
+    vehicle: Vehicle;
+    targetStatus: VehicleStatus;
+  } | null>(null);
   const [isQuickAlignerOpen, setIsQuickAlignerOpen] = useState(false);
   const [documentsAlignerMode, setDocumentsAlignerMode] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [cerfaVehicle, setCerfaVehicle] = useState<Vehicle | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const [settingsVersion, setSettingsVersion] = useState(0);
+  const [suppliersTabRequest, setSuppliersTabRequest] = useState<{
+    tab: 'purchases' | 'suppliers' | 'channels';
+    nonce: number;
+  } | null>(null);
+  const [exportsTabRequest, setExportsTabRequest] = useState<{
+    tab: 'exports' | 'facturx' | 'audit' | 'backup';
+    nonce: number;
+  } | null>(null);
+  const [vehicleDetailTabRequest, setVehicleDetailTabRequest] = useState<{
+    tab: 'overview' | 'repairs' | 'expenses' | 'documents';
+    nonce: number;
+  } | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('autogarage_theme');
@@ -277,7 +315,7 @@ export default function App() {
     [featureFlags, activePlanId, isSuperAdmin, subscriptionPlans]
   );
 
-  // Sync /admin or ?view=admin URL path
+  // Sync /admin, ?view=admin, or /vehicles/new URL path
   const handleSetActiveView = (view: ActiveAppView) => {
     const safeView = isViewAllowedByFeatureFlags(view, effectiveFeatureFlags) ? view : 'desktop';
     if (safeView === 'settings' && activeView !== 'settings') {
@@ -289,13 +327,19 @@ export default function App() {
     setIsAdminMode(safeView === 'admin');
     setActiveView(safeView);
     if (typeof window !== 'undefined') {
-      const targetUrl = safeView === 'admin' ? `${window.location.origin}/?view=admin` : '/';
+      const targetPath =
+        safeView === 'admin'
+          ? `${window.location.origin}/?view=admin`
+          : safeView === 'new_vehicle'
+          ? '/vehicles/new'
+          : '/';
       const currentFull = `${window.location.pathname}${window.location.search}`;
       if (
         (safeView === 'admin' && !isAdminUrl()) ||
-        (safeView !== 'admin' && (currentFull !== '/' || isAdminUrl()))
+        (safeView === 'new_vehicle' && window.location.pathname !== '/vehicles/new') ||
+        (safeView !== 'admin' && safeView !== 'new_vehicle' && (currentFull !== '/' || isAdminUrl()))
       ) {
-        window.history.pushState({}, '', targetUrl);
+        window.history.pushState({}, '', targetPath);
       }
     }
   };
@@ -318,8 +362,13 @@ export default function App() {
   useEffect(() => {
     const onPopState = () => {
       const admin = isAdminUrl();
-      setIsAdminMode(admin);
-      setActiveView(admin ? 'admin' : 'desktop');
+      if (admin) {
+        setIsAdminMode(true);
+        setActiveView('admin');
+        return;
+      }
+      setIsAdminMode(false);
+      setActiveView(isNewVehicleUrl() ? 'new_vehicle' : 'desktop');
     };
     const onSettingsUpdated = () => {
       setSettingsVersion((n) => n + 1);
@@ -917,11 +966,15 @@ export default function App() {
     }
   }, [authReady, user, isDemoMode, activeGarageId, effectiveUserId]);
 
-  // Quick status change (clears buyerInfo if reverting from 'sold')
+  // Quick status change (prompts for confirmation when reverting from 'sold')
   const handleQuickStatusChange = async (vehicleId: string, newStatus: VehicleStatus) => {
     const prev = vehicles.find((v) => v.id === vehicleId);
     if (!prev) {
       await updateVehicle(vehicleId, { status: newStatus });
+      return;
+    }
+    if (prev.status === 'sold' && newStatus !== 'sold') {
+      setCancelSaleTarget({ vehicle: prev, targetStatus: newStatus });
       return;
     }
     const revertPlan = buildSoldRevertUpdate(prev, newStatus);
@@ -932,9 +985,6 @@ export default function App() {
       const changes: Array<{ field: string; oldValue: string; newValue: string }> = [
         { field: 'status', oldValue: prev.status, newValue: newStatus },
       ];
-      if (revertPlan.shouldClearBuyerInfo && prev.buyerInfo?.fullName) {
-        changes.push({ field: 'buyer', oldValue: prev.buyerInfo.fullName, newValue: '—' });
-      }
       void logUserActivity({
         userId: effectiveUserId,
         garageId: prev.garageId || activeGarageId,
@@ -958,6 +1008,52 @@ export default function App() {
     }
   };
 
+  const handleQuickToggleField = async (
+    vehicleId: string,
+    field: 'ctPassed' | 'docsCompleted',
+    value: boolean
+  ) => {
+    await updateVehicle(vehicleId, { [field]: value });
+  };
+
+  const handleAddQuickExpense = async (
+    vehicleId: string,
+    payload: { category: string; description: string; amount: number; date: string }
+  ) => {
+    const target = vehicles.find((v) => v.id === vehicleId);
+    await addGeneralExpense(vehicleId, effectiveUserId, {
+      garageId: target?.garageId || activeGarageId || undefined,
+      category: payload.category,
+      description: payload.description,
+      amount: payload.amount,
+      date: payload.date,
+    });
+  };
+
+  const handleDeleteQuickExpense = async (vehicleId: string, expenseId: string) => {
+    await deleteGeneralExpense(vehicleId, expenseId);
+  };
+
+  const handleDeleteQuickRepair = async (vehicleId: string, repairId: string) => {
+    await deleteRepairTask(vehicleId, repairId);
+  };
+
+  // Confirm sale cancellation (clears buyer & sale fields in Firestore/localStorage + sale history)
+  const handleConfirmCancelSale = async () => {
+    if (!cancelSaleTarget) return;
+    const { vehicle: targetVehicle, targetStatus } = cancelSaleTarget;
+    await cancelVehicleSale(targetVehicle.id, effectiveUserId, targetStatus);
+    setCancelSaleTarget(null);
+    showGlobalToast(
+      pickLocalized(lang, {
+        fr: 'Vente annulée. Les données acheteur ont été supprimées et le véhicule est remis en vente.',
+        ru: 'Продажа отменена. Данные покупателя удалены, автомобиль возвращён в статус «В продаже».',
+        hy: 'Վաճառքը չեղարկված է։ Գնորդի տվյալները ջնջվել են, մեքենան վերադարձվել է վաճառքի։',
+        ka: 'გაყიდვა გაუქმებულია. მყიდველის მონაცემები წაშლილია, ავტომობილი დაბრუნდა გაყიდვაში.',
+      })
+    );
+  };
+
   // Open sell modal
   const handleOpenSellModal = (vehicle: Vehicle) => {
     setSellingVehicle(vehicle);
@@ -965,7 +1061,11 @@ export default function App() {
   };
 
   // Confirm sale (always preserves or freezes an immutable TransactionTaxSnapshot)
-  const handleConfirmSale = async (vehicleId: string, buyerInfo: BuyerInfo) => {
+  const handleConfirmSale = async (
+    vehicleId: string,
+    buyerInfo: BuyerInfo,
+    vehicleUpdates?: Partial<Vehicle>
+  ) => {
     const targetVehicle = vehicles.find((v) => v.id === vehicleId);
     if (!targetVehicle) return;
 
@@ -1037,6 +1137,7 @@ export default function App() {
         : 0;
 
     await updateVehicle(vehicleId, {
+      ...(vehicleUpdates || {}),
       status: 'sold',
       buyerInfo: enrichedBuyerInfo,
       totalInvested: computedTotalInvested,
@@ -1045,7 +1146,7 @@ export default function App() {
     });
 
     const actor = userProfile?.email || user?.email || null;
-    const label = `${targetVehicle.make} ${targetVehicle.model} (${targetVehicle.registrationNumber || targetVehicle.vin})`;
+    const label = `${targetVehicle.make} ${targetVehicle.model} (${vehicleUpdates?.registrationNumber || targetVehicle.registrationNumber || vehicleUpdates?.vin || targetVehicle.vin})`;
     void logUserActivity({
       userId: effectiveUserId,
       garageId: targetVehicle.garageId || activeGarageId,
@@ -1180,6 +1281,7 @@ export default function App() {
           setPendingSelectedVehicleId(newId);
         }
       }
+      handleSetActiveView('desktop');
     }
   };
 
@@ -1305,6 +1407,110 @@ export default function App() {
     }
   };
 
+  const handleQuickCreateAction = (action: QuickCreateAction) => {
+    const nonce = Date.now();
+    if (action === 'vehicles') {
+      if (
+        !planCapabilities.isUnlimitedVehicles &&
+        vehicles.length >= planCapabilities.vehicleLimit
+      ) {
+        handleOpenUpgradePlan();
+        return;
+      }
+      setEditingVehicle(null);
+      setSelectedVehicle(null);
+      handleSetActiveView('new_vehicle');
+      return;
+    }
+
+    if (action === 'purchases') {
+      if (effectiveFeatureFlags.suppliersModule) {
+        setSelectedVehicle(null);
+        setSuppliersTabRequest({ tab: 'purchases', nonce });
+        handleSetActiveView('suppliers');
+      } else {
+        setEditingVehicle(null);
+        setSelectedVehicle(null);
+        handleSetActiveView('new_vehicle');
+      }
+      return;
+    }
+
+    if (action === 'sales') {
+      const target =
+        (selectedVehicle && selectedVehicle.status !== 'sold' ? selectedVehicle : null) ||
+        garageVehicles.find((v) => v.status === 'for_sale') ||
+        garageVehicles.find((v) => v.status !== 'sold');
+      if (target) {
+        setPendingSelectedVehicleId(null);
+        setSelectedVehicle(target);
+        handleSetActiveView('desktop');
+        handleOpenSellModal(target);
+      } else {
+        setSelectedVehicle(null);
+        handleSetActiveView('desktop');
+        showGlobalToast(
+          pickLocalized(lang, {
+            fr: 'Aucun véhicule disponible à la vente. Ajoutez d’abord un véhicule.',
+            ru: 'Нет доступных непроданных автомобилей. Сначала добавьте автомобиль.',
+            hy: 'Վաճառքի համար հասանելի մեքենա չկա։ Սկզբում ավելացրեք մեքենա։',
+            ka: 'გასაყიდი ავტომობილი არ არის. ჯერ დაამატეთ ავტომობილი.',
+          })
+        );
+      }
+      return;
+    }
+
+    if (action === 'expenses') {
+      const target =
+        selectedVehicle ||
+        garageVehicles.find((v) => v.status !== 'sold') ||
+        garageVehicles[0];
+      if (target) {
+        setPendingSelectedVehicleId(null);
+        setSelectedVehicle(target);
+        setVehicleDetailTabRequest({ tab: 'expenses', nonce });
+        handleSetActiveView('desktop');
+      } else if (effectiveFeatureFlags.expenseAnalytics) {
+        handleSetActiveView('analytics');
+      } else {
+        handleSetActiveView('new_vehicle');
+      }
+      return;
+    }
+
+    if (action === 'facturx') {
+      if (effectiveFeatureFlags.exportsBackup) {
+        setSelectedVehicle(null);
+        setExportsTabRequest({ tab: 'facturx', nonce });
+        handleSetActiveView('exports');
+      } else if (effectiveFeatureFlags.documentsModule) {
+        setSelectedVehicle(null);
+        setDocumentsAlignerMode(false);
+        handleSetActiveView('documents');
+      } else {
+        handleOpenUpgradePlan();
+      }
+      return;
+    }
+
+    if (action === 'clients') {
+      if (effectiveFeatureFlags.suppliersModule) {
+        setSelectedVehicle(null);
+        setSuppliersTabRequest({ tab: 'suppliers', nonce });
+        handleSetActiveView('suppliers');
+      } else if (effectiveFeatureFlags.documentsModule) {
+        setSelectedVehicle(null);
+        setDocumentsAlignerMode(false);
+        handleSetActiveView('documents');
+      } else {
+        handleOpenUpgradePlan();
+      }
+    }
+  };
+
+  const activeGarageRecord = garages.find((g) => g.id === activeGarageId) || null;
+
   const showInlineMobileNavTrigger =
     activeView !== 'desktop' ||
     Boolean(selectedVehicle) ||
@@ -1345,6 +1551,79 @@ export default function App() {
 
       {/* Workspace Column */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Global Top Header Bar aligned with Sidebar header (h-16 / 64px) */}
+        <header
+          data-testid="workspace-top-header"
+          className="sticky top-0 z-30 h-16 shrink-0 border-b border-[var(--ag-header-border)] bg-[var(--ag-header-bg)]/95 text-[var(--ag-header-text)] backdrop-blur-md"
+        >
+          <div className="h-full max-w-6xl w-full mx-auto px-3.5 md:px-5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                data-testid="top-header-mobile-menu-btn"
+                onClick={() => setMobileSidebarOpen(true)}
+                aria-label={t('openNavMenu')}
+                className="lg:hidden inline-flex items-center justify-center h-9 w-9 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)]/70 hover:bg-[var(--surface-muted)] text-[var(--foreground)] border border-[var(--border)] transition shrink-0 cursor-pointer"
+              >
+                <Menu className="w-4 h-4 text-[var(--primary)]" />
+              </button>
+              <span className="text-xs font-semibold text-[var(--muted-foreground)] truncate">
+                {activeGarageRecord?.name || 'AutoGarage Manager'}
+              </span>
+            </div>
+
+            <div
+              data-testid="header-utility-controls"
+              className="flex items-center gap-2 shrink-0"
+            >
+              <QuickCreateDropdown onSelectAction={handleQuickCreateAction} />
+
+              <HeaderNotifications
+                vehicles={activeGarageId ? garageVehicles : vehicles}
+                activityLogs={garageActivityLogs}
+                onSelectVehicleId={(vehicleId) => {
+                  const target =
+                    (activeGarageId ? garageVehicles : vehicles).find(
+                      (v) => v.id === vehicleId
+                    ) || vehicles.find((v) => v.id === vehicleId);
+                  if (target) {
+                    setPendingSelectedVehicleId(null);
+                    setSelectedVehicle(target);
+                    handleSetActiveView('desktop');
+                  }
+                }}
+              />
+
+              <HeaderLanguageDropdown />
+
+              <button
+                type="button"
+                data-testid="header-theme-toggle-btn"
+                aria-label={pickLocalized(lang, {
+                  fr: theme === 'dark' ? 'Passer au thème clair' : 'Passer au thème sombre',
+                  ru: theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему',
+                  hy: theme === 'dark' ? 'Անցնել լուսավոր թեմայի' : 'Անցնել մուգ թեմայի',
+                  ka: theme === 'dark' ? 'ღია თემაზე გადასვლა' : 'მუქ თემაზე გადასვლა',
+                })}
+                title={pickLocalized(lang, {
+                  fr: theme === 'dark' ? 'Thème clair' : 'Thème sombre',
+                  ru: theme === 'dark' ? 'Светлая тема' : 'Тёмная тема',
+                  hy: theme === 'dark' ? 'Լուսավոր թեմա' : 'Մուգ թեմա',
+                  ka: theme === 'dark' ? 'ღია თემა' : 'მუქი თემა',
+                })}
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="inline-flex items-center justify-center h-9 w-9 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)]/70 hover:bg-[var(--surface-muted)] border border-[var(--border)] text-[var(--foreground)] transition cursor-pointer shrink-0"
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-4 h-4 text-[var(--primary)]" />
+                ) : (
+                  <Moon className="w-4 h-4 text-[var(--primary)]" />
+                )}
+              </button>
+            </div>
+          </div>
+        </header>
+
         {hasActiveDemoFleet({
           isDemoModeFlag: isDemoMode,
           isAuthenticated: Boolean(user),
@@ -1433,6 +1712,7 @@ export default function App() {
                 handleSetActiveView('desktop');
               }}
               onSeedSuppliers={handleSeedSuppliers}
+              requestedTab={suppliersTabRequest}
             />
           ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
             activeView === 'documents' &&
@@ -1503,6 +1783,7 @@ export default function App() {
               activeGarageId={activeGarageId}
               profileType={activeProfileType}
               onNavigateSettings={() => handleSetActiveView('settings')}
+              requestedTab={exportsTabRequest}
             />
           ) : activeView === 'settings' ? (
             <Settings
@@ -1549,6 +1830,17 @@ export default function App() {
               onUpdateGarage={handleUpdateGarage}
               onDeleteGarage={handleDeleteGarage}
             />
+          ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
+            activeView === 'new_vehicle' ? (
+            <AddVehiclePage
+              userId={effectiveUserId}
+              activeGarageId={activeGarageId}
+              defaultPurchaseStatus={activeProfileType === 'particulier' ? 'particulier' : 'micro'}
+              suppliers={garageSuppliers}
+              onBack={() => handleSetActiveView('desktop')}
+              onSubmit={handleSaveVehicle}
+              onValidationToast={showGlobalToast}
+            />
           ) : selectedVehicle ? (
             <VehicleDetail
               vehicle={selectedVehicle}
@@ -1561,6 +1853,9 @@ export default function App() {
                 setIsVehicleModalOpen(true);
               }}
               onOpenSellModal={handleOpenSellModal}
+              onRequestCancelSale={(v, targetStatus = 'for_sale') =>
+                setCancelSaleTarget({ vehicle: v, targetStatus })
+              }
               onDeleteVehicle={handleDeleteVehicle}
               userId={effectiveUserId}
               userEmail={userProfile?.email || user?.email || null}
@@ -1572,6 +1867,7 @@ export default function App() {
               featureFlags={effectiveFeatureFlags}
               profileType={activeProfileType}
               onValidationToast={showGlobalToast}
+              requestedTab={vehicleDetailTabRequest}
             />
           ) : (
             <VehicleList
@@ -1595,9 +1891,14 @@ export default function App() {
                   return;
                 }
                 setEditingVehicle(null);
-                setIsVehicleModalOpen(true);
+                setSelectedVehicle(null);
+                handleSetActiveView('new_vehicle');
               }}
               onQuickStatusChange={handleQuickStatusChange}
+              onQuickToggleField={handleQuickToggleField}
+              onAddQuickExpense={handleAddQuickExpense}
+              onDeleteQuickExpense={handleDeleteQuickExpense}
+              onDeleteQuickRepair={handleDeleteQuickRepair}
               onOpenSellModal={handleOpenSellModal}
               onOpenCerfa={effectiveFeatureFlags.cerfaGenerator ? (v) => setCerfaVehicle(v) : undefined}
               onSeedData={handleSeedData}
@@ -1641,6 +1942,15 @@ export default function App() {
         profileType={activeProfileType}
         onConfirmSale={handleConfirmSale}
         onValidationToast={showGlobalToast}
+      />
+
+      {/* Cancel Sale Confirmation Modal */}
+      <CancelSaleConfirmModal
+        isOpen={Boolean(cancelSaleTarget)}
+        vehicle={cancelSaleTarget?.vehicle || null}
+        targetStatus={cancelSaleTarget?.targetStatus || 'for_sale'}
+        onConfirm={handleConfirmCancelSale}
+        onClose={() => setCancelSaleTarget(null)}
       />
 
       {/* Quick Cerfa Preview Modal fallback when Documents page mode is off */}

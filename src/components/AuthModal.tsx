@@ -12,6 +12,9 @@ import {
   Briefcase,
   Car,
   Sparkles,
+  Copy,
+  Check,
+  ExternalLink,
 } from 'lucide-react';
 import {
   auth,
@@ -20,6 +23,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from '../services/firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { SUPERADMIN_BOOTSTRAP_EMAIL } from '../utils/adminUtils';
 import { getPendingProfileType, setPendingProfileType } from '../services/adminService';
 import { AppUserProfileType, UserProfile } from '../types/garage';
@@ -52,11 +56,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [unauthorizedHost, setUnauthorizedHost] = useState<string | null>(null);
+  const [copiedHost, setCopiedHost] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     setMode(initialMode);
     setError(null);
+    setUnauthorizedHost(null);
   }, [initialMode]);
 
   if (!isOpen) return null;
@@ -67,13 +74,57 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       (window.location.hostname === 'localhost' ||
         window.location.hostname.includes('run.app')));
 
+  const currentHostname =
+    typeof window !== 'undefined' ? window.location.hostname : '';
+  const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
+
   const handleProfileChoice = (next: AppUserProfileType) => {
     setSelectedProfileType(next);
     setPendingProfileType(next);
   };
 
+  const applyAuthError = (err: unknown) => {
+    const code =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code?: unknown }).code || '')
+        : '';
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      code.includes('unauthorized-domain') ||
+      msg.includes('unauthorized-domain')
+    ) {
+      setUnauthorizedHost(currentHostname || 'run.app');
+      setError(
+        pickLocalized(lang, {
+          fr: `Domaine non autorisé dans Firebase Auth (${currentHostname}).`,
+          ru: `Домен «${currentHostname}» не добавлен в список разрешённых доменов Firebase Auth.`,
+          hy: `«${currentHostname}» դոմենը ավելացված չէ Firebase Auth-ի թույլատրված դոմեններում։`,
+          ka: `დომენი «${currentHostname}» არ არის დამატებული Firebase Auth-ის ნებადაրთულ დომენებში.`,
+        })
+      );
+    } else if (msg.includes('popup-blocked') || msg.includes('popup-closed')) {
+      setUnauthorizedHost(null);
+      setError(t('authPopupBlocked'));
+    } else {
+      setUnauthorizedHost(null);
+      setError(msg);
+    }
+  };
+
+  const handleCopyHostname = async () => {
+    if (!unauthorizedHost || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(unauthorizedHost);
+      setCopiedHost(true);
+      setTimeout(() => setCopiedHost(false), 2000);
+    } catch {
+      // ignore clipboard restrictions
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError(null);
+    setUnauthorizedHost(null);
     setIsLoading(true);
     try {
       if (mode === 'register') {
@@ -82,12 +133,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       await signInWithPopup(auth, googleProvider);
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('popup-blocked') || msg.includes('popup-closed')) {
-        setError(t('authPopupBlocked'));
-      } else {
-        setError(msg);
-      }
+      applyAuthError(err);
     } finally {
       setIsLoading(false);
     }
@@ -96,6 +142,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setUnauthorizedHost(null);
     if (!email.trim() || !password.trim()) {
       setError(t('authMissingFields'));
       return;
@@ -111,8 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
       onClose();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
+      applyAuthError(err);
     } finally {
       setIsLoading(false);
     }
@@ -187,9 +233,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Body */}
         <div className="p-5 space-y-3.5">
           {error && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+            <div
+              data-testid={unauthorizedHost ? 'auth-unauthorized-domain-banner' : 'auth-error-banner'}
+              className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs space-y-2"
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                <span className="font-semibold">{error}</span>
+              </div>
+
+              {unauthorizedHost && (
+                <div className="pl-6 space-y-2 text-[11px] text-slate-300">
+                  <p>
+                    {pickLocalized(lang, {
+                      fr: 'Ajoutez ce domaine dans Firebase Console → Authentication → Settings → Authorized domains, ou utilisez la connexion par e-mail / le mode démo ci-dessous :',
+                      ru: 'Добавьте этот домен в Firebase Console → Authentication → Settings → Authorized domains, либо войдите по Email/паролю или через Демо-режим ниже:',
+                      hy: 'Ավելացրեք այս դոմենը Firebase Console → Authentication → Settings → Authorized domains բաժնում կամ մուտք գործեք Email-ով / դեմո ռեժիմով։',
+                      ka: 'დაამატეთ ეს დომენი Firebase Console → Authentication → Settings → Authorized domains-ში, ან შედით Email-ით / დემო რეჟიმით:',
+                    })}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <code className="flex-1 px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 font-mono text-[10px] text-amber-300 truncate">
+                      {unauthorizedHost}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopyHostname}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 inline-flex items-center gap-1 shrink-0"
+                    >
+                      {copiedHost ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                    <a
+                      href={firebaseAuthSettingsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1 shrink-0"
+                    >
+                      <span>Firebase</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

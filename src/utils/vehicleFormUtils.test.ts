@@ -1,14 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildCerfaSpecsUpdatePayload,
+  buildSaleWizardInitialState,
   buildSoldRevertUpdate,
   buildVehicleSubmitPayload,
+  computeVehicleMarginPreview,
+  estimatePhotosPayloadBytes,
   hasVehicleCerfaDetails,
+  LEGACY_SALE_FIELDS,
   mapProfileTypeToPurchaseStatus,
+  MAX_VEHICLE_PHOTOS_BYTES,
   resolveDefaultPurchaseStatus,
+  resolveInitialHasRegistrationCertificate,
   resolvePendingVehicleSelection,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
+  stripSaleFieldsFromLocalVehicle,
+  validateCerfaSpecsForm,
   validateQuickVehicleForm,
   validateVehicleFormDetailed,
   VehicleFormInput,
@@ -410,4 +419,222 @@ test('resolvePendingVehicleSelection waits until created vehicle exists in resol
   assert.equal(resolved?.make, 'BMW');
 });
 
+test('stripSaleFieldsFromLocalVehicle deletes buyerInfo and all legacy flat sale fields', () => {
+  const dirtyVehicle = {
+    ...buildVehicleSubmitPayload(createBaseInput({ status: 'sold' }), 'user_1'),
+    id: 'veh_dirty_1',
+    createdAt: '2026-10-01T10:00:00Z',
+    updatedAt: '2026-10-15T10:00:00Z',
+    buyerInfo: {
+      fullName: 'Jean Dupont',
+      address: '10 Rue de Rivoli, 75001 Paris',
+      phone: '0600000000',
+      email: 'jean@dupont.fr',
+      salePrice: 12000,
+      saleDate: '2026-10-15',
+    },
+    buyer: 'Jean Dupont',
+    buyerName: 'Jean Dupont',
+    buyerFirstName: 'Jean',
+    buyerLastName: 'Dupont',
+    buyerAddress: '10 Rue de Rivoli',
+    buyerCity: 'Paris',
+    buyerPostalCode: '75001',
+    buyerBirthDate: '1990-01-01',
+    buyerBirthPlace: 'Lyon',
+    buyerPhone: '0600000000',
+    buyerEmail: 'jean@dupont.fr',
+    salePrice: 12000,
+    saleDate: '2026-10-15',
+    saleTime: '14:00',
+    isSold: true,
+    cerfaGenerated: true,
+  };
+
+  const cleaned = stripSaleFieldsFromLocalVehicle(dirtyVehicle as never);
+  assert.equal(cleaned.buyerInfo, undefined);
+  assert.equal('buyerInfo' in cleaned, false);
+  for (const field of LEGACY_SALE_FIELDS) {
+    assert.equal(field in (cleaned as unknown as Record<string, unknown>), false, `Expected ${field} to be removed`);
+  }
+  assert.equal(cleaned.make, 'Peugeot');
+  assert.equal(cleaned.registrationNumber, 'AB-123-CD');
+});
+
+test('buildSaleWizardInitialState always starts at step 1 with blank buyer fields for unsold vehicles', () => {
+  const unsoldWithStaleBuyer = {
+    status: 'for_sale' as const,
+    registrationNumber: 'EF-456-GH',
+    vin: 'VF3UPHNK0MT129841',
+    mileage: 45200,
+    firstRegistrationDate: '2020-06-15',
+    formulaNumber: '2020XY12345',
+    targetSalePrice: 14900,
+    purchasePrice: 11200,
+    buyerInfo: {
+      fullName: 'Stale Buyer',
+      address: '99 Rue Stale, 69000 Lyon',
+      streetNumber: '99',
+      streetName: 'Rue Stale',
+      postalCode: '69000',
+      city: 'Lyon',
+      birthDate: '1988-05-12',
+      birthPlace: 'Marseille',
+      phone: '0611111111',
+      email: 'stale@test.fr',
+      salePrice: 14000,
+      saleDate: '2026-10-01',
+    },
+  };
+
+  const state = buildSaleWizardInitialState(unsoldWithStaleBuyer, '2026-11-21');
+  assert.equal(state.step, 1);
+  assert.equal(state.registrationNumber, 'EF-456-GH');
+  assert.equal(state.vin, 'VF3UPHNK0MT129841');
+  assert.equal(state.mileage, 45200);
+  assert.equal(state.firstRegistrationDate, '2020-06-15');
+  assert.equal(state.formulaNumber, '2020XY12345');
+  assert.equal(state.saleDate, '2026-11-21');
+  assert.equal(state.salePrice, 14900);
+
+  // Strictly blank buyer fields when status !== 'sold'
+  assert.equal(state.fullName, '');
+  assert.equal(state.birthDate, '');
+  assert.equal(state.birthPlace, '');
+  assert.equal(state.streetNumber, '');
+  assert.equal(state.streetName, '');
+  assert.equal(state.postalCode, '');
+  assert.equal(state.city, '');
+  assert.equal(state.phone, '');
+  assert.equal(state.email, '');
+
+  // When already sold, still starts at Step 1 and preserves active buyerInfo for editing
+  const soldState = buildSaleWizardInitialState(
+    { ...unsoldWithStaleBuyer, status: 'sold' },
+    '2026-11-21'
+  );
+  assert.equal(soldState.step, 1);
+  assert.equal(soldState.fullName, 'Stale Buyer');
+  assert.equal(soldState.city, 'Lyon');
+  assert.equal(soldState.salePrice, 14000);
+});
+
+test('buildVehicleSubmitPayload persists supplierId/supplierName and estimatePhotosPayloadBytes tracks Firestore 1 MB budget', () => {
+  const withSupplier = buildVehicleSubmitPayload(
+    createBaseInput({
+      supplierId: 'sup_bca',
+      supplierName: 'BCA Enchères Paris',
+    }),
+    'user_1'
+  );
+  assert.equal(withSupplier.supplierId, 'sup_bca');
+  assert.equal(withSupplier.supplierName, 'BCA Enchères Paris');
+
+  const withCustomSource = buildVehicleSubmitPayload(
+    createBaseInput({
+      supplierId: undefined,
+      supplierName: 'Leboncoin Particulier',
+    }),
+    'user_1'
+  );
+  assert.equal(withCustomSource.supplierId, undefined);
+  assert.equal(withCustomSource.supplierName, 'Leboncoin Particulier');
+
+  assert.equal(estimatePhotosPayloadBytes([]), 0);
+  assert.equal(estimatePhotosPayloadBytes(['abc', '12345']), 8);
+  assert.equal(MAX_VEHICLE_PHOTOS_BYTES, 750 * 1024);
+});
+
+test('computeVehicleMarginPreview calculates real-time euro and percentage margin and handles incomplete or negative inputs', () => {
+  const empty = computeVehicleMarginPreview('', '');
+  assert.equal(empty.isComplete, false);
+  assert.equal(empty.hasPurchasePrice, false);
+  assert.equal(empty.hasTargetSalePrice, false);
+
+  const partial = computeVehicleMarginPreview(12500, '');
+  assert.equal(partial.isComplete, false);
+  assert.equal(partial.hasPurchasePrice, true);
+  assert.equal(partial.purchasePrice, 12500);
+
+  const positive = computeVehicleMarginPreview(12500, 15900);
+  assert.equal(positive.isComplete, true);
+  assert.equal(positive.grossMarginEuro, 3400);
+  assert.equal(positive.grossMarginPercent, 21.38);
+
+  const negative = computeVehicleMarginPreview(12000, 10000);
+  assert.equal(negative.isComplete, true);
+  assert.equal(negative.grossMarginEuro, -2000);
+  assert.equal(negative.grossMarginPercent, -20);
+});
+
+test('validateCerfaSpecsForm and buildCerfaSpecsUpdatePayload handle D.1, B, D.3, and certificate YES/NO fields cleanly', () => {
+  assert.equal(
+    resolveInitialHasRegistrationCertificate({ hasRegistrationCertificate: undefined, absenceReason: '' }),
+    true
+  );
+  assert.equal(
+    resolveInitialHasRegistrationCertificate({ hasRegistrationCertificate: undefined, absenceReason: 'Perte' }),
+    false
+  );
+  assert.equal(
+    resolveInitialHasRegistrationCertificate({ hasRegistrationCertificate: false, absenceReason: '' }),
+    false
+  );
+
+  assert.ok(validateCerfaSpecsForm({ make: '   ', vin: '', mileage: 50000 }, 'ru'));
+  assert.ok(validateCerfaSpecsForm({ make: 'Peugeot', vin: 'BAD', mileage: 50000 }, 'ru'));
+  assert.ok(validateCerfaSpecsForm({ make: 'Peugeot', vin: '', mileage: -5 }, 'ru'));
+  assert.equal(
+    validateCerfaSpecsForm({ make: 'Peugeot', vin: 'VF3UPHNK0MT129841', mileage: 50000 }, 'ru'),
+    null
+  );
+
+  const yesPayload = buildCerfaSpecsUpdatePayload({
+    make: ' Peugeot ',
+    commercialDesignation: ' 208 GT Line ',
+    registrationNumber: 'ab-123-cd',
+    firstRegistrationDate: '2020-06-15',
+    vin: ' vf3uphnk0mt129841 ',
+    mileage: 84500,
+    fuelType: 'Essence',
+    gearbox: 'Automatique',
+    typeVariantVersion: 'UPHNK0MT',
+    nationalGenre: 'VP',
+    bodyType: 'ci',
+    hasRegistrationCertificate: true,
+    formulaNumber: '2021 ab 12345',
+    certificateDate: '2021-09-20',
+    absenceReason: 'Stale reason',
+  });
+  assert.equal(yesPayload.make, 'Peugeot');
+  assert.equal(yesPayload.commercialDesignation, '208 GT Line');
+  assert.equal(yesPayload.firstRegistrationDate, '2020-06-15');
+  assert.equal(yesPayload.hasRegistrationCertificate, true);
+  assert.equal(yesPayload.formulaNumber, '2021AB12345');
+  assert.equal(yesPayload.certificateDate, '2021-09-20');
+  assert.equal(yesPayload.absenceReason, '');
+
+  const noPayload = buildCerfaSpecsUpdatePayload({
+    make: 'Peugeot',
+    commercialDesignation: '208 GT Line',
+    registrationNumber: 'AB-123-CD',
+    firstRegistrationDate: '2020-06-15',
+    vin: '',
+    mileage: '',
+    fuelType: '',
+    gearbox: '',
+    typeVariantVersion: '',
+    nationalGenre: '',
+    bodyType: '',
+    hasRegistrationCertificate: false,
+    formulaNumber: '2021AB12345',
+    certificateDate: '2021-09-20',
+    absenceReason: ' Perte du certificat ',
+  });
+  assert.equal(noPayload.hasRegistrationCertificate, false);
+  assert.equal(noPayload.absenceReason, 'Perte du certificat');
+  assert.equal(noPayload.formulaNumber, '');
+  assert.equal(noPayload.certificateDate, '');
+  assert.equal(noPayload.nationalGenre, 'VP');
+});
 

@@ -99,6 +99,7 @@ interface ExportsBackupViewProps {
   activeGarageId: string | null;
   profileType?: AppUserProfileType;
   onNavigateSettings?: () => void;
+  requestedTab?: { tab: ExportsBackupTab; nonce: number } | null;
 }
 
 function triggerBlobDownload(blob: Blob, fileName: string): void {
@@ -137,10 +138,17 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   activeGarageId,
   profileType: propProfileType,
   onNavigateSettings,
+  requestedTab,
 }) => {
   const { lang, t } = useI18n();
 
-  const [activeTab, setActiveTab] = useState<ExportsBackupTab>('exports');
+  const [activeTab, setActiveTab] = useState<ExportsBackupTab>(() => requestedTab?.tab || 'exports');
+
+  useEffect(() => {
+    if (requestedTab?.tab) {
+      setActiveTab(requestedTab.tab);
+    }
+  }, [requestedTab]);
   const [periodRange, setPeriodRange] = useState<AnalyticsTimeRange>('all');
   const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
     getGarageSettings(activeGarageId || undefined)

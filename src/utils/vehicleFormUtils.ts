@@ -30,6 +30,8 @@ export interface VehicleFormInput {
   absenceReason: string;
   purchaseDate: string;
   targetSalePrice: number | '';
+  supplierId?: string;
+  supplierName?: string;
   status: VehicleStatus;
   purchaseStatus?: VehiclePurchaseStatus;
   photos: string[];
@@ -334,6 +336,11 @@ export function buildVehicleSubmitPayload(
       : 'micro';
 
   const targetGarageId = resolveTargetGarageId(initialVehicle, activeGarageId);
+  const cleanedSupplierId = input.supplierId?.trim() || initialVehicle?.supplierId || undefined;
+  const cleanedSupplierName =
+    input.supplierName !== undefined
+      ? input.supplierName.trim() || undefined
+      : initialVehicle?.supplierName || undefined;
 
   return {
     userId,
@@ -362,6 +369,8 @@ export function buildVehicleSubmitPayload(
     purchaseDate: input.purchaseDate || new Date().toISOString().split('T')[0],
     purchasePrice: parsedPurchasePrice,
     targetSalePrice: parsedTargetPrice,
+    ...(cleanedSupplierId ? { supplierId: cleanedSupplierId } : {}),
+    ...(cleanedSupplierName ? { supplierName: cleanedSupplierName } : {}),
     status: nextStatus,
     purchaseStatus: resolvedPurchaseStatus,
     photos: input.photos,
@@ -374,6 +383,18 @@ export function buildVehicleSubmitPayload(
     netProfit,
     marginPercentage,
   };
+}
+
+export const MAX_VEHICLE_PHOTOS_BYTES = 750 * 1024;
+
+export function estimatePhotosPayloadBytes(photos: readonly string[]): number {
+  let total = 0;
+  for (const item of photos) {
+    if (typeof item === 'string') {
+      total += item.length;
+    }
+  }
+  return total;
 }
 
 /**
@@ -477,4 +498,244 @@ export function hasVehicleCerfaDetails(vehicle: Partial<Vehicle>): boolean {
       vehicle.commercialDesignation.trim().length > 0 &&
       hasCertProof
   );
+}
+
+export const LEGACY_SALE_FIELDS = [
+  'buyer',
+  'buyerName',
+  'buyerFirstName',
+  'buyerLastName',
+  'buyerAddress',
+  'buyerCity',
+  'buyerPostalCode',
+  'buyerBirthDate',
+  'buyerBirthPlace',
+  'buyerPhone',
+  'buyerEmail',
+  'salePrice',
+  'saleDate',
+  'saleTime',
+  'isSold',
+  'cerfaGenerated',
+] as const;
+
+export function stripSaleFieldsFromLocalVehicle(vehicle: Vehicle): Vehicle {
+  const clone = { ...vehicle } as Record<string, unknown>;
+  delete clone.buyerInfo;
+  for (const field of LEGACY_SALE_FIELDS) {
+    delete clone[field];
+  }
+  return clone as unknown as Vehicle;
+}
+
+export interface SaleWizardInitialState {
+  step: 1;
+  // Step 1: Vehicle technical specs
+  registrationNumber: string;
+  vin: string;
+  mileage: number | '';
+  firstRegistrationDate: string;
+  formulaNumber: string;
+  // Step 2: Seller & deal timing
+  saleDate: string;
+  saleTime: string;
+  // Step 3: Buyer & sale price
+  isCompany: boolean;
+  fullName: string;
+  siret: string;
+  birthDate: string;
+  birthPlace: string;
+  streetNumber: string;
+  streetName: string;
+  postalCode: string;
+  city: string;
+  phone: string;
+  email: string;
+  salePrice: number | '';
+}
+
+/**
+ * Always initializes the multi-step Sale Wizard on Step 1 of 3.
+ * For unsold vehicles (or vehicles whose sale was cancelled), all Step 3 buyer
+ * fields are strictly blank (no prefilled dummy addresses or birth dates).
+ */
+export function buildSaleWizardInitialState(
+  vehicle: Pick<
+    Vehicle,
+    | 'status'
+    | 'registrationNumber'
+    | 'vin'
+    | 'mileage'
+    | 'firstRegistrationDate'
+    | 'formulaNumber'
+    | 'targetSalePrice'
+    | 'purchasePrice'
+    | 'buyerInfo'
+  > | null | undefined,
+  todayIso: string = new Date().toISOString().split('T')[0]
+): SaleWizardInitialState {
+  const activeBuyer =
+    vehicle && vehicle.status === 'sold' && vehicle.buyerInfo
+      ? vehicle.buyerInfo
+      : undefined;
+
+  return {
+    step: 1,
+    registrationNumber: vehicle?.registrationNumber || '',
+    vin: vehicle?.vin || '',
+    mileage: vehicle?.mileage ?? '',
+    firstRegistrationDate: vehicle?.firstRegistrationDate || '',
+    formulaNumber: vehicle?.formulaNumber || '',
+    saleDate: activeBuyer?.saleDate || todayIso,
+    saleTime: activeBuyer?.saleTime || '14:00',
+    isCompany: activeBuyer?.isCompany || false,
+    fullName: activeBuyer?.fullName || '',
+    siret: activeBuyer?.siret || '',
+    birthDate: activeBuyer?.birthDate || '',
+    birthPlace: activeBuyer?.birthPlace || '',
+    streetNumber: activeBuyer?.streetNumber || '',
+    streetName: activeBuyer?.streetName || '',
+    postalCode: activeBuyer?.postalCode || '',
+    city: activeBuyer?.city || '',
+    phone: activeBuyer?.phone || '',
+    email: activeBuyer?.email || '',
+    salePrice:
+      activeBuyer?.salePrice ||
+      (vehicle?.targetSalePrice && vehicle.targetSalePrice > 0
+        ? vehicle.targetSalePrice
+        : vehicle?.purchasePrice || ''),
+  };
+}
+
+export interface VehicleMarginPreview {
+  hasPurchasePrice: boolean;
+  hasTargetSalePrice: boolean;
+  isComplete: boolean;
+  purchasePrice: number;
+  targetSalePrice: number;
+  grossMarginEuro: number;
+  grossMarginPercent: number;
+}
+
+export function computeVehicleMarginPreview(
+  purchasePriceInput: number | '',
+  targetSalePriceInput: number | ''
+): VehicleMarginPreview {
+  const purchaseNum = purchasePriceInput === '' ? NaN : Number(purchasePriceInput);
+  const targetNum = targetSalePriceInput === '' ? NaN : Number(targetSalePriceInput);
+  const hasPurchasePrice =
+    purchasePriceInput !== '' && !Number.isNaN(purchaseNum) && purchaseNum >= 0;
+  const hasTargetSalePrice =
+    targetSalePriceInput !== '' && !Number.isNaN(targetNum) && targetNum > 0;
+  const purchasePrice = hasPurchasePrice ? roundToTwo(purchaseNum) : 0;
+  const targetSalePrice = hasTargetSalePrice ? roundToTwo(targetNum) : 0;
+  const isComplete = hasPurchasePrice && hasTargetSalePrice;
+  const grossMarginEuro = isComplete ? roundToTwo(targetSalePrice - purchasePrice) : 0;
+  const grossMarginPercent =
+    isComplete && targetSalePrice > 0
+      ? roundToTwo((grossMarginEuro / targetSalePrice) * 100)
+      : 0;
+
+  return {
+    hasPurchasePrice,
+    hasTargetSalePrice,
+    isComplete,
+    purchasePrice,
+    targetSalePrice,
+    grossMarginEuro,
+    grossMarginPercent,
+  };
+}
+
+export interface CerfaSpecsFormInput {
+  make: string;
+  commercialDesignation: string;
+  registrationNumber: string;
+  firstRegistrationDate: string;
+  vin: string;
+  mileage: number | '';
+  fuelType: string;
+  gearbox: string;
+  typeVariantVersion: string;
+  nationalGenre: string;
+  bodyType: string;
+  hasRegistrationCertificate: boolean;
+  formulaNumber: string;
+  certificateDate: string;
+  absenceReason: string;
+}
+
+export function resolveInitialHasRegistrationCertificate(
+  vehicle: Pick<Vehicle, 'hasRegistrationCertificate' | 'absenceReason'>
+): boolean {
+  if (typeof vehicle.hasRegistrationCertificate === 'boolean') {
+    return vehicle.hasRegistrationCertificate;
+  }
+  if (vehicle.absenceReason && vehicle.absenceReason.trim().length > 0) {
+    return false;
+  }
+  return true;
+}
+
+export function validateCerfaSpecsForm(
+  input: Pick<CerfaSpecsFormInput, 'make' | 'vin' | 'mileage'>,
+  lang: Language = 'fr'
+): string | null {
+  if (!input.make.trim()) {
+    return pickLocalized(lang, {
+      fr: 'La marque (D.1) est obligatoire.',
+      ru: 'Поле «(D.1) Марка» обязательно для заполнения.',
+      hy: '«(D.1) Մակնիշ» դաշտը պարտադիր է։',
+      ka: 'ველის „(D.1) მარკა“ შევსება სავალდებულოა.',
+    });
+  }
+
+  const cleanedVin = input.vin.replace(/\s+/g, '').toUpperCase();
+  if (cleanedVin.length > 0 && !VIN_REGEX.test(cleanedVin)) {
+    return pickLocalized(lang, {
+      fr: 'Le VIN doit contenir exactement 17 caractères (hors I, O, Q).',
+      ru: 'VIN должен содержать ровно 17 символов (без I, O, Q).',
+      hy: 'VIN կոդը պետք է ունենա ուղիղ 17 նիշ (առանց I, O, Q)։',
+      ka: 'VIN კოდი უნდა შეიცავდეს ზუსტად 17 სიმბოლოს (I, O, Q-ის გარეშე).',
+    });
+  }
+
+  if (
+    input.mileage !== '' &&
+    (Number.isNaN(Number(input.mileage)) || Number(input.mileage) < 0)
+  ) {
+    return pickLocalized(lang, {
+      fr: 'Le kilométrage doit être un nombre positif.',
+      ru: 'Пробег должен быть неотрицательным числом.',
+      hy: 'Վազքը պետք է լինի ոչ բացասական թիվ։',
+      ka: 'გარბენი უნდა იყოს არაუარყოფითი რიცხვი.',
+    });
+  }
+
+  return null;
+}
+
+export function buildCerfaSpecsUpdatePayload(
+  input: CerfaSpecsFormInput
+): Partial<Vehicle> {
+  const cleanedVin = input.vin.replace(/\s+/g, '').toUpperCase();
+  const hasCert = input.hasRegistrationCertificate;
+
+  return {
+    make: input.make.trim(),
+    commercialDesignation: input.commercialDesignation.trim(),
+    registrationNumber: input.registrationNumber.trim().toUpperCase(),
+    firstRegistrationDate: input.firstRegistrationDate.trim(),
+    vin: cleanedVin,
+    mileage: input.mileage === '' ? 0 : Math.max(0, Number(input.mileage)),
+    fuelType: input.fuelType.trim(),
+    gearbox: input.gearbox.trim(),
+    typeVariantVersion: input.typeVariantVersion.trim(),
+    nationalGenre: input.nationalGenre.trim() || 'VP',
+    bodyType: input.bodyType.trim().toUpperCase(),
+    hasRegistrationCertificate: hasCert,
+    formulaNumber: hasCert ? input.formulaNumber.replace(/\s+/g, '').toUpperCase() : '',
+    certificateDate: hasCert ? input.certificateDate.trim() : '',
+    absenceReason: hasCert ? '' : input.absenceReason.trim(),
+  };
 }

@@ -15,6 +15,7 @@ import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import {
   AppUserProfileType,
   Vehicle,
+  VehicleStatus,
   RepairTask,
   GeneralExpense,
   GarageSettings,
@@ -33,7 +34,12 @@ import {
 } from '../utils/frenchTaxEngine';
 import { buildGarageUpdatePayload, DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 import { normalizeCerfaTemplateId } from '../utils/cerfaConfig';
-import { buildSoldRevertUpdate } from '../utils/vehicleFormUtils';
+import {
+  buildSoldRevertUpdate,
+  LEGACY_SALE_FIELDS,
+  stripSaleFieldsFromLocalVehicle,
+} from '../utils/vehicleFormUtils';
+import { removeVehicleSaleHistory } from './auditAndBackupService';
 import {
   applyProfileSlotToSettings,
   EMPTY_PARTICULIER_PROFILE,
@@ -1078,7 +1084,7 @@ export async function updateVehicle(
         : { ...v, ...cleanUpdates };
 
       if (isRevertingFromSold || explicitClearBuyerInfo) {
-        delete next.buyerInfo;
+        next = stripSaleFieldsFromLocalVehicle(next);
       }
 
       if (cleanUpdates.purchasePrice !== undefined && cleanUpdates.totalInvested === undefined) {
@@ -1129,9 +1135,71 @@ export async function updateVehicle(
 
     if (shouldDeleteBuyerInfo) {
       payload.buyerInfo = deleteField();
+      for (const legacyField of LEGACY_SALE_FIELDS) {
+        payload[legacyField] = deleteField();
+      }
     }
 
     await updateDoc(doc(db, 'vehicles', vehicleId), payload);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Cancel a completed sale: resets vehicle status (defaults to 'for_sale'),
+ * deletes buyerInfo and all legacy flat sale fields in Firestore/localStorage,
+ * restores unsold P&L projections, and deletes sale audit history entries.
+ */
+export async function cancelVehicleSale(
+  vehicleId: string,
+  userId?: string,
+  targetStatus: VehicleStatus = 'for_sale'
+): Promise<void> {
+  const safeTargetStatus: VehicleStatus = targetStatus === 'sold' ? 'for_sale' : targetStatus;
+  const path = `vehicles/${vehicleId}`;
+  const now = new Date().toISOString();
+
+  if (!auth.currentUser) {
+    const list = getLocalStore<Vehicle>(LOCAL_STORAGE_KEY);
+    const updated = list.map((v) => {
+      if (v.id !== vehicleId) return v;
+      const revert = buildSoldRevertUpdate(v, safeTargetStatus);
+      const cleaned = stripSaleFieldsFromLocalVehicle({
+        ...v,
+        ...stripUndefined(revert.updates),
+        status: safeTargetStatus,
+        updatedAt: now,
+      });
+      return cleaned;
+    });
+    setLocalStore(LOCAL_STORAGE_KEY, updated);
+    await removeVehicleSaleHistory(userId || 'garage_pro_dealer', vehicleId);
+    return;
+  }
+
+  try {
+    const snap = await getDoc(doc(db, 'vehicles', vehicleId));
+    const existing = snap.exists()
+      ? normalizeVehicleRecord(snap.data() as Vehicle, snap.id)
+      : null;
+
+    const revertUpdates = existing
+      ? stripUndefined(buildSoldRevertUpdate(existing, safeTargetStatus).updates)
+      : { status: safeTargetStatus, netProfit: 0, marginPercentage: 0 };
+
+    const payload: Record<string, unknown> = {
+      ...revertUpdates,
+      status: safeTargetStatus,
+      buyerInfo: deleteField(),
+      updatedAt: now,
+    };
+    for (const legacyField of LEGACY_SALE_FIELDS) {
+      payload[legacyField] = deleteField();
+    }
+
+    await updateDoc(doc(db, 'vehicles', vehicleId), payload);
+    await removeVehicleSaleHistory(userId || existing?.userId || auth.currentUser.uid, vehicleId);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }

@@ -49,7 +49,15 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
-  activeView: 'desktop' | 'analytics' | 'suppliers' | 'documents' | 'exports' | 'settings' | 'admin';
+  activeView:
+    | 'desktop'
+    | 'new_vehicle'
+    | 'analytics'
+    | 'suppliers'
+    | 'documents'
+    | 'exports'
+    | 'settings'
+    | 'admin';
   onNavigate: (target: SidebarNavTarget) => void;
   garages?: GarageWorkspace[];
   activeGarageId?: string | null;
@@ -209,7 +217,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'inventory',
       label: t('navInventory'),
       icon: <Car className="w-4 h-4 shrink-0" />,
-      active: activeView === 'desktop',
+      active: activeView === 'desktop' || activeView === 'new_vehicle',
       visible: hasOpenedGarage,
     },
     {
@@ -469,8 +477,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Top Header inside Sidebar */}
         {isSettingsMode ? (
           <div
-            className={`flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
-              collapsed ? 'justify-center py-4' : 'justify-between px-2 py-2 gap-1'
+            data-testid={isMobileDrawer ? 'sidebar-mobile-top-header' : 'sidebar-top-header'}
+            className={`h-16 flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
+              collapsed ? 'justify-center px-2' : 'justify-between px-2 gap-1'
             }`}
           >
             {!collapsed ? (
@@ -531,8 +540,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ) : (
           <div
-            className={`flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
-              collapsed ? 'justify-center py-4' : 'h-13 justify-between px-3 gap-2'
+            data-testid={isMobileDrawer ? 'sidebar-mobile-top-header' : 'sidebar-top-header'}
+            className={`h-16 flex items-center border-b border-[var(--ag-header-border)] shrink-0 ${
+              collapsed ? 'justify-center px-2' : 'justify-between px-3 gap-2'
             }`}
           >
             {!collapsed ? (

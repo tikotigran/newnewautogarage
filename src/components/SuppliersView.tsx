@@ -76,6 +76,7 @@ interface SuppliersViewProps {
   activeGarageId: string | null;
   onSelectVehicle: (vehicle: Vehicle) => void;
   onSeedSuppliers: () => Promise<void>;
+  requestedTab?: { tab: SuppliersTab; nonce: number } | null;
 }
 
 type SuppliersTab = 'purchases' | 'suppliers' | 'channels';
@@ -138,10 +139,17 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
   activeGarageId,
   onSelectVehicle,
   onSeedSuppliers,
+  requestedTab,
 }) => {
   const { lang, t } = useI18n();
 
-  const [activeTab, setActiveTab] = useState<SuppliersTab>('purchases');
+  const [activeTab, setActiveTab] = useState<SuppliersTab>(() => requestedTab?.tab || 'purchases');
+
+  useEffect(() => {
+    if (requestedTab?.tab) {
+      setActiveTab(requestedTab.tab);
+    }
+  }, [requestedTab]);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | SupplierType>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | PurchaseCategory>('all');

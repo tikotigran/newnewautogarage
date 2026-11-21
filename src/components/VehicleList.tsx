@@ -14,6 +14,7 @@ import {
   Edit,
   Menu,
   Crown,
+  Plus,
 } from 'lucide-react';
 import {
   FeatureFlagsConfig,
@@ -37,6 +38,8 @@ import {
 } from '../utils/inventoryUtils';
 import { ThemedSelect } from './ThemedSelect';
 import { pickLocalized } from '../utils/i18nUtils';
+import { resolveVehicleQuickFlags } from '../utils/quickListUtils';
+import { QuickVehicleExpenseModal } from './QuickVehicleExpenseModal';
 
 interface VehicleListProps {
   vehicles: Vehicle[];
@@ -46,6 +49,17 @@ interface VehicleListProps {
   onEditVehicle?: (vehicle: Vehicle) => void;
   onNewVehicle: () => void;
   onQuickStatusChange: (vehicleId: string, newStatus: VehicleStatus) => void;
+  onQuickToggleField?: (
+    vehicleId: string,
+    field: 'ctPassed' | 'docsCompleted',
+    value: boolean
+  ) => void | Promise<void>;
+  onAddQuickExpense?: (
+    vehicleId: string,
+    payload: { category: string; description: string; amount: number; date: string }
+  ) => Promise<void>;
+  onDeleteQuickExpense?: (vehicleId: string, expenseId: string) => Promise<void>;
+  onDeleteQuickRepair?: (vehicleId: string, repairId: string) => Promise<void>;
   onOpenSellModal: (vehicle: Vehicle) => void;
   onOpenCerfa?: (vehicle: Vehicle) => void;
   onSeedData: () => void;
@@ -69,6 +83,10 @@ export const VehicleList: React.FC<VehicleListProps> = ({
   onEditVehicle,
   onNewVehicle,
   onQuickStatusChange,
+  onQuickToggleField,
+  onAddQuickExpense,
+  onDeleteQuickExpense,
+  onDeleteQuickRepair,
   onOpenSellModal,
   onSeedData,
   isSeeding,
@@ -80,6 +98,8 @@ export const VehicleList: React.FC<VehicleListProps> = ({
   onOpenUpgradePlan,
 }) => {
   const { t, lang } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
+  const [quickExpenseVehicleId, setQuickExpenseVehicleId] = useState<string | null>(null);
   const usedVehiclesCount = totalOwnedVehiclesCount ?? vehicles.length;
   const isFiniteQuota = typeof vehicleLimit === 'number' && vehicleLimit < 9999;
   const isAtVehicleLimit = isFiniteQuota && usedVehiclesCount >= (vehicleLimit as number);
@@ -193,6 +213,48 @@ export const VehicleList: React.FC<VehicleListProps> = ({
       triggerClassName="text-[11px] font-semibold bg-[var(--background)] text-[var(--foreground)] rounded-lg px-2 py-1 border border-[var(--border)]"
     />
   );
+
+  const yesLabel = L('Oui', 'Да', 'Այո', 'კი');
+  const noLabel = L('Non', 'Нет', 'Ոչ', 'არა');
+  const docsHeaderLabel = L('Dossier', 'Оформлено', 'Ձևակերպված', 'გაფორმებული');
+
+  const renderQuickBoolSelect = (
+    v: Vehicle,
+    field: 'ctPassed' | 'docsCompleted',
+    testIdPrefix: string
+  ) => {
+    const flags = resolveVehicleQuickFlags(v);
+    const active = flags[field];
+    return (
+      <ThemedSelect<'yes' | 'no'>
+        testId={`${testIdPrefix}-${v.id}`}
+        ariaLabel={field === 'ctPassed' ? 'CT' : docsHeaderLabel}
+        stopPropagation
+        value={active ? 'yes' : 'no'}
+        onChange={(next) => {
+          onQuickToggleField?.(v.id, field, next === 'yes');
+        }}
+        options={[
+          { value: 'yes', label: yesLabel },
+          { value: 'no', label: noLabel },
+        ]}
+        menuClassName="min-w-[108px]"
+        triggerClassName={`text-[11px] rounded-lg px-2 py-1 border whitespace-nowrap ${
+          active
+            ? 'font-bold bg-emerald-500/15 text-emerald-400 border-emerald-500/35'
+            : 'font-semibold bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)]'
+        }`}
+      />
+    );
+  };
+
+  const quickExpenseVehicle = quickExpenseVehicleId
+    ? vehicles.find((v) => v.id === quickExpenseVehicleId) || null
+    : null;
+  const quickExpenseFinancials = quickExpenseVehicle
+    ? financialsById.get(quickExpenseVehicle.id) ||
+      computeVehicleInventoryFinancials(quickExpenseVehicle)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -483,6 +545,8 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                       <th className="py-3 px-3 font-bold">{t('thPlate')}</th>
                       <th className="py-3 px-3 font-bold text-right">{t('thMileageKm')}</th>
                       <th className="py-3 px-3 font-bold">{t('thStatus')}</th>
+                      <th className="py-3 px-2.5 font-bold text-center">CT</th>
+                      <th className="py-3 px-2.5 font-bold text-center">{docsHeaderLabel}</th>
                       <th className="py-3 px-3 font-bold text-right">{t('thPurchasePriceEur')}</th>
                       <th className="py-3 px-3 font-bold text-right">{t('thExpensesEur')}</th>
                       <th className="py-3 px-3.5 font-bold text-right">{t('thTotalInvestedEur')}</th>
@@ -502,7 +566,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                         >
                           {/* 1. Vehicle (photo, brand, model, year) */}
                           <td className="py-2.5 px-3.5">
-                            <div className="flex items-center gap-3 min-w-[210px]">
+                            <div className="flex items-center gap-3 min-w-[245px]">
                               {hasPhoto ? (
                                 <img
                                   src={v.photos[0]}
@@ -515,11 +579,11 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                                 </div>
                               )}
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors">
+                                <div className="flex items-center gap-1.5 flex-nowrap">
+                                  <span className="font-bold text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors truncate max-w-[185px]">
                                     {v.make} {v.model}
                                   </span>
-                                  <span className="px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] font-mono text-[10px] font-bold tabular-nums">
+                                  <span className="px-1.5 py-0.5 rounded bg-[var(--surface-muted)] text-[var(--primary)] border border-[var(--border)] font-mono text-[10px] font-bold tabular-nums shrink-0">
                                     {v.year}
                                   </span>
                                   {onEditVehicle && (
@@ -532,13 +596,13 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                                       }}
                                       aria-label={`${t('editVehicleTitle')}: ${v.make} ${v.model}`}
                                       title={t('editVehicleTitle')}
-                                      className="p-1 rounded-md text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-muted)] transition opacity-70 group-hover:opacity-100"
+                                      className="p-1 rounded-md text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--surface-muted)] transition opacity-70 group-hover:opacity-100 shrink-0"
                                     >
                                       <Edit className="w-3 h-3" />
                                     </button>
                                   )}
                                 </div>
-                                <div className="text-[11px] text-[var(--muted-foreground)] truncate max-w-[220px]">
+                                <div className="text-[11px] text-[var(--muted-foreground)] truncate max-w-[235px]">
                                   {v.trim || 'Standard'}
                                 </div>
                               </div>
@@ -566,18 +630,63 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                             {renderStatusSelect(v, 'list')}
                           </td>
 
-                          {/* 5. Purchase Price (€) */}
+                          {/* 5. CT Quick Toggle */}
+                          <td className="py-2.5 px-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            {renderQuickBoolSelect(v, 'ctPassed', 'list-ct-select')}
+                          </td>
+
+                          {/* 6. Docs / Registered Quick Toggle */}
+                          <td className="py-2.5 px-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            {renderQuickBoolSelect(v, 'docsCompleted', 'list-docs-select')}
+                          </td>
+
+                          {/* 7. Purchase Price (€) */}
                           <td className="py-2.5 px-3 text-right font-mono font-semibold text-[var(--foreground)] whitespace-nowrap tabular-nums">
                             {formatEuro(fin.purchasePrice)}
                           </td>
 
-                          {/* 6. Expenses (€) */}
-                          <td className="py-2.5 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
-                            {formatEuro(fin.totalExpenses)}
+                          {/* 8. Expenses (€) + Quick Add (+) */}
+                          <td
+                            className="py-2.5 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <span data-testid={`list-row-expenses-${v.id}`}>
+                                {formatEuro(fin.totalExpenses)}
+                              </span>
+                              {onAddQuickExpense && (
+                                <button
+                                  type="button"
+                                  data-testid={`list-quick-expense-btn-${v.id}`}
+                                  aria-label={L(
+                                    'Ajouter une dépense rapide',
+                                    'Быстро добавить расход',
+                                    'Ավելացնել արագ ծախս',
+                                    'ხარჯის სწრაფად დამატება'
+                                  )}
+                                  title={L(
+                                    'Ajouter une dépense',
+                                    'Добавить расход',
+                                    'Ավելացնել ծախս',
+                                    'ხარჯის დამატება'
+                                  )}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuickExpenseVehicleId(v.id);
+                                  }}
+                                  className="w-6 h-6 rounded-md bg-[var(--surface-muted)] hover:bg-[var(--primary)] text-[var(--foreground)] hover:text-[var(--primary-foreground)] border border-[var(--border)] inline-flex items-center justify-center transition cursor-pointer shrink-0"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </td>
 
-                          {/* 7. Total Invested (€) */}
-                          <td className="py-2.5 px-3.5 text-right font-mono font-extrabold text-[var(--primary)] whitespace-nowrap tabular-nums">
+                          {/* 9. Total Invested (€) */}
+                          <td
+                            data-testid={`list-row-invested-${v.id}`}
+                            className="py-2.5 px-3.5 text-right font-mono font-extrabold text-[var(--primary)] whitespace-nowrap tabular-nums"
+                          >
                             {formatEuro(fin.totalInvested)}
                           </td>
                         </tr>
@@ -589,16 +698,25 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                       data-testid="inventory-table-totals"
                       className="bg-[var(--ag-table-header-bg)] border-t-2 border-[var(--border)] font-bold text-xs"
                     >
-                      <td colSpan={4} className="py-3 px-3.5 text-[var(--foreground)]">
+                      <td colSpan={6} className="py-3 px-3.5 text-[var(--foreground)]">
                         {t('thTotalSummary', { count: summaryTotals.vehicleCount })}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono text-[var(--foreground)] whitespace-nowrap tabular-nums">
+                      <td
+                        data-testid="list-total-purchase"
+                        className="py-3 px-3 text-right font-mono text-[var(--foreground)] whitespace-nowrap tabular-nums"
+                      >
                         {formatEuro(summaryTotals.totalPurchasePrice)}
                       </td>
-                      <td className="py-3 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums">
+                      <td
+                        data-testid="list-total-expenses"
+                        className="py-3 px-3 text-right font-mono text-[var(--secondary-foreground)] whitespace-nowrap tabular-nums"
+                      >
                         {formatEuro(summaryTotals.totalExpenses)}
                       </td>
-                      <td className="py-3 px-3.5 text-right font-mono font-black text-[var(--primary)] whitespace-nowrap tabular-nums">
+                      <td
+                        data-testid="list-total-invested"
+                        className="py-3 px-3.5 text-right font-mono font-black text-[var(--primary)] whitespace-nowrap tabular-nums"
+                      >
                         {formatEuro(summaryTotals.totalInvested)}
                       </td>
                     </tr>
@@ -674,13 +792,25 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                           {formatEuro(fin.purchasePrice)}
                         </span>
                       </div>
-                      <div>
+                      <div onClick={(e) => e.stopPropagation()}>
                         <span className="text-[10px] text-[var(--muted-foreground)] block truncate">
                           {t('cardExpenses')}
                         </span>
-                        <span className="font-mono font-semibold text-[var(--secondary-foreground)]">
-                          {formatEuro(fin.totalExpenses)}
-                        </span>
+                        <div className="inline-flex items-center gap-1">
+                          <span className="font-mono font-semibold text-[var(--secondary-foreground)]">
+                            {formatEuro(fin.totalExpenses)}
+                          </span>
+                          {onAddQuickExpense && (
+                            <button
+                              type="button"
+                              onClick={() => setQuickExpenseVehicleId(v.id)}
+                              aria-label={L('Ajouter une dépense', 'Добавить расход', 'Ավելացնել ծախս', 'ხარჯის დამატება')}
+                              className="w-5 h-5 rounded bg-[var(--card)] border border-[var(--border)] text-[var(--primary)] inline-flex items-center justify-center cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="text-right">
                         <span className="text-[10px] text-[var(--primary)] font-semibold block truncate">
@@ -692,8 +822,18 @@ export const VehicleList: React.FC<VehicleListProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
-                      {renderStatusSelect(v, 'mobile-list')}
+                    <div className="flex flex-wrap items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {renderStatusSelect(v, 'mobile-list')}
+                        <div className="inline-flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-[var(--muted-foreground)]">CT</span>
+                          {renderQuickBoolSelect(v, 'ctPassed', 'mobile-list-ct-select')}
+                        </div>
+                        <div className="inline-flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-[var(--muted-foreground)]">{docsHeaderLabel}</span>
+                          {renderQuickBoolSelect(v, 'docsCompleted', 'mobile-list-docs-select')}
+                        </div>
+                      </div>
                       <button
                         type="button"
                         onClick={() => onSelectVehicle(v)}
@@ -781,6 +921,21 @@ export const VehicleList: React.FC<VehicleListProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {onAddQuickExpense && onDeleteQuickExpense && (
+        <QuickVehicleExpenseModal
+          isOpen={Boolean(quickExpenseVehicle)}
+          vehicle={quickExpenseVehicle}
+          expenses={expenses}
+          repairs={repairs}
+          totalExpenses={quickExpenseFinancials?.totalExpenses ?? 0}
+          totalInvested={quickExpenseFinancials?.totalInvested ?? 0}
+          onClose={() => setQuickExpenseVehicleId(null)}
+          onAddExpense={onAddQuickExpense}
+          onDeleteExpense={onDeleteQuickExpense}
+          onDeleteRepair={onDeleteQuickRepair}
+        />
       )}
     </div>
   );

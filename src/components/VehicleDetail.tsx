@@ -30,6 +30,7 @@ import {
   Layers,
   FolderOpen,
   Image as ImageIcon,
+  RotateCcw,
 } from 'lucide-react';
 import {
   AppUserProfileType,
@@ -67,6 +68,7 @@ import {
   deleteGeneralExpense,
   syncVehicleFinancials,
   updateVehicle,
+  cancelVehicleSale,
   getGarageSettings,
 } from '../services/garageService';
 import { subscribeDynamicExpenseCategories } from '../services/adminService';
@@ -101,13 +103,20 @@ import { deleteGarageDocument } from '../services/documentService';
 import { DocumentCard } from './DocumentCard';
 import { DocumentUploadModal, DocumentUploadPreset } from './DocumentUploadModal';
 import { DocumentPreviewModal } from './DocumentPreviewModal';
-import { buildSoldRevertUpdate } from '../utils/vehicleFormUtils';
+import { LocaleDateInput } from './LocaleDateInput';
+import {
+  buildCerfaSpecsUpdatePayload,
+  buildSoldRevertUpdate,
+  resolveInitialHasRegistrationCertificate,
+  validateCerfaSpecsForm,
+} from '../utils/vehicleFormUtils';
 
 interface VehicleDetailProps {
   vehicle: Vehicle;
   onBack: () => void;
   onOpenEdit: (vehicle: Vehicle) => void;
   onOpenSellModal: (vehicle: Vehicle) => void;
+  onRequestCancelSale?: (vehicle: Vehicle, targetStatus?: VehicleStatus) => void;
   onDeleteVehicle: (vehicleId: string) => void;
   userId: string;
   userEmail?: string | null;
@@ -119,6 +128,10 @@ interface VehicleDetailProps {
   featureFlags?: FeatureFlagsConfig;
   profileType?: AppUserProfileType;
   onValidationToast?: (message: string) => void;
+  requestedTab?: {
+    tab: 'overview' | 'repairs' | 'expenses' | 'documents';
+    nonce: number;
+  } | null;
 }
 
 export const VehicleDetail: React.FC<VehicleDetailProps> = ({
@@ -126,6 +139,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   onBack,
   onOpenEdit,
   onOpenSellModal,
+  onRequestCancelSale,
   onDeleteVehicle,
   userId,
   userEmail = null,
@@ -137,9 +151,18 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   featureFlags = DEFAULT_FEATURE_FLAGS,
   profileType: propProfileType,
   onValidationToast,
+  requestedTab,
 }) => {
   const { t, lang, getTextStyle } = useI18n();
-  const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'repairs' | 'expenses' | 'documents'>(
+    () => requestedTab?.tab || 'overview'
+  );
+
+  useEffect(() => {
+    if (requestedTab?.tab) {
+      setActiveTab(requestedTab.tab);
+    }
+  }, [requestedTab]);
   const [repairs, setRepairs] = useState<RepairTask[]>([]);
   const [expenses, setExpenses] = useState<GeneralExpense[]>([]);
   const [repairsLoaded, setRepairsLoaded] = useState(false);
@@ -157,7 +180,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
   // Inline Carte Grise / Cerfa technical editor state
   const [isEditingSpecs, setIsEditingSpecs] = useState(false);
+  const [specMake, setSpecMake] = useState(vehicle.make || '');
+  const [specD3, setSpecD3] = useState(vehicle.commercialDesignation || '');
   const [specReg, setSpecReg] = useState(vehicle.registrationNumber || '');
+  const [specFirstRegDate, setSpecFirstRegDate] = useState(vehicle.firstRegistrationDate || '');
   const [specVin, setSpecVin] = useState(vehicle.vin || '');
   const [specMileage, setSpecMileage] = useState<number | ''>(vehicle.mileage ?? 0);
   const [specFuel, setSpecFuel] = useState(vehicle.fuelType || '');
@@ -165,13 +191,20 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   const [specD2, setSpecD2] = useState(vehicle.typeVariantVersion || '');
   const [specJ1, setSpecJ1] = useState(vehicle.nationalGenre || 'VP');
   const [specJ3, setSpecJ3] = useState(vehicle.bodyType || '');
+  const [specHasCert, setSpecHasCert] = useState<boolean>(() =>
+    resolveInitialHasRegistrationCertificate(vehicle)
+  );
   const [specFormula, setSpecFormula] = useState(vehicle.formulaNumber || '');
   const [specCertDate, setSpecCertDate] = useState(vehicle.certificateDate || '');
+  const [specAbsenceReason, setSpecAbsenceReason] = useState(vehicle.absenceReason || '');
   const [specSaving, setSpecSaving] = useState(false);
   const [specError, setSpecError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSpecMake(vehicle.make || '');
+    setSpecD3(vehicle.commercialDesignation || '');
     setSpecReg(vehicle.registrationNumber || '');
+    setSpecFirstRegDate(vehicle.firstRegistrationDate || '');
     setSpecVin(vehicle.vin || '');
     setSpecMileage(vehicle.mileage ?? 0);
     setSpecFuel(vehicle.fuelType || '');
@@ -179,8 +212,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     setSpecD2(vehicle.typeVariantVersion || '');
     setSpecJ1(vehicle.nationalGenre || 'VP');
     setSpecJ3(vehicle.bodyType || '');
+    setSpecHasCert(resolveInitialHasRegistrationCertificate(vehicle));
     setSpecFormula(vehicle.formulaNumber || '');
     setSpecCertDate(vehicle.certificateDate || '');
+    setSpecAbsenceReason(vehicle.absenceReason || '');
     setSpecError(null);
   }, [vehicle]);
 
@@ -454,12 +489,30 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     if (newStatus === 'sold' && !isSold) {
       onOpenSellModal(vehicle);
     } else if (vehicle.status === 'sold' && newStatus !== 'sold') {
-      const revert = buildSoldRevertUpdate(vehicle, newStatus);
-      await updateVehicle(vehicle.id, revert.updates);
+      if (onRequestCancelSale) {
+        onRequestCancelSale(vehicle, newStatus);
+      } else {
+        await cancelVehicleSale(vehicle.id, userId, newStatus);
+      }
     } else {
       await updateVehicle(vehicle.id, { status: newStatus });
     }
   };
+
+  const handleCancelSaleClick = () => {
+    if (onRequestCancelSale) {
+      onRequestCancelSale(vehicle, 'for_sale');
+    } else {
+      void cancelVehicleSale(vehicle.id, userId, 'for_sale');
+    }
+  };
+
+  const cancelSaleBtnLabel = pickLocalized(lang, {
+    fr: 'Annuler la vente',
+    ru: 'Отменить продажу',
+    hy: 'Չեղարկել վաճառքը',
+    ka: 'გაყიდვის გაუქმება',
+  });
 
   // Add repair task handler
   const handleCreateRepairTask = async (e: React.FormEvent) => {
@@ -644,6 +697,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
           {!isSold ? (
             <button
+              type="button"
+              data-testid="vehicle-record-sale-btn"
               onClick={() => onOpenSellModal(vehicle)}
               className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
             >
@@ -651,13 +706,25 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               <span style={getTextStyle('recordSaleBtn')}>{t('recordSaleBtn')}</span>
             </button>
           ) : (
-            <button
-              onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
-              className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span style={getTextStyle('invoicePdfBtn')}>{t('invoicePdfBtn')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => generateSalesInvoicePDF(vehicle, garageSettings)}
+                className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span style={getTextStyle('invoicePdfBtn')}>{t('invoicePdfBtn')}</span>
+              </button>
+              <button
+                type="button"
+                data-testid="vehicle-cancel-sale-btn"
+                onClick={handleCancelSaleClick}
+                className="px-3 py-1.5 rounded-[var(--ag-button-radius)] text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/35 transition flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <span>{cancelSaleBtnLabel}</span>
+              </button>
+            </>
           )}
 
           <button
@@ -875,6 +942,17 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       ? t('profileBadgeParticulier')
                       : t('saleReportRegime', { regime: saleReport.taxLabel })}
                   </span>
+                  {isSold && (
+                    <button
+                      type="button"
+                      data-testid="vehicle-report-cancel-sale-btn"
+                      onClick={handleCancelSaleClick}
+                      className="ml-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-sans font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/35 transition"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{cancelSaleBtnLabel}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1200,12 +1278,41 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           },
         ];
 
+        const hasCertReadonly = resolveInitialHasRegistrationCertificate(vehicle);
         const cerfaSpecs = [
           {
             label: t('plateFieldLabel'),
             value: vehicle.registrationNumber || '—',
             mono: true,
             tone: vehicle.registrationNumber ? 'plate' : 'muted',
+          },
+          {
+            label: pickLocalized(lang, {
+              fr: '(B) Date de 1re immatriculation',
+              ru: '(B) Дата 1-й регистрации',
+              hy: '(B) Առաջին գրանցման ամսաթիվ',
+              ka: '(B) პირველი რეგისტრაციის თარიღი',
+            }),
+            value: vehicle.firstRegistrationDate ? formatDate(vehicle.firstRegistrationDate) : '—',
+            tabular: true,
+          },
+          {
+            label: pickLocalized(lang, {
+              fr: '(D.1) Marque',
+              ru: '(D.1) Марка',
+              hy: '(D.1) Մակնիշ',
+              ka: '(D.1) მარკა',
+            }),
+            value: vehicle.make || '—',
+          },
+          {
+            label: pickLocalized(lang, {
+              fr: '(D.3) Dénomination commerciale',
+              ru: '(D.3) Коммерческое наименование',
+              hy: '(D.3) Առևտրային անվանում',
+              ka: '(D.3) კომერციული დასახელება',
+            }),
+            value: vehicle.commercialDesignation || '—',
           },
           {
             label: t('vinFieldLabel'),
@@ -1229,15 +1336,40 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
             mono: true,
           },
           {
-            label: t('formulaNumberLabel'),
-            value: vehicle.formulaNumber || '—',
-            mono: true,
+            label: pickLocalized(lang, {
+              fr: 'Certificat d’immatriculation',
+              ru: 'Наличие СТС',
+              hy: 'Գրանցման վկայական',
+              ka: 'რეგისტრაციის მოწმობა',
+            }),
+            value: hasCertReadonly
+              ? pickLocalized(lang, { fr: 'Oui', ru: 'Есть (ОУИ)', hy: 'Այո (OUI)', ka: 'დიახ (OUI)' })
+              : pickLocalized(lang, { fr: 'Non', ru: 'Нет (НЕТ)', hy: 'Ոչ (NON)', ka: 'არა (NON)' }),
           },
-          {
-            label: t('certificateDateLabel'),
-            value: vehicle.certificateDate ? formatDate(vehicle.certificateDate) : '—',
-            tabular: true,
-          },
+          ...(hasCertReadonly
+            ? [
+                {
+                  label: t('formulaNumberLabel'),
+                  value: vehicle.formulaNumber || '—',
+                  mono: true,
+                },
+                {
+                  label: t('certificateDateLabel'),
+                  value: vehicle.certificateDate ? formatDate(vehicle.certificateDate) : '—',
+                  tabular: true,
+                },
+              ]
+            : [
+                {
+                  label: pickLocalized(lang, {
+                    fr: 'Motif d’absence',
+                    ru: 'Причина отсутствия СТС',
+                    hy: 'Բացակայության պատճառ',
+                    ka: 'არქონის მიზეზი',
+                  }),
+                  value: vehicle.absenceReason || '—',
+                },
+              ]),
         ];
 
         return (
@@ -1343,33 +1475,35 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   data-testid="vehicle-detail-specs-form"
                   onSubmit={async (e) => {
                     e.preventDefault();
-                    const cleanedVin = specVin.replace(/\s+/g, '').toUpperCase();
-                    if (cleanedVin.length > 0 && !/^[A-HJ-NPR-Z0-9]{17}$/.test(cleanedVin)) {
-                      setSpecError(
-                        pickLocalized(lang, {
-                          fr: 'Le VIN doit contenir exactement 17 caractères (hors I, O, Q).',
-                          ru: 'VIN должен содержать ровно 17 символов (без I, O, Q).',
-                          hy: 'VIN կոդը պետք է ունենա ուղիղ 17 նիշ (առանց I, O, Q)։',
-                          ka: 'VIN კოდი უნდა შეიცავდეს ზუსტად 17 სიმბოლოს (I, O, Q-ის გარეშე).',
-                        })
-                      );
+                    const formPayloadInput = {
+                      make: specMake,
+                      commercialDesignation: specD3,
+                      registrationNumber: specReg,
+                      firstRegistrationDate: specFirstRegDate,
+                      vin: specVin,
+                      mileage: specMileage,
+                      fuelType: specFuel,
+                      gearbox: specGearbox,
+                      typeVariantVersion: specD2,
+                      nationalGenre: specJ1,
+                      bodyType: specJ3,
+                      hasRegistrationCertificate: specHasCert,
+                      formulaNumber: specFormula,
+                      certificateDate: specCertDate,
+                      absenceReason: specAbsenceReason,
+                    };
+                    const validationError = validateCerfaSpecsForm(formPayloadInput, lang);
+                    if (validationError) {
+                      setSpecError(validationError);
                       return;
                     }
                     setSpecSaving(true);
                     setSpecError(null);
                     try {
-                      await updateVehicle(vehicle.id, {
-                        registrationNumber: specReg.trim().toUpperCase(),
-                        vin: cleanedVin,
-                        mileage: specMileage === '' ? 0 : Math.max(0, Number(specMileage)),
-                        fuelType: specFuel.trim(),
-                        gearbox: specGearbox.trim(),
-                        typeVariantVersion: specD2.trim(),
-                        nationalGenre: specJ1.trim() || 'VP',
-                        bodyType: specJ3.trim().toUpperCase(),
-                        formulaNumber: specFormula.replace(/\s+/g, '').toUpperCase(),
-                        certificateDate: specCertDate.trim(),
-                      });
+                      await updateVehicle(
+                        vehicle.id,
+                        buildCerfaSpecsUpdatePayload(formPayloadInput)
+                      );
                       setIsEditingSpecs(false);
                     } catch (err: unknown) {
                       setSpecError(err instanceof Error ? err.message : 'Erreur de sauvegarde');
@@ -1380,17 +1514,23 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   className="space-y-4 bg-[var(--background)]/50 border border-[var(--border)] rounded-2xl p-4"
                 >
                   {specError && (
-                    <div className="p-2.5 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400">
+                    <div
+                      role="alert"
+                      data-testid="vehicle-detail-specs-error"
+                      className="p-2.5 bg-red-500/10 border border-red-500/40 rounded-xl text-xs text-red-400"
+                    >
                       {specError}
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-end">
                     <div>
                       <label htmlFor="detail-spec-reg" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
                         {t('plateFieldLabel')}
                       </label>
                       <input
                         id="detail-spec-reg"
+                        data-testid="detail-spec-reg"
                         type="text"
                         value={specReg}
                         onChange={(e) => setSpecReg(e.target.value.toUpperCase())}
@@ -1399,11 +1539,35 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       />
                     </div>
                     <div>
+                      <label htmlFor="detail-spec-first-reg" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {pickLocalized(lang, {
+                          fr: '(B) Date de 1re immatriculation',
+                          ru: '(B) Дата 1-й регистрации',
+                          hy: '(B) Առաջին գրանցման ամսաթիվ',
+                          ka: '(B) პირველი რეგისტრაციის თარიღი',
+                        })}
+                      </label>
+                      <LocaleDateInput
+                        id="detail-spec-first-reg"
+                        testId="detail-spec-first-reg"
+                        ariaLabel={pickLocalized(lang, {
+                          fr: '(B) Date de 1re immatriculation',
+                          ru: '(B) Дата 1-й регистрации',
+                          hy: '(B) Առաջին գրանցման ամսաթիվ',
+                          ka: '(B) პირველი რეგისტრაციის თარიღი',
+                        })}
+                        value={specFirstRegDate}
+                        onChange={setSpecFirstRegDate}
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
                       <label htmlFor="detail-spec-vin" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
                         VIN (E)
                       </label>
                       <input
                         id="detail-spec-vin"
+                        data-testid="detail-spec-vin"
                         type="text"
                         maxLength={17}
                         value={specVin}
@@ -1412,42 +1576,23 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                         className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
                       />
                     </div>
+
                     <div>
-                      <label htmlFor="detail-spec-mileage" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
-                        {t('mileage')} (km)
+                      <label htmlFor="detail-spec-make" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {pickLocalized(lang, {
+                          fr: '(D.1) Marque',
+                          ru: '(D.1) Марка',
+                          hy: '(D.1) Մակնիշ',
+                          ka: '(D.1) მარკა',
+                        })}
                       </label>
                       <input
-                        id="detail-spec-mileage"
-                        type="number"
-                        min={0}
-                        value={specMileage}
-                        onChange={(e) => setSpecMileage(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="detail-spec-fuel" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
-                        {t('fuelTypeLabel')}
-                      </label>
-                      <input
-                        id="detail-spec-fuel"
+                        id="detail-spec-make"
+                        data-testid="detail-spec-make"
                         type="text"
-                        value={specFuel}
-                        onChange={(e) => setSpecFuel(e.target.value)}
-                        placeholder="Essence / Diesel"
-                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="detail-spec-gearbox" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
-                        {t('gearboxLabel')}
-                      </label>
-                      <input
-                        id="detail-spec-gearbox"
-                        type="text"
-                        value={specGearbox}
-                        onChange={(e) => setSpecGearbox(e.target.value)}
-                        placeholder="Manuelle / Automatique"
+                        value={specMake}
+                        onChange={(e) => setSpecMake(e.target.value)}
+                        placeholder="Peugeot"
                         className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
                       />
                     </div>
@@ -1457,6 +1602,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       </label>
                       <input
                         id="detail-spec-d2"
+                        data-testid="detail-spec-d2"
                         type="text"
                         value={specD2}
                         onChange={(e) => setSpecD2(e.target.value)}
@@ -1465,11 +1611,32 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       />
                     </div>
                     <div>
+                      <label htmlFor="detail-spec-d3" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {pickLocalized(lang, {
+                          fr: '(D.3) Dénomination commerciale',
+                          ru: '(D.3) Коммерческое наименование',
+                          hy: '(D.3) Առևտրային անվանում',
+                          ka: '(D.3) კომერციული დასახელება',
+                        })}
+                      </label>
+                      <input
+                        id="detail-spec-d3"
+                        data-testid="detail-spec-d3"
+                        type="text"
+                        value={specD3}
+                        onChange={(e) => setSpecD3(e.target.value)}
+                        placeholder="208 GT Line"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                      />
+                    </div>
+
+                    <div>
                       <label htmlFor="detail-spec-j1" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
                         {t('j1GenreLabel')}
                       </label>
                       <input
                         id="detail-spec-j1"
+                        data-testid="detail-spec-j1"
                         type="text"
                         value={specJ1}
                         onChange={(e) => setSpecJ1(e.target.value.toUpperCase())}
@@ -1483,6 +1650,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       </label>
                       <input
                         id="detail-spec-j3"
+                        data-testid="detail-spec-j3"
                         type="text"
                         value={specJ3}
                         onChange={(e) => setSpecJ3(e.target.value.toUpperCase())}
@@ -1491,36 +1659,175 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       />
                     </div>
                     <div>
-                      <label htmlFor="detail-spec-formula" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
-                        {t('formulaNumberLabel')}
+                      <label htmlFor="detail-spec-mileage" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('mileage')} (km)
                       </label>
                       <input
-                        id="detail-spec-formula"
+                        id="detail-spec-mileage"
+                        data-testid="detail-spec-mileage"
+                        type="number"
+                        min={0}
+                        value={specMileage}
+                        onChange={(e) => setSpecMileage(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] tabular-nums"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="detail-spec-fuel" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('fuelTypeLabel')}
+                      </label>
+                      <input
+                        id="detail-spec-fuel"
+                        data-testid="detail-spec-fuel"
                         type="text"
-                        value={specFormula}
-                        onChange={(e) => setSpecFormula(e.target.value.toUpperCase())}
-                        placeholder="2021AB12345"
-                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
+                        value={specFuel}
+                        onChange={(e) => setSpecFuel(e.target.value)}
+                        placeholder="Essence / Diesel"
+                        className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
                       />
                     </div>
                     <div>
-                      <label htmlFor="detail-spec-certdate" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
-                        {t('certificateDateLabel')}
+                      <label htmlFor="detail-spec-gearbox" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                        {t('gearboxLabel')}
                       </label>
                       <input
-                        id="detail-spec-certdate"
-                        type="date"
-                        value={specCertDate}
-                        onChange={(e) => setSpecCertDate(e.target.value)}
+                        id="detail-spec-gearbox"
+                        data-testid="detail-spec-gearbox"
+                        type="text"
+                        value={specGearbox}
+                        onChange={(e) => setSpecGearbox(e.target.value)}
+                        placeholder="Manuelle / Automatique"
                         className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
                       />
                     </div>
                   </div>
-                  <div className="flex justify-end gap-2">
+
+                  {/* Certificat d'Immatriculation Presence Section */}
+                  <div className="pt-3.5 border-t border-[var(--border)] space-y-3 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="font-semibold text-[var(--secondary-foreground)]">
+                        {pickLocalized(lang, {
+                          fr: 'Présence du certificat d’immatriculation',
+                          ru: 'Наличие свидетельства о регистрации',
+                          hy: 'Գրանցման վկայականի առկայություն',
+                          ka: 'რეგისტრაციის მოწმობის არსებობა',
+                        })}
+                      </span>
+
+                      <div
+                        role="group"
+                        aria-label={pickLocalized(lang, {
+                          fr: 'Présence du certificat d’immatriculation',
+                          ru: 'Наличие свидетельства о регистрации',
+                          hy: 'Գրանցման վկայականի առկայություն',
+                          ka: 'რეგისტრაციის მოწმობის არსებობა',
+                        })}
+                        className="inline-flex items-center p-0.5 rounded-full bg-[var(--card)] border border-[var(--border)]"
+                      >
+                        <button
+                          type="button"
+                          data-testid="spec-has-cert-yes"
+                          aria-pressed={specHasCert}
+                          onClick={() => setSpecHasCert(true)}
+                          className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                            specHasCert
+                              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {pickLocalized(lang, {
+                            fr: 'Oui (OUI)',
+                            ru: 'Есть (ОУИ)',
+                            hy: 'Այո (OUI)',
+                            ka: 'დიახ (OUI)',
+                          })}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="spec-has-cert-no"
+                          aria-pressed={!specHasCert}
+                          onClick={() => setSpecHasCert(false)}
+                          className={`px-3 py-1 rounded-full text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                            !specHasCert
+                              ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {pickLocalized(lang, {
+                            fr: 'Non (NON)',
+                            ru: 'Нет (НЕТ)',
+                            hy: 'Ոչ (NON)',
+                            ka: 'არა (NON)',
+                          })}
+                        </button>
+                      </div>
+                    </div>
+
+                    {specHasCert ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label htmlFor="detail-spec-formula" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                            {t('formulaNumberLabel')}
+                          </label>
+                          <input
+                            id="detail-spec-formula"
+                            data-testid="detail-spec-formula"
+                            type="text"
+                            value={specFormula}
+                            onChange={(e) => setSpecFormula(e.target.value.toUpperCase())}
+                            placeholder="2021AB12345 (AB-123-CD)"
+                            className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono uppercase"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="detail-spec-certdate" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                            {t('certificateDateLabel')}
+                          </label>
+                          <LocaleDateInput
+                            id="detail-spec-certdate"
+                            testId="detail-spec-certdate"
+                            ariaLabel={t('certificateDateLabel')}
+                            value={specCertDate}
+                            onChange={setSpecCertDate}
+                            className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label htmlFor="detail-spec-absence" className="block font-semibold text-[var(--secondary-foreground)] mb-1">
+                          {pickLocalized(lang, {
+                            fr: 'Motif d’absence du certificat',
+                            ru: 'Причина отсутствия СТС (Motif d’absence)',
+                            hy: 'Բացակայության պատճառ (Motif d’absence)',
+                            ka: 'მოწმობის არქონის მიზეზი (Motif d’absence)',
+                          })}
+                        </label>
+                        <input
+                          id="detail-spec-absence"
+                          data-testid="detail-spec-absence"
+                          type="text"
+                          value={specAbsenceReason}
+                          onChange={(e) => setSpecAbsenceReason(e.target.value)}
+                          placeholder={pickLocalized(lang, {
+                            fr: 'ex. Perte, vol, destruction...',
+                            ru: 'напр. Утеря, кража, утилизация...',
+                            hy: 'օր.՝ Կորուստ, գողություն...',
+                            ka: 'მაგ. დაკარგვა, ქურდობა...',
+                          })}
+                          className="w-full px-3 py-2 bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)]"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
                     <button
                       type="button"
+                      data-testid="vehicle-detail-specs-cancel"
                       onClick={() => setIsEditingSpecs(false)}
-                      className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer"
                     >
                       {t('cancelBtn')}
                     </button>
@@ -1528,7 +1835,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       type="submit"
                       data-testid="vehicle-detail-specs-save"
                       disabled={specSaving}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow"
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] shadow cursor-pointer disabled:opacity-60"
                     >
                       {specSaving ? t('loading') : t('updateVehicleBtn')}
                     </button>
@@ -2582,16 +2889,30 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
             {/* Buyer information recap & modify button */}
             <div className="pt-4 border-t border-[var(--border)]">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h3 className="text-sm font-bold text-[var(--foreground)]">
                   {t('registeredBuyerCoords')}
                 </h3>
-                <button
-                  onClick={() => onOpenSellModal(vehicle)}
-                  className="text-xs font-bold text-[var(--primary)]"
-                >
-                  {vehicle.buyerInfo ? t('editBuyerCoords') : t('fillBuyerCoords')}
-                </button>
+                <div className="flex items-center gap-3">
+                  {isSold && (
+                    <button
+                      type="button"
+                      data-testid="vehicle-documents-cancel-sale-btn"
+                      onClick={handleCancelSaleClick}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/35 transition"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{cancelSaleBtnLabel}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenSellModal(vehicle)}
+                    className="text-xs font-bold text-[var(--primary)]"
+                  >
+                    {vehicle.buyerInfo ? t('editBuyerCoords') : t('fillBuyerCoords')}
+                  </button>
+                </div>
               </div>
 
               {vehicle.buyerInfo ? (
