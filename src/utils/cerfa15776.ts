@@ -5,6 +5,7 @@ import { formatCerfaMissingToast, resolveTargetGarageId } from './vehicleFormUti
 import {
   EMPTY_PARTICULIER_PROFILE,
   EMPTY_PRO_PROFILE,
+  hasAnyIdentityOrContactData,
   pickStatusProfileFields,
   resolveSellerProfileForVehicle,
   resolveSeparatedProfiles,
@@ -97,18 +98,96 @@ export function splitStreetTypeAndName(fullStreet: string): { streetType: string
   return { streetType: '', streetName: trimmed };
 }
 
+export interface SplitAddressInput {
+  streetNumber?: string;
+  streetExtension?: string;
+  streetType?: string;
+  streetName?: string;
+  rawAddress?: string;
+}
+
+export interface SplitAddressParts {
+  streetNumber: string;
+  streetExtension: string;
+  streetType: string;
+  streetName: string;
+}
+
+const KNOWN_STREET_EXTENSIONS = ['bis', 'ter', 'quater', 'quinquies'];
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Formats YYYY-MM-DD or DD/MM/YYYY to DD/MM/YYYY
+ * Normalizes split French Cerfa address components (`N°`, `Extension`, `Type de voie`, `Nom de la voie`)
+ * and strips any duplicated leading number, extension, or street type from `streetName`.
+ */
+export function normalizeSplitAddressParts(input: SplitAddressInput): SplitAddressParts {
+  const rawAddr = (input.rawAddress || '').trim();
+  const firstRawSegment = rawAddr ? rawAddr.split(',')[0].trim() : '';
+  const addrNumMatch = firstRawSegment.match(/^\s*(\d+[a-zA-Z]?)\s+/);
+
+  const streetNumber = (input.streetNumber || '').trim() || (addrNumMatch ? addrNumMatch[1] : '');
+  let streetExtension = (input.streetExtension || '').trim();
+  let streetType = (input.streetType || '').trim();
+  let streetName =
+    (input.streetName || '').trim() ||
+    (firstRawSegment ? firstRawSegment.replace(/^\s*\d+[a-zA-Z]?\s+/, '').trim() : '');
+
+  if (streetNumber && streetName) {
+    const leadingNumPattern = new RegExp(`^${escapeRegExp(streetNumber)}(?:[\\s,]+|$)`, 'i');
+    if (leadingNumPattern.test(streetName)) {
+      streetName = streetName.replace(leadingNumPattern, '').trim();
+    }
+  }
+
+  if (streetExtension && streetName) {
+    const leadingExtPattern = new RegExp(`^${escapeRegExp(streetExtension)}\\b[\\s,]*`, 'i');
+    if (leadingExtPattern.test(streetName)) {
+      streetName = streetName.replace(leadingExtPattern, '').trim();
+    }
+  } else if (!streetExtension && streetName) {
+    const extTokens = streetName.split(/\s+/);
+    if (extTokens.length > 1 && KNOWN_STREET_EXTENSIONS.includes(extTokens[0].toLowerCase())) {
+      streetExtension = extTokens[0].toLowerCase();
+      streetName = extTokens.slice(1).join(' ').trim();
+    }
+  }
+
+  if (!streetType && streetName) {
+    const split = splitStreetTypeAndName(streetName);
+    streetType = split.streetType;
+    streetName = split.streetName;
+  } else if (streetType && streetName) {
+    const leadingTypePattern = new RegExp(`^${escapeRegExp(streetType)}\\b[\\s,]*`, 'i');
+    if (leadingTypePattern.test(streetName)) {
+      streetName = streetName.replace(leadingTypePattern, '').trim();
+    }
+  }
+
+  return {
+    streetNumber,
+    streetExtension,
+    streetType,
+    streetName,
+  };
+}
+
+/**
+ * Formats YYYY-MM-DD, ISO timestamps, DD.MM.YYYY, DD-MM-YYYY, or DD/MM/YYYY to DD/MM/YYYY
  */
 export function formatFrenchDate(dateStr?: string): string {
   if (!dateStr) return '';
   const trimmed = dateStr.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const [yyyy, mm, dd] = trimmed.split('-');
-    return `${dd}/${mm}/${yyyy}`;
+  if (!trimmed) return '';
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
   }
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-    return trimmed;
+  const dmyMatch = trimmed.match(/^(\d{2})[/.-](\d{2})[/.-](\d{4})$/);
+  if (dmyMatch) {
+    return `${dmyMatch[1]}/${dmyMatch[2]}/${dmyMatch[3]}`;
   }
   return trimmed;
 }
@@ -238,12 +317,12 @@ export function buildCerfaSellerFromProfile(
       : pickStatusProfileFields(garageSettings, 'micro_entrepreneur');
   }
 
-  const sellerStreet = sourceSlot.streetType?.trim()
-    ? {
-        streetType: sourceSlot.streetType.trim(),
-        streetName: (sourceSlot.streetName || '').trim(),
-      }
-    : splitStreetTypeAndName(sourceSlot.streetName || '');
+  const sellerAddress = normalizeSplitAddressParts({
+    streetNumber: sourceSlot.streetNumber,
+    streetExtension: sourceSlot.streetExtension,
+    streetType: sourceSlot.streetType,
+    streetName: sourceSlot.streetName,
+  });
 
   const formattedPhysiqueName = [sourceSlot.lastName, sourceSlot.firstName]
     .filter(Boolean)
@@ -263,10 +342,10 @@ export function buildCerfaSellerFromProfile(
       ? formattedPhysiqueName || (sourceSlot.name || '').trim().toUpperCase()
       : (sourceSlot.name || '').trim() || formattedPhysiqueName,
     siret: cleanSiret,
-    streetNumber: (sourceSlot.streetNumber || '').trim(),
-    streetExtension: (sourceSlot.streetExtension || '').trim(),
-    streetType: sellerStreet.streetType,
-    streetName: sellerStreet.streetName,
+    streetNumber: sellerAddress.streetNumber,
+    streetExtension: sellerAddress.streetExtension,
+    streetType: sellerAddress.streetType,
+    streetName: sellerAddress.streetName,
     postalCode: (sourceSlot.postalCode || '').trim(),
     city: cityVal,
     saleType: baseSeller?.saleType || 'cession',
@@ -283,6 +362,50 @@ export function buildCerfaSellerFromProfile(
 }
 
 /**
+ * Builds Step 3 (Buyer / Nouveau propriétaire) fields from a saved `Particulier` profile
+ * (e.g. when recording a vehicle purchase or personal transfer), propagating sex,
+ * birthDate, birthPlace, normalized split address, and always leaving SIRET empty.
+ */
+export function buildCerfaBuyerFromParticulierProfile(
+  profile: Partial<StatusProfileData>,
+  baseBuyer?: Partial<Cerfa15776BuyerStep>
+): Cerfa15776BuyerStep {
+  const todayIso = new Date().toISOString().split('T')[0];
+  const formattedName = [profile.lastName, profile.firstName]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+    .toUpperCase();
+  const addr = normalizeSplitAddressParts({
+    streetNumber: profile.streetNumber,
+    streetExtension: profile.streetExtension,
+    streetType: profile.streetType,
+    streetName: profile.streetName,
+  });
+  const cityVal = (profile.city || '').trim();
+
+  return {
+    entityType: 'physique',
+    sex: profile.sex === 'M' || profile.sex === 'F' ? profile.sex : '',
+    nameOrCompany: formattedName || (profile.name || '').trim().toUpperCase(),
+    siret: '',
+    birthDate: (profile.birthDate || '').trim(),
+    birthPlace: (profile.birthPlace || '').trim(),
+    streetNumber: addr.streetNumber,
+    streetExtension: addr.streetExtension,
+    streetType: addr.streetType,
+    streetName: addr.streetName,
+    postalCode: (profile.postalCode || '').trim(),
+    city: cityVal,
+    signingCity: cityVal || baseBuyer?.signingCity || '',
+    signingDate: baseBuyer?.signingDate || todayIso,
+    certifyAcquire: baseBuyer?.certifyAcquire ?? true,
+    certifyInformedAdmin: baseBuyer?.certifyInformedAdmin ?? true,
+    opposeProspecting: baseBuyer?.opposeProspecting ?? false,
+  };
+}
+
+/**
  * Builds pre-filled Cerfa 15776*02 form data from Vehicle + GarageSettings
  */
 export function buildInitialCerfaData(
@@ -292,14 +415,15 @@ export function buildInitialCerfaData(
   const todayIso = new Date().toISOString().split('T')[0];
   const buyer = vehicle.buyerInfo;
   const rawAddress = buyer?.address || '';
-  const addrNumMatch = rawAddress.match(/^\s*(\d+[a-zA-Z]?)\s+/);
   const addrZipMatch = rawAddress.match(/\b(\d{5})\b/);
-  const parsedStreetNum = buyer?.streetNumber || (addrNumMatch ? addrNumMatch[1] : '');
   const parsedPostal = buyer?.postalCode || (addrZipMatch ? addrZipMatch[1] : '');
-  const buyerRawStreet =
-    buyer?.streetName ||
-    (rawAddress ? rawAddress.split(',')[0].replace(/^\s*\d+[a-zA-Z]?\s+/, '').trim() : '');
-  const buyerStreet = splitStreetTypeAndName(buyerRawStreet);
+  const buyerAddress = normalizeSplitAddressParts({
+    streetNumber: buyer?.streetNumber,
+    streetExtension: buyer?.streetExtension,
+    streetType: buyer?.streetType,
+    streetName: buyer?.streetName,
+    rawAddress,
+  });
   const parsedCityFromAddr = rawAddress
     ? rawAddress
         .split(',')
@@ -327,6 +451,83 @@ export function buildInitialCerfaData(
     resolvedSellerProfileId
   );
 
+  let buyerStep: Cerfa15776BuyerStep;
+  if (buyer) {
+    const buyerIsMorale = Boolean(buyer.isCompany);
+    buyerStep = {
+      entityType: buyerIsMorale ? 'morale' : 'physique',
+      sex: !buyerIsMorale && (buyer.sex === 'M' || buyer.sex === 'F') ? buyer.sex : '',
+      nameOrCompany: buyer.fullName || '',
+      siret: buyerIsMorale ? (buyer.siret || '').replace(/\s+/g, '') : '',
+      birthDate: buyerIsMorale ? '' : buyer.birthDate || '',
+      birthPlace: buyerIsMorale ? '' : buyer.birthPlace || '',
+      streetNumber: buyerAddress.streetNumber,
+      streetExtension: buyerAddress.streetExtension,
+      streetType: buyerAddress.streetType,
+      streetName: buyerAddress.streetName,
+      postalCode: parsedPostal,
+      city: buyerCity,
+      signingCity: buyerCity || sellerStep.city || garageSettings.city || '',
+      signingDate: saleDate,
+      certifyAcquire: true,
+      certifyInformedAdmin: true,
+      opposeProspecting: false,
+    };
+  } else if (vehicle.purchaseStatus === 'particulier' && vehicle.status !== 'sold') {
+    const resolvedParticulierBuyer = resolveSellerProfileForVehicle({
+      vehicle,
+      garageSettings,
+      overrideMode: 'particulier',
+      overrideProfileId: resolvedSellerProfileId,
+    });
+    if (hasAnyIdentityOrContactData(resolvedParticulierBuyer.profile)) {
+      buyerStep = buildCerfaBuyerFromParticulierProfile(resolvedParticulierBuyer.profile, {
+        signingCity: resolvedParticulierBuyer.profile.city || sellerStep.city || garageSettings.city || '',
+        signingDate: saleDate,
+      });
+    } else {
+      buyerStep = {
+        entityType: 'physique',
+        sex: '',
+        nameOrCompany: '',
+        siret: '',
+        birthDate: '',
+        birthPlace: '',
+        streetNumber: '',
+        streetExtension: '',
+        streetType: '',
+        streetName: '',
+        postalCode: '',
+        city: '',
+        signingCity: sellerStep.city || garageSettings.city || '',
+        signingDate: saleDate,
+        certifyAcquire: true,
+        certifyInformedAdmin: true,
+        opposeProspecting: false,
+      };
+    }
+  } else {
+    buyerStep = {
+      entityType: 'physique',
+      sex: '',
+      nameOrCompany: '',
+      siret: '',
+      birthDate: '',
+      birthPlace: '',
+      streetNumber: '',
+      streetExtension: '',
+      streetType: '',
+      streetName: '',
+      postalCode: '',
+      city: '',
+      signingCity: sellerStep.city || garageSettings.city || '',
+      signingDate: saleDate,
+      certifyAcquire: true,
+      certifyInformedAdmin: true,
+      opposeProspecting: false,
+    };
+  }
+
   return {
     vehicle: {
       registrationNumber: (
@@ -350,25 +551,7 @@ export function buildInitialCerfaData(
       absenceReason: vehicle.absenceReason || '',
     },
     seller: sellerStep,
-    buyer: {
-      entityType: buyer?.isCompany ? 'morale' : 'physique',
-      sex: '',
-      nameOrCompany: buyer?.fullName || '',
-      siret: (buyer?.siret || '').replace(/\s+/g, ''),
-      birthDate: buyer?.birthDate || '',
-      birthPlace: buyer?.birthPlace || '',
-      streetNumber: parsedStreetNum,
-      streetExtension: '',
-      streetType: buyerStreet.streetType,
-      streetName: buyerStreet.streetName,
-      postalCode: parsedPostal,
-      city: buyerCity,
-      signingCity: buyerCity || sellerStep.city || garageSettings.city || '',
-      signingDate: saleDate,
-      certifyAcquire: true,
-      certifyInformedAdmin: true,
-      opposeProspecting: false,
-    },
+    buyer: buyerStep,
   };
 }
 

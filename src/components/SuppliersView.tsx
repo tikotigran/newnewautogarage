@@ -42,6 +42,8 @@ import {
   Vehicle,
 } from '../types/garage';
 import {
+  buildSyncedRepairTaskFromPurchase,
+  buildVehiclePayloadFromPurchase,
   computeChannelProfitability,
   computeSupplierSummaries,
   getPaymentMethodLabel,
@@ -49,6 +51,8 @@ import {
   getSupplierTypeLabel,
   PAYMENT_METHODS,
   PURCHASE_CATEGORIES,
+  shouldCreateVehicleForPurchase,
+  shouldSyncRepairForPurchase,
   SUPPLIER_TYPES,
   validatePurchaseInput,
   validateSupplierInput,
@@ -61,7 +65,14 @@ import {
   updatePurchase,
   updateSupplier,
 } from '../services/supplierService';
-import { generateId, getGarageSettings } from '../services/garageService';
+import {
+  createVehicle,
+  generateId,
+  getGarageSettings,
+  removeRepairTasksBySupplierPurchaseId,
+  upsertRepairTaskBySupplierPurchaseId,
+} from '../services/garageService';
+import { createGarageDocument } from '../services/documentService';
 import { formatEuro } from '../utils/finance';
 import { DEFAULT_GARAGE_ID } from '../utils/garageUtils';
 import { pickLocalized } from '../utils/i18nUtils';
@@ -627,20 +638,83 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
       return;
     }
 
-    const linkedVehicle = purVehicleId ? vehicleMap.get(purVehicleId) : undefined;
-    const vehicleLabel = linkedVehicle
-      ? `${linkedVehicle.make} ${linkedVehicle.model} (${linkedVehicle.year})`
+    const targetGarageId = activeGarageId || DEFAULT_GARAGE_ID;
+    let resolvedVehicleId = purVehicleId ? purVehicleId : undefined;
+    const existingLinkedVehicle = resolvedVehicleId ? vehicleMap.get(resolvedVehicleId) : undefined;
+    let vehicleLabel = existingLinkedVehicle
+      ? `${existingLinkedVehicle.make} ${existingLinkedVehicle.model} (${existingLinkedVehicle.year})`
       : undefined;
 
     try {
       setIsSavingPurchase(true);
       setPurError(null);
+
+      // 1. Auto-create a Vehicle when acquiring a vehicle without selecting an existing stock lot
+      if (shouldCreateVehicleForPurchase(purCategory, resolvedVehicleId)) {
+        const vehiclePayload = buildVehiclePayloadFromPurchase({
+          userId,
+          garageId: targetGarageId,
+          supplier: chosenSupplier,
+          description: purDescription,
+          amount: numericAmount,
+          date: purDate,
+          vehicleDocuments: purVehicleDocs,
+          invoiceProofName: purInvoiceProofName,
+          invoiceProofUrl: purInvoiceProofUrl,
+        });
+        const createdVehicleId = await createVehicle(vehiclePayload);
+        if (createdVehicleId) {
+          resolvedVehicleId = createdVehicleId;
+          vehicleLabel = `${vehiclePayload.make} ${vehiclePayload.model} (${vehiclePayload.year})`;
+
+          // Mirror uploaded documents into central Documents Vault for full traceability
+          const docsToMirror: Array<{ title: string; url: string; category: 'facture_achat' | 'documents_administratifs' }> = [
+            ...purVehicleDocs
+              .filter((d) => Boolean(d.url))
+              .map((d) => ({
+                title: d.name,
+                url: d.url,
+                category: 'documents_administratifs' as const,
+              })),
+            ...(purInvoiceProofName.trim() && purInvoiceProofUrl
+              ? [
+                  {
+                    title: purInvoiceProofName.trim(),
+                    url: purInvoiceProofUrl,
+                    category: 'facture_achat' as const,
+                  },
+                ]
+              : []),
+          ];
+
+          for (const item of docsToMirror) {
+            await createGarageDocument({
+              userId,
+              garageId: targetGarageId,
+              title: item.title,
+              category: item.category,
+              bindingType: 'vehicle',
+              vehicleId: createdVehicleId,
+              vehicleLabel,
+              fileName: item.title,
+              mimeType: item.url.startsWith('data:image/') ? 'image/jpeg' : 'application/pdf',
+              fileSize: Math.max(1024, Math.round((item.url.length * 3) / 4)),
+              fileUrl: item.url,
+              documentDate: purDate || getTodayDateString(),
+              notes: `${chosenSupplier.name} — ${purDescription.trim()}`,
+            });
+          }
+        }
+      }
+
+      // 2. Persist supplier purchase with final resolved vehicleId & label
+      let savedPurchaseId = editingPurchase?.id || '';
       if (editingPurchase) {
         await updatePurchase(editingPurchase.id, {
           supplierId: chosenSupplier.id,
           supplierName: chosenSupplier.name,
           supplierType: chosenSupplier.type,
-          vehicleId: linkedVehicle?.id || undefined,
+          vehicleId: resolvedVehicleId,
           vehicleLabel,
           category: purCategory,
           description: purDescription.trim(),
@@ -654,13 +728,13 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           notes: purNotes.trim() || undefined,
         });
       } else {
-        await createPurchase({
+        const created = await createPurchase({
           userId,
-          garageId: activeGarageId || DEFAULT_GARAGE_ID,
+          garageId: targetGarageId,
           supplierId: chosenSupplier.id,
           supplierName: chosenSupplier.name,
           supplierType: chosenSupplier.type,
-          vehicleId: linkedVehicle?.id || undefined,
+          vehicleId: resolvedVehicleId,
           vehicleLabel,
           category: purCategory,
           description: purDescription.trim(),
@@ -673,7 +747,43 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
           vehicleDocuments: purVehicleDocs,
           notes: purNotes.trim() || undefined,
         });
+        savedPurchaseId = created.id;
       }
+
+      // 3. Auto-sync parts/workshop/service purchase into linked vehicle's RepairTask & P&L
+      if (savedPurchaseId) {
+        const shouldSync = shouldSyncRepairForPurchase(purCategory, resolvedVehicleId);
+        const candidateVehicleIds = Array.from(
+          new Set(
+            [editingPurchase?.vehicleId, resolvedVehicleId].filter((id): id is string =>
+              Boolean(id)
+            )
+          )
+        );
+        await removeRepairTasksBySupplierPurchaseId(savedPurchaseId, {
+          exceptVehicleId: shouldSync ? resolvedVehicleId : undefined,
+          candidateVehicleIds,
+        });
+
+        if (shouldSync && resolvedVehicleId) {
+          const syncedTask = buildSyncedRepairTaskFromPurchase({
+            purchaseId: savedPurchaseId,
+            garageId: targetGarageId,
+            supplierName: chosenSupplier.name,
+            category: purCategory,
+            description: purDescription,
+            amount: numericAmount,
+            date: purDate,
+            invoiceNumber: purInvoiceNumber,
+            notes: purNotes,
+          });
+          await upsertRepairTaskBySupplierPurchaseId(resolvedVehicleId, userId, {
+            ...syncedTask,
+            supplierPurchaseId: savedPurchaseId,
+          });
+        }
+      }
+
       setIsPurchaseModalOpen(false);
     } catch (err) {
       console.error('Save purchase error:', err);
@@ -691,7 +801,11 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
   };
 
   const handleDeletePurchase = async (purchaseId: string) => {
+    const targetPurchase = purchases.find((p) => p.id === purchaseId);
     await deletePurchase(purchaseId);
+    await removeRepairTasksBySupplierPurchaseId(purchaseId, {
+      candidateVehicleIds: targetPurchase?.vehicleId ? [targetPurchase.vehicleId] : undefined,
+    });
     setConfirmDeletePurchaseId(null);
   };
 
@@ -2353,6 +2467,38 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({
                     ]}
                     triggerClassName="w-full bg-[var(--background)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--foreground)]"
                   />
+                  {shouldCreateVehicleForPurchase(purCategory, purVehicleId) && (
+                    <p
+                      data-testid="purchase-auto-vehicle-hint"
+                      className="mt-1.5 text-[11px] text-emerald-400 flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {pickLocalized(lang, {
+                          fr: 'Un nouveau véhicule en statut « Préparation » sera créé automatiquement avec ses documents.',
+                          ru: 'Автомобиль в статусе «Подготовка» и его документы будут созданы в парке автоматически.',
+                          hy: 'Նոր մեքենան «Նախապատրաստում» կարգավիճակով և փաստաթղթերով կստեղծվի ավտոմատ։',
+                          ka: 'ახალი ავტომობილი „მომზადების“ სტატუსით და მისი დოკუმენტები ავტომატურად შეიქმნება.',
+                        })}
+                      </span>
+                    </p>
+                  )}
+                  {shouldSyncRepairForPurchase(purCategory, purVehicleId) && (
+                    <p
+                      data-testid="purchase-auto-repair-hint"
+                      className="mt-1.5 text-[11px] text-sky-400 flex items-center gap-1.5"
+                    >
+                      <Wrench className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {pickLocalized(lang, {
+                          fr: 'Cette dépense sera synchronisée automatiquement dans l’atelier et le P&L du véhicule.',
+                          ru: 'Расход автоматически синхронизируется с карточкой автомобиля и пересчитает его рентабельность.',
+                          hy: 'Այս ծախսը ավտոմատ կսինխրոնացվի ընտրված մեքենայի քարտի և P&L-ի հետ։',
+                          ka: 'ეს ხარჯი ავტომატურად სინქრონიზდება არჩეული ავტომობილის ბარათთან და P&L-თან.',
+                        })}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="sm:col-span-2">

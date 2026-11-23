@@ -9,7 +9,7 @@ import {
   mapGeneralExpenseCategory,
   resolveRepairExpenseDate,
 } from './analytics';
-import { DynamicExpenseCategory, GeneralExpense, RepairTask, Vehicle } from '../types/garage';
+import { DynamicExpenseCategory, GeneralExpense, Purchase, RepairTask, Vehicle } from '../types/garage';
 
 const mockVehicles: Vehicle[] = [
   {
@@ -1560,6 +1560,137 @@ test('computeDealershipAnalytics always applies Business URSSAF/VL per micro veh
   assert.equal(report.salesPerformance.taxAmount, 1330);
   assert.equal(report.salesPerformance.netProfit, 3670);
 });
+
+test('computeFleetExpenseAnalytics and computeDealershipAnalytics include standalone purchases without double-counting linked vehicles or synced repairs', () => {
+  const fixedNow = new Date('2026-11-20T12:00:00Z');
+  const linkedVehicle: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_sup_1',
+    purchaseDate: '2026-11-05',
+    purchasePrice: 12000,
+    repairCostTotal: 450,
+    generalExpensesTotal: 0,
+    totalExpenses: 450,
+    totalInvested: 12450,
+    status: 'for_sale',
+    buyerInfo: undefined,
+  };
+  const syncedRepair: RepairTask = {
+    id: 'rep_synced_1',
+    vehicleId: 'v_sup_1',
+    userId: 'u1',
+    title: 'Plaquettes & Disques · FAC-101',
+    status: 'done',
+    partsCost: 450,
+    laborCost: 0,
+    totalCost: 450,
+    date: '2026-11-08',
+    supplierPurchaseId: 'pur_repair_linked',
+    createdAt: '2026-11-08T10:00:00Z',
+    updatedAt: '2026-11-08T10:00:00Z',
+  };
+
+  const purchases: Purchase[] = [
+    // Linked to existing vehicle v_sup_1 -> MUST NOT double-count 12000 in Cash Flow
+    {
+      id: 'pur_vehicle_linked',
+      userId: 'u1',
+      garageId: 'garage_default',
+      supplierId: 'sup_1',
+      supplierName: 'BCA Enchères',
+      supplierType: 'auction',
+      vehicleId: 'v_sup_1',
+      category: 'vehicle',
+      description: 'Peugeot 208 GT',
+      amount: 12000,
+      date: '2026-11-05',
+      paymentMethod: 'bank_transfer',
+      vehicleDocuments: [],
+      createdAt: '2026-11-05T10:00:00Z',
+      updatedAt: '2026-11-05T10:00:00Z',
+    },
+    // Synced to syncedRepair via supplierPurchaseId -> MUST NOT double-count 450 in Cash Flow
+    {
+      id: 'pur_repair_linked',
+      userId: 'u1',
+      garageId: 'garage_default',
+      supplierId: 'sup_2',
+      supplierName: 'Oscaro Pro',
+      supplierType: 'parts_supplier',
+      vehicleId: 'v_sup_1',
+      category: 'parts',
+      description: 'Plaquettes & Disques',
+      amount: 450,
+      date: '2026-11-08',
+      paymentMethod: 'card',
+      vehicleDocuments: [],
+      createdAt: '2026-11-08T10:00:00Z',
+      updatedAt: '2026-11-08T10:00:00Z',
+    },
+    // Standalone stock purchase (no vehicleId) -> MUST appear in Cash Flow + Fleet Expenses (300)
+    {
+      id: 'pur_standalone_parts',
+      userId: 'u1',
+      garageId: 'garage_default',
+      supplierId: 'sup_2',
+      supplierName: 'Oscaro Pro',
+      supplierType: 'parts_supplier',
+      category: 'parts',
+      description: 'Stock huiles & filtres atelier',
+      amount: 300,
+      date: '2026-11-10',
+      paymentMethod: 'card',
+      vehicleDocuments: [],
+      createdAt: '2026-11-10T10:00:00Z',
+      updatedAt: '2026-11-10T10:00:00Z',
+    },
+    // Standalone logistics purchase ('other') -> MUST appear in generalExpensesOutflow (150)
+    {
+      id: 'pur_standalone_other',
+      userId: 'u1',
+      garageId: 'garage_default',
+      supplierId: 'sup_3',
+      supplierName: 'Transport Express',
+      supplierType: 'transport_company',
+      category: 'other',
+      description: 'Assurance convoyage mensuelle',
+      amount: 150,
+      date: '2026-11-12',
+      paymentMethod: 'bank_transfer',
+      vehicleDocuments: [],
+      createdAt: '2026-11-12T10:00:00Z',
+      updatedAt: '2026-11-12T10:00:00Z',
+    },
+  ];
+
+  const fleetExpenses = computeFleetExpenseAnalytics({
+    vehicles: [linkedVehicle],
+    repairs: [syncedRepair],
+    expenses: [],
+    purchases,
+    timeRange: 'all',
+    now: fixedNow,
+  });
+  // Total = 450 (synced repair) + 300 (standalone parts) + 150 (standalone other) = 900 (zero double-count of 450)
+  assert.equal(fleetExpenses.totalSpent, 900);
+  // Real impactedVehiclesCount excludes __standalone_purchase__ pseudo IDs
+  assert.equal(fleetExpenses.impactedVehiclesCount, 1);
+
+  const report = computeDealershipAnalytics({
+    vehicles: [linkedVehicle],
+    repairs: [syncedRepair],
+    expenses: [],
+    purchases,
+    timeRange: 'all',
+    taxRegime: 'none',
+    now: fixedNow,
+  });
+  assert.equal(report.cashFlow.vehiclePurchasesOutflow, 12000);
+  assert.equal(report.cashFlow.repairsOutflow, 750); // 450 synced repair + 300 standalone parts
+  assert.equal(report.cashFlow.generalExpensesOutflow, 150); // 150 standalone other
+  assert.equal(report.cashFlow.outflow, 12900); // 12000 + 450 + 300 + 150
+});
+
 
 
 

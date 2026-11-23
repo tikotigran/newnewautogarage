@@ -371,7 +371,10 @@ export function buildVehicleSubmitPayload(
       : 'micro';
 
   const targetGarageId = resolveTargetGarageId(initialVehicle, activeGarageId);
-  const cleanedSupplierId = input.supplierId?.trim() || initialVehicle?.supplierId || undefined;
+  const cleanedSupplierId =
+    input.supplierId !== undefined
+      ? input.supplierId.trim() || undefined
+      : initialVehicle?.supplierId || undefined;
   const cleanedSupplierName =
     input.supplierName !== undefined
       ? input.supplierName.trim() || undefined
@@ -584,11 +587,14 @@ export interface SaleWizardInitialState {
   saleTime: string;
   // Step 3: Buyer & sale price
   isCompany: boolean;
+  sex: 'M' | 'F' | '';
   fullName: string;
   siret: string;
   birthDate: string;
   birthPlace: string;
   streetNumber: string;
+  streetExtension: string;
+  streetType: string;
   streetName: string;
   postalCode: string;
   city: string;
@@ -633,11 +639,17 @@ export function buildSaleWizardInitialState(
     saleDate: activeBuyer?.saleDate || todayIso,
     saleTime: activeBuyer?.saleTime || '14:00',
     isCompany: activeBuyer?.isCompany || false,
+    sex:
+      !activeBuyer?.isCompany && (activeBuyer?.sex === 'M' || activeBuyer?.sex === 'F')
+        ? activeBuyer.sex
+        : '',
     fullName: activeBuyer?.fullName || '',
-    siret: activeBuyer?.siret || '',
+    siret: activeBuyer?.isCompany ? activeBuyer.siret || '' : '',
     birthDate: activeBuyer?.birthDate || '',
     birthPlace: activeBuyer?.birthPlace || '',
     streetNumber: activeBuyer?.streetNumber || '',
+    streetExtension: activeBuyer?.streetExtension || '',
+    streetType: activeBuyer?.streetType || '',
     streetName: activeBuyer?.streetName || '',
     postalCode: activeBuyer?.postalCode || '',
     city: activeBuyer?.city || '',

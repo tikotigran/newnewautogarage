@@ -135,6 +135,8 @@ export interface StatusProfileData {
   lastName?: string;
   firstName?: string;
   sex?: 'M' | 'F' | '';
+  birthDate?: string;
+  birthPlace?: string;
   siret: string;
   streetNumber: string;
   streetExtension?: string;
@@ -167,6 +169,8 @@ export interface GarageSettings {
   lastName?: string;
   firstName?: string;
   sex?: 'M' | 'F' | '';
+  birthDate?: string;
+  birthPlace?: string;
   siret: string;
   streetNumber: string;
   streetExtension?: string;
@@ -209,9 +213,12 @@ export interface BuyerInfo {
   sellerProfileType?: AppUserProfileType;
   sellerProfileId?: string;
   siret?: string;
+  sex?: 'M' | 'F' | '';
   birthDate?: string;      // Né(e) le ... for Cerfa 15776
   birthPlace?: string;     // à ... for Cerfa 15776
   streetNumber?: string;   // N° de la voie
+  streetExtension?: string; // Extension (bis, ter, etc.)
+  streetType?: string;     // Type de voie (Rue, Avenue, etc.)
   streetName?: string;     // Nom de la voie
   postalCode?: string;     // Code postal
   city?: string;           // Commune
@@ -286,6 +293,8 @@ export interface RepairTask {
   date?: string;
   categoryPreset?: string;
   notes?: string;
+  supplierPurchaseId?: string;
+  supplierName?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -300,6 +309,7 @@ export interface GeneralExpense {
   amount: number;
   date: string;
   receiptUrl?: string;
+  supplierPurchaseId?: string;
   createdAt: string;
   updatedAt: string;
 }

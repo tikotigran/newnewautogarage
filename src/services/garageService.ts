@@ -1437,6 +1437,115 @@ export async function deleteRepairTask(vehicleId: string, taskId: string): Promi
 }
 
 /**
+ * Upsert a RepairTask linked to a Supplier Purchase (`supplierPurchaseId`) so edits do not duplicate tasks.
+ */
+export async function upsertRepairTaskBySupplierPurchaseId(
+  vehicleId: string,
+  userId: string,
+  taskInput: Omit<
+    RepairTask,
+    'id' | 'vehicleId' | 'userId' | 'createdAt' | 'updatedAt' | 'totalCost'
+  > & { supplierPurchaseId: string }
+): Promise<string> {
+  if (!auth.currentUser) {
+    const list = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY);
+    const existing = list.find(
+      (t) =>
+        t.vehicleId === vehicleId &&
+        t.supplierPurchaseId === taskInput.supplierPurchaseId
+    );
+    if (existing) {
+      await updateRepairTask(vehicleId, existing.id, taskInput);
+      return existing.id;
+    }
+    return addRepairTask(vehicleId, userId, taskInput);
+  }
+
+  try {
+    const q = query(
+      collection(db, 'vehicles', vehicleId, 'repairs'),
+      where('supplierPurchaseId', '==', taskInput.supplierPurchaseId)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const primary = snap.docs[0];
+      await updateRepairTask(vehicleId, primary.id, taskInput);
+      for (const extra of snap.docs.slice(1)) {
+        await deleteDoc(doc(db, 'vehicles', vehicleId, 'repairs', extra.id));
+      }
+      return primary.id;
+    }
+    return addRepairTask(vehicleId, userId, taskInput);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `vehicles/${vehicleId}/repairs`);
+    return '';
+  }
+}
+
+/**
+ * Remove any synced RepairTask(s) referencing `supplierPurchaseId` across vehicles (optionally skipping one vehicle).
+ */
+export async function removeRepairTasksBySupplierPurchaseId(
+  supplierPurchaseId: string,
+  options?: { exceptVehicleId?: string; candidateVehicleIds?: string[] }
+): Promise<void> {
+  if (!supplierPurchaseId) return;
+  const exceptId = options?.exceptVehicleId;
+
+  if (!auth.currentUser) {
+    const list = getLocalStore<RepairTask>(LOCAL_REPAIRS_KEY);
+    const affectedVehicleIds = new Set<string>();
+    const remaining = list.filter((t) => {
+      if (t.supplierPurchaseId === supplierPurchaseId && t.vehicleId !== exceptId) {
+        affectedVehicleIds.add(t.vehicleId);
+        return false;
+      }
+      return true;
+    });
+    if (affectedVehicleIds.size > 0) {
+      setLocalStore(LOCAL_REPAIRS_KEY, remaining);
+      for (const vId of affectedVehicleIds) {
+        await recalculateAndSyncVehicleById(vId);
+      }
+    }
+    return;
+  }
+
+  try {
+    const candidateIds = new Set<string>(
+      (options?.candidateVehicleIds || []).filter((id) => Boolean(id) && id !== exceptId)
+    );
+    if (candidateIds.size === 0 && auth.currentUser) {
+      const vehiclesSnap = await getDocs(
+        query(collection(db, 'vehicles'), where('userId', '==', auth.currentUser.uid))
+      );
+      vehiclesSnap.forEach((d) => {
+        if (d.id !== exceptId) candidateIds.add(d.id);
+      });
+    }
+
+    await Promise.all(
+      Array.from(candidateIds).map(async (vId) => {
+        const snap = await getDocs(
+          query(
+            collection(db, 'vehicles', vId, 'repairs'),
+            where('supplierPurchaseId', '==', supplierPurchaseId)
+          )
+        );
+        if (!snap.empty) {
+          await Promise.all(
+            snap.docs.map((d) => deleteDoc(doc(db, 'vehicles', vId, 'repairs', d.id)))
+          );
+          await recalculateAndSyncVehicleById(vId);
+        }
+      })
+    );
+  } catch (err) {
+    console.warn('removeRepairTasksBySupplierPurchaseId warning:', err);
+  }
+}
+
+/**
  * Real-time General Expenses Subscription
  */
 export function subscribeExpenses(

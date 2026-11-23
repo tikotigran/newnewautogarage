@@ -258,7 +258,7 @@ export const VehicleList: React.FC<VehicleListProps> = ({
     />
   );
 
-  const yesLabel = L('Oui', 'Да', 'Այո', 'კი');
+  const yesLabel = L('Oui', 'Да', 'Այո', 'დიახ');
   const noLabel = L('Non', 'Нет', 'Ոչ', 'არა');
   const docsHeaderLabel = L('Dossier', 'Оформлено', 'Ձևակերպված', 'გაფორმებული');
 

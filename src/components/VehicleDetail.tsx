@@ -1460,8 +1460,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               ka: 'რეგისტრაციის მოწმობა',
             }),
             value: hasCertReadonly
-              ? pickLocalized(lang, { fr: 'Oui', ru: 'Есть (ОУИ)', hy: 'Այո (OUI)', ka: 'დიახ (OUI)' })
-              : pickLocalized(lang, { fr: 'Non', ru: 'Нет (НЕТ)', hy: 'Ոչ (NON)', ka: 'არა (NON)' }),
+              ? pickLocalized(lang, { fr: 'Oui', ru: 'Да', hy: 'Այո', ka: 'დიახ' })
+              : pickLocalized(lang, { fr: 'Non', ru: 'Нет', hy: 'Ոչ', ka: 'არა' }),
           },
           ...(hasCertReadonly
             ? [
@@ -1854,10 +1854,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                           }`}
                         >
                           {pickLocalized(lang, {
-                            fr: 'Oui (OUI)',
-                            ru: 'Есть (ОУИ)',
-                            hy: 'Այո (OUI)',
-                            ka: 'დიახ (OUI)',
+                            fr: 'Oui',
+                            ru: 'Да',
+                            hy: 'Այո',
+                            ka: 'დიახ',
                           })}
                         </button>
                         <button
@@ -1872,10 +1872,10 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                           }`}
                         >
                           {pickLocalized(lang, {
-                            fr: 'Non (NON)',
-                            ru: 'Нет (НЕТ)',
-                            hy: 'Ոչ (NON)',
-                            ka: 'არა (NON)',
+                            fr: 'Non',
+                            ru: 'Нет',
+                            hy: 'Ոչ',
+                            ka: 'არა',
                           })}
                         </button>
                       </div>

@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
   Car,
   Check,
+  ChevronDown,
+  FileText,
   Info,
   Loader2,
   Plus,
@@ -12,7 +14,13 @@ import {
   TrendingUp,
   Upload,
 } from 'lucide-react';
-import { GarageSettings, Supplier, Vehicle, VehiclePurchaseStatus, VehicleStatus } from '../types/garage';
+import {
+  GarageSettings,
+  Supplier,
+  Vehicle,
+  VehiclePurchaseStatus,
+  VehicleStatus,
+} from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
@@ -26,7 +34,11 @@ import {
   computeVehicleMarginPreview,
   estimatePhotosPayloadBytes,
   MAX_VEHICLE_PHOTOS_BYTES,
+  resolveDefaultPurchaseStatus,
   resolveDefaultSellerProfileId,
+  resolveTargetGarageId,
+  resolveVehiclePurchaseStatus,
+  resolveVehicleSellerProfileId,
   validateVehicleFormDetailed,
   VehicleFormFieldErrorKey,
 } from '../utils/vehicleFormUtils';
@@ -34,6 +46,7 @@ import {
 interface AddVehiclePageProps {
   userId: string;
   activeGarageId?: string | null;
+  initialVehicle?: Vehicle | null;
   defaultPurchaseStatus?: VehiclePurchaseStatus;
   suppliers: Supplier[];
   onBack: () => void;
@@ -46,6 +59,7 @@ const CUSTOM_SUPPLIER_VALUE = '__custom__';
 export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   userId,
   activeGarageId,
+  initialVehicle = null,
   defaultPurchaseStatus = 'micro',
   suppliers,
   onBack,
@@ -55,49 +69,154 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   const { t, lang } = useI18n();
   const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
 
-  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
-    getGarageSettings(activeGarageId || undefined)
-  );
-  const [purchaseStatus, setPurchaseStatus] = useState<VehiclePurchaseStatus>(defaultPurchaseStatus);
-  const [sellerProfileId, setSellerProfileId] = useState<string | undefined>(() =>
-    resolveDefaultSellerProfileId(defaultPurchaseStatus, getGarageSettings(activeGarageId || undefined))
+  const isEditMode = Boolean(initialVehicle);
+  const targetGarageId = resolveTargetGarageId(initialVehicle, activeGarageId);
+  const hasEditedPurchaseStatusRef = useRef(false);
+
+  const presetSources = useMemo(
+    () => [
+      {
+        value: 'source:particulier',
+        label: pickLocalized(lang, {
+          fr: 'Particulier / Leboncoin',
+          ru: 'Частное лицо / Leboncoin',
+          hy: 'Անհատ / Leboncoin',
+          ka: 'კერძო პირი / Leboncoin',
+        }),
+      },
+      {
+        value: 'source:auction',
+        label: pickLocalized(lang, {
+          fr: 'Enchères (BCA / Alcopa)',
+          ru: 'Аукцион (BCA / Alcopa)',
+          hy: 'Աճուրդ (BCA / Alcopa)',
+          ka: 'აუქციონი (BCA / Alcopa)',
+        }),
+      },
+      {
+        value: 'source:dealership',
+        label: pickLocalized(lang, {
+          fr: 'Concessionnaire / Reprise',
+          ru: 'Дилер / Трейд-ин',
+          hy: 'Դիլեր / Փոխանակում',
+          ka: 'დილერი / Trade-in',
+        }),
+      },
+    ],
+    [lang]
   );
 
-  useEffect(() => {
-    const syncLocal = () => setGarageSettings(getGarageSettings(activeGarageId || undefined));
-    syncLocal();
-    window.addEventListener('autogarage_settings_updated', syncLocal);
-    let cancelled = false;
-    if (userId) {
-      fetchGarageSettingsFromCloud(userId, activeGarageId || undefined).then((cloud) => {
-        if (!cancelled) {
-          setGarageSettings(cloud);
-        }
-      });
+  const resolveInitialSupplierState = (
+    vehicle: Vehicle | null | undefined,
+    supplierList: Supplier[]
+  ): { selection: string; customName: string } => {
+    if (!vehicle) return { selection: '', customName: '' };
+    if (vehicle.supplierId && supplierList.some((s) => s.id === vehicle.supplierId)) {
+      return { selection: `sup:${vehicle.supplierId}`, customName: '' };
     }
-    return () => {
-      cancelled = true;
-      window.removeEventListener('autogarage_settings_updated', syncLocal);
-    };
-  }, [userId, activeGarageId]);
+    const rawName = (vehicle.supplierName || '').trim();
+    if (!rawName) return { selection: '', customName: '' };
+    const matchedSupplier = supplierList.find(
+      (s) => s.name.trim().toLowerCase() === rawName.toLowerCase()
+    );
+    if (matchedSupplier) {
+      return { selection: `sup:${matchedSupplier.id}`, customName: '' };
+    }
+    const matchedPreset = presetSources.find(
+      (p) => p.label.toLowerCase() === rawName.toLowerCase()
+    );
+    if (matchedPreset) {
+      return { selection: matchedPreset.value, customName: '' };
+    }
+    return { selection: CUSTOM_SUPPLIER_VALUE, customName: rawName };
+  };
 
-  const [make, setMake] = useState('');
-  const [model, setModel] = useState('');
-  const [year, setYear] = useState<number | ''>(new Date().getFullYear());
-  const [registrationNumber, setRegistrationNumber] = useState('');
-  const [mileage, setMileage] = useState<number | ''>('');
-  const [status, setStatus] = useState<VehicleStatus>('preparation');
+  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
+    getGarageSettings(targetGarageId)
+  );
+  const [purchaseStatus, setPurchaseStatus] = useState<VehiclePurchaseStatus>(() =>
+    initialVehicle
+      ? resolveVehiclePurchaseStatus(initialVehicle, 'micro_entrepreneur')
+      : defaultPurchaseStatus
+  );
+  const [sellerProfileId, setSellerProfileId] = useState<string | undefined>(() =>
+    initialVehicle
+      ? resolveVehicleSellerProfileId(
+          initialVehicle,
+          resolveVehiclePurchaseStatus(initialVehicle, 'micro_entrepreneur'),
+          getGarageSettings(targetGarageId)
+        )
+      : resolveDefaultSellerProfileId(defaultPurchaseStatus, getGarageSettings(targetGarageId))
+  );
 
-  const [purchasePrice, setPurchasePrice] = useState<number | ''>('');
-  const [targetSalePrice, setTargetSalePrice] = useState<number | ''>('');
-  const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().split('T')[0]);
+  // Core vehicle fields
+  const [make, setMake] = useState(() => initialVehicle?.make || '');
+  const [model, setModel] = useState(() => initialVehicle?.model || '');
+  const [year, setYear] = useState<number | ''>(
+    () => initialVehicle?.year ?? new Date().getFullYear()
+  );
+  const [registrationNumber, setRegistrationNumber] = useState(
+    () => initialVehicle?.registrationNumber || ''
+  );
+  const [mileage, setMileage] = useState<number | ''>(() =>
+    initialVehicle && initialVehicle.mileage > 0 ? initialVehicle.mileage : ''
+  );
+  const [status, setStatus] = useState<VehicleStatus>(
+    () => initialVehicle?.status || 'preparation'
+  );
+
+  // Purchase & Pricing
+  const [purchasePrice, setPurchasePrice] = useState<number | ''>(() =>
+    initialVehicle ? initialVehicle.purchasePrice : ''
+  );
+  const [targetSalePrice, setTargetSalePrice] = useState<number | ''>(() =>
+    initialVehicle && initialVehicle.targetSalePrice > 0 ? initialVehicle.targetSalePrice : ''
+  );
+  const [purchaseDate, setPurchaseDate] = useState(
+    () => initialVehicle?.purchaseDate || new Date().toISOString().split('T')[0]
+  );
 
   // Supplier / Source (dropdown + optional custom text)
-  const [supplierSelection, setSupplierSelection] = useState<string>('');
-  const [customSupplierName, setCustomSupplierName] = useState<string>('');
+  const initialSupplierState = resolveInitialSupplierState(initialVehicle, suppliers);
+  const [supplierSelection, setSupplierSelection] = useState<string>(
+    initialSupplierState.selection
+  );
+  const [customSupplierName, setCustomSupplierName] = useState<string>(
+    initialSupplierState.customName
+  );
+
+  // Collapsible Technical & Carte Grise / Cerfa Details
+  const [isExtendedOpen, setIsExtendedOpen] = useState<boolean>(() => Boolean(initialVehicle));
+  const [vin, setVin] = useState(() => initialVehicle?.vin || '');
+  const [trim, setTrim] = useState(() => initialVehicle?.trim || '');
+  const [fuelType, setFuelType] = useState(() => initialVehicle?.fuelType || '');
+  const [gearbox, setGearbox] = useState(() => initialVehicle?.gearbox || '');
+  const [firstRegistrationDate, setFirstRegistrationDate] = useState(
+    () => initialVehicle?.firstRegistrationDate || ''
+  );
+  const [commercialDesignation, setCommercialDesignation] = useState(
+    () => initialVehicle?.commercialDesignation || ''
+  );
+  const [typeVariantVersion, setTypeVariantVersion] = useState(
+    () => initialVehicle?.typeVariantVersion || ''
+  );
+  const [nationalGenre, setNationalGenre] = useState(
+    () => initialVehicle?.nationalGenre || 'VP'
+  );
+  const [bodyType, setBodyType] = useState(() => initialVehicle?.bodyType || '');
+  const [hasRegistrationCertificate, setHasRegistrationCertificate] = useState<boolean | null>(() =>
+    typeof initialVehicle?.hasRegistrationCertificate === 'boolean'
+      ? initialVehicle.hasRegistrationCertificate
+      : null
+  );
+  const [formulaNumber, setFormulaNumber] = useState(() => initialVehicle?.formulaNumber || '');
+  const [certificateDate, setCertificateDate] = useState(
+    () => initialVehicle?.certificateDate || ''
+  );
+  const [absenceReason, setAbsenceReason] = useState(() => initialVehicle?.absenceReason || '');
 
   // Compact Photos (auto-compressed & strictly guarded for document size limit)
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>(() => initialVehicle?.photos || []);
   const [isCompressingPhotos, setIsCompressingPhotos] = useState(false);
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
 
@@ -107,40 +226,128 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
     {}
   );
 
+  // Sync form state cleanly when switching between create mode and a vehicle in edit mode
+  useEffect(() => {
+    hasEditedPurchaseStatusRef.current = false;
+    const scopedSettings = getGarageSettings(targetGarageId);
+    setGarageSettings(scopedSettings);
+    const scopedFallbackProfile =
+      resolveDefaultPurchaseStatus(undefined, scopedSettings) === 'particulier'
+        ? 'particulier'
+        : 'micro_entrepreneur';
+
+    if (initialVehicle) {
+      setMake(initialVehicle.make);
+      setModel(initialVehicle.model);
+      setYear(initialVehicle.year);
+      setRegistrationNumber(initialVehicle.registrationNumber || '');
+      setMileage(initialVehicle.mileage > 0 ? initialVehicle.mileage : '');
+      setStatus(initialVehicle.status);
+      setPurchasePrice(initialVehicle.purchasePrice);
+      setTargetSalePrice(
+        initialVehicle.targetSalePrice > 0 ? initialVehicle.targetSalePrice : ''
+      );
+      setPurchaseDate(initialVehicle.purchaseDate || new Date().toISOString().split('T')[0]);
+
+      const resolvedStatus = resolveVehiclePurchaseStatus(
+        initialVehicle,
+        initialVehicle.garageId
+          ? scopedFallbackProfile
+          : defaultPurchaseStatus === 'particulier'
+          ? 'particulier'
+          : scopedFallbackProfile
+      );
+      setPurchaseStatus(resolvedStatus);
+      setSellerProfileId(
+        resolveVehicleSellerProfileId(initialVehicle, resolvedStatus, scopedSettings)
+      );
+
+      const supState = resolveInitialSupplierState(initialVehicle, suppliers);
+      setSupplierSelection(supState.selection);
+      setCustomSupplierName(supState.customName);
+
+      setIsExtendedOpen(true);
+      setVin(initialVehicle.vin || '');
+      setTrim(initialVehicle.trim || '');
+      setFuelType(initialVehicle.fuelType || '');
+      setGearbox(initialVehicle.gearbox || '');
+      setFirstRegistrationDate(initialVehicle.firstRegistrationDate || '');
+      setCommercialDesignation(initialVehicle.commercialDesignation || '');
+      setTypeVariantVersion(initialVehicle.typeVariantVersion || '');
+      setNationalGenre(initialVehicle.nationalGenre || 'VP');
+      setBodyType(initialVehicle.bodyType || '');
+      setHasRegistrationCertificate(
+        typeof initialVehicle.hasRegistrationCertificate === 'boolean'
+          ? initialVehicle.hasRegistrationCertificate
+          : null
+      );
+      setFormulaNumber(initialVehicle.formulaNumber || '');
+      setCertificateDate(initialVehicle.certificateDate || '');
+      setAbsenceReason(initialVehicle.absenceReason || '');
+      setPhotos(initialVehicle.photos || []);
+    } else {
+      setMake('');
+      setModel('');
+      setYear(new Date().getFullYear());
+      setRegistrationNumber('');
+      setMileage('');
+      setStatus('preparation');
+      setPurchasePrice('');
+      setTargetSalePrice('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setPurchaseStatus(defaultPurchaseStatus);
+      setSellerProfileId(resolveDefaultSellerProfileId(defaultPurchaseStatus, scopedSettings));
+      setSupplierSelection('');
+      setCustomSupplierName('');
+      setIsExtendedOpen(false);
+      setVin('');
+      setTrim('');
+      setFuelType('');
+      setGearbox('');
+      setFirstRegistrationDate('');
+      setCommercialDesignation('');
+      setTypeVariantVersion('');
+      setNationalGenre('VP');
+      setBodyType('');
+      setHasRegistrationCertificate(null);
+      setFormulaNumber('');
+      setCertificateDate('');
+      setAbsenceReason('');
+      setPhotos([]);
+    }
+    setError(null);
+    setFieldErrors({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialVehicle?.id, targetGarageId, defaultPurchaseStatus]);
+
+  useEffect(() => {
+    const syncLocal = () => setGarageSettings(getGarageSettings(targetGarageId));
+    syncLocal();
+    window.addEventListener('autogarage_settings_updated', syncLocal);
+    let cancelled = false;
+    if (userId) {
+      fetchGarageSettingsFromCloud(userId, targetGarageId).then((cloud) => {
+        if (cancelled) return;
+        setGarageSettings(cloud);
+        if (hasEditedPurchaseStatusRef.current) return;
+        if (initialVehicle) {
+          const resolvedStatus = resolveVehiclePurchaseStatus(initialVehicle, 'micro_entrepreneur');
+          setSellerProfileId(
+            resolveVehicleSellerProfileId(initialVehicle, resolvedStatus, cloud)
+          );
+        }
+      });
+    }
+    return () => {
+      cancelled = true;
+      window.removeEventListener('autogarage_settings_updated', syncLocal);
+    };
+  }, [userId, targetGarageId, initialVehicle]);
+
   const marginPreview = useMemo(
     () => computeVehicleMarginPreview(purchasePrice, targetSalePrice),
     [purchasePrice, targetSalePrice]
   );
-
-  const presetSources = [
-    {
-      value: 'source:particulier',
-      label: L(
-        'Particulier / Leboncoin',
-        'Частное лицо / Leboncoin',
-        'Անհատ / Leboncoin',
-        'კერძო პირი / Leboncoin'
-      ),
-    },
-    {
-      value: 'source:auction',
-      label: L(
-        'Enchères (BCA / Alcopa)',
-        'Аукцион (BCA / Alcopa)',
-        'Աճուրդ (BCA / Alcopa)',
-        'აუქციონი (BCA / Alcopa)'
-      ),
-    },
-    {
-      value: 'source:dealership',
-      label: L(
-        'Concessionnaire / Reprise',
-        'Дилер / Трейд-ин',
-        'Դիլեր / Փոխանակում',
-        'დილერი / Trade-in'
-      ),
-    },
-  ];
 
   const supplierOptions = [
     {
@@ -170,19 +377,29 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
     { value: 'sold', label: `✅ ${t('statusSold')}` },
   ];
 
-  const resolveSelectedSupplier = (): { supplierId?: string; supplierName?: string } => {
-    if (!supplierSelection) return {};
+  const resolveSelectedSupplier = (): { supplierId: string; supplierName: string } => {
+    if (!supplierSelection) return { supplierId: '', supplierName: '' };
     if (supplierSelection === CUSTOM_SUPPLIER_VALUE) {
-      const trimmed = customSupplierName.trim();
-      return trimmed ? { supplierName: trimmed } : {};
+      return { supplierId: '', supplierName: customSupplierName.trim() };
     }
     if (supplierSelection.startsWith('sup:')) {
       const id = supplierSelection.slice(4);
       const found = suppliers.find((s) => s.id === id);
-      return found ? { supplierId: found.id, supplierName: found.name } : {};
+      return found ? { supplierId: found.id, supplierName: found.name } : { supplierId: '', supplierName: '' };
     }
     const preset = presetSources.find((p) => p.value === supplierSelection);
-    return preset ? { supplierName: preset.label } : {};
+    return preset ? { supplierId: '', supplierName: preset.label } : { supplierId: '', supplierName: '' };
+  };
+
+  const handleFirstRegDateChange = (nextDate: string) => {
+    setFirstRegistrationDate(nextDate);
+    setFieldErrors((prev) => ({ ...prev, firstRegistrationDate: undefined, year: undefined }));
+    if (/^\d{4}/.test(nextDate.trim())) {
+      const parsedYr = Number(nextDate.trim().slice(0, 4));
+      if (!Number.isNaN(parsedYr) && parsedYr >= 1900 && parsedYr <= 2100) {
+        setYear(parsedYr);
+      }
+    }
   };
 
   const processPhotoFiles = async (files: FileList | null) => {
@@ -245,23 +462,23 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
     const formState = {
       make,
       model,
-      commercialDesignation: '',
-      firstRegistrationDate: '',
-      trim: '',
+      commercialDesignation,
+      firstRegistrationDate,
+      trim,
       year,
       registrationNumber,
       purchasePrice,
-      vin: '',
+      vin,
       mileage,
-      fuelType: '',
-      gearbox: '',
-      typeVariantVersion: '',
-      nationalGenre: 'VP',
-      bodyType: '',
-      hasRegistrationCertificate: null,
-      formulaNumber: '',
-      certificateDate: '',
-      absenceReason: '',
+      fuelType,
+      gearbox,
+      typeVariantVersion,
+      nationalGenre,
+      bodyType,
+      hasRegistrationCertificate,
+      formulaNumber: hasRegistrationCertificate === false ? '' : formulaNumber,
+      certificateDate: hasRegistrationCertificate === false ? '' : certificateDate,
+      absenceReason: hasRegistrationCertificate === false ? absenceReason : '',
       purchaseDate,
       targetSalePrice,
       supplierId,
@@ -276,6 +493,9 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
     if (validation.firstError) {
       setFieldErrors(validation.fieldErrors);
       setError(validation.firstError);
+      if (validation.fieldErrors.vin) {
+        setIsExtendedOpen(true);
+      }
       if (validation.toastMessage) {
         onValidationToast?.(validation.toastMessage);
       }
@@ -298,7 +518,12 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
       setIsSubmitting(true);
       setError(null);
       setFieldErrors({});
-      const payload = buildVehicleSubmitPayload(formState, userId, null, activeGarageId);
+      const payload = buildVehicleSubmitPayload(
+        formState,
+        userId,
+        initialVehicle || null,
+        targetGarageId
+      );
       await onSubmit(payload);
     } catch (err: unknown) {
       setError(
@@ -325,26 +550,63 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   const labelClass = 'block text-xs font-semibold text-[var(--secondary-foreground)] mb-1.5';
 
   const backLabel = L('Retour', 'Назад', 'Հետ', 'უკან');
-  const submitLabel = L(
-    'Ajouter le véhicule',
-    'Добавить автомобиль',
-    'Ավելացնել ավտոմեքենա',
-    'ავტომობილის დამატება'
-  );
-  const subtitleText = L(
-    'Saisie rapide des données essentielles pour la mise en parc',
-    'Быстрое заполнение основных данных для постановки в автопарк',
-    'Հիմնական տվյալների արագ լրացում ավտոպարկում գրանցելու համար',
-    'ავტოპარკში დასამატებელი ძირითადი მონაცემების სწრაფი შევსება'
-  );
+  const pageTitle = isEditMode
+    ? L(
+        'Modifier le véhicule',
+        'Редактировать автомобиль',
+        'Խմբագրել ավտոմեքենան',
+        'ავტომობილის რედაქტირება'
+      )
+    : L(
+        'Ajouter le véhicule',
+        'Добавить автомобиль',
+        'Ավելացնել ավտոմեքենա',
+        'ავტომობილის დამატება'
+      );
+  const topSubmitLabel = isEditMode
+    ? L('Enregistrer', 'Сохранить изменения', 'Պահպանել', 'შენახვა')
+    : pageTitle;
+  const bottomSubmitLabel = isEditMode
+    ? L(
+        'Enregistrer les modifications',
+        'Сохранить изменения',
+        'Պահպանել փոփոխությունները',
+        'ცვლილებების შენახვა'
+      )
+    : L('Enregistrer l’achat', 'Сохранить покупку', 'Պահպանել գնումը', 'შესყიდვის შენახვა');
+  const subtitleText = isEditMode
+    ? [
+        [initialVehicle?.make, initialVehicle?.model].filter(Boolean).join(' '),
+        initialVehicle?.registrationNumber,
+        L(
+          'Mise à jour complète de la fiche véhicule et des champs Cerfa',
+          'Полное редактирование данных автомобиля и полей Cerfa',
+          'Ավտոմեքենայի և Cerfa դաշտերի ամբողջական խմբագրում',
+          'ავტომობილისა და Cerfa ველების სრული რედაქტირება'
+        ),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : L(
+        'Saisie rapide des données essentielles pour la mise en parc',
+        'Быстрое заполнение основных данных для постановки в автопарк',
+        'Հիմնական տվյալների արագ լրացում ավտոպարկում գրանցելու համար',
+        'ავტოპარკში დასამატებელი ძირითადი მონაცემების სწრაფი შევსება'
+      );
 
   const formattedPercent = `${marginPreview.grossMarginPercent > 0 ? '+' : ''}${marginPreview.grossMarginPercent.toFixed(1)}%`;
   const formattedMarginEuro = `${marginPreview.grossMarginEuro > 0 ? '+' : ''}${formatEuro(
     marginPreview.grossMarginEuro
   )}`;
 
+  const existingExpenses = isEditMode ? Math.max(0, Number(initialVehicle?.totalExpenses) || 0) : 0;
+
   return (
-    <div data-testid="add-vehicle-page" className="max-w-6xl mx-auto space-y-5 pb-10">
+    <div
+      data-testid="add-vehicle-page"
+      data-mode={isEditMode ? 'edit' : 'create'}
+      className="max-w-6xl mx-auto space-y-5 pb-10"
+    >
       {/* Page Header Bar */}
       <div
         data-testid="add-vehicle-page-header"
@@ -367,10 +629,10 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                 <Car className="w-4 h-4" />
               </div>
               <h1 className="text-lg sm:text-xl font-extrabold text-[var(--foreground)] tracking-tight truncate">
-                {submitLabel}
+                {pageTitle}
               </h1>
             </div>
-            <p className="text-xs text-[var(--muted-foreground)] mt-1">{subtitleText}</p>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1 truncate">{subtitleText}</p>
           </div>
         </div>
 
@@ -397,15 +659,19 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
               </>
             ) : (
               <>
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>{submitLabel}</span>
+                {isEditMode ? (
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                ) : (
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                )}
+                <span>{topSubmitLabel}</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Main 2-Column Intake Form (8/4 grid) */}
+      {/* Main 2-Column Form (8/4 grid) */}
       <form
         id="add-vehicle-intake-form"
         onSubmit={handleSubmit}
@@ -424,7 +690,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Column (~65% width, 8/12): 2 stacked cards */}
+          {/* Left Column (~65% width, 8/12): Identity + Purchase + Collapsible Extended Technical/Cerfa Card */}
           <div className="lg:col-span-8 space-y-5">
             {/* Card 1: Vehicle & Identification */}
             <section
@@ -441,7 +707,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                   )}
                 </h2>
 
-                {/* 2-option pill toggle (uses user's single account profile) */}
+                {/* 2-option pill toggle (Pro activity / Personal sale) */}
                 <div
                   role="group"
                   aria-label={L(
@@ -457,6 +723,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     data-testid="add-vehicle-mode-pro"
                     aria-pressed={purchaseStatus === 'micro'}
                     onClick={() => {
+                      hasEditedPurchaseStatusRef.current = true;
                       setPurchaseStatus('micro');
                       setSellerProfileId(resolveDefaultSellerProfileId('micro', garageSettings));
                     }}
@@ -478,8 +745,11 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     data-testid="add-vehicle-mode-personal"
                     aria-pressed={purchaseStatus === 'particulier'}
                     onClick={() => {
+                      hasEditedPurchaseStatusRef.current = true;
                       setPurchaseStatus('particulier');
-                      setSellerProfileId(resolveDefaultSellerProfileId('particulier', garageSettings));
+                      setSellerProfileId(
+                        resolveDefaultSellerProfileId('particulier', garageSettings)
+                      );
                     }}
                     className={`px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
                       purchaseStatus === 'particulier'
@@ -504,7 +774,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                   selectedProfileId={sellerProfileId}
                   garageSettings={garageSettings}
                   userId={userId}
-                  garageId={activeGarageId}
+                  garageId={targetGarageId}
                   onSelectProfileId={setSellerProfileId}
                   onSettingsUpdated={setGarageSettings}
                   testIdPrefix="add-vehicle-seller-profile"
@@ -522,7 +792,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     data-testid="add-vehicle-make"
                     type="text"
                     required
-                    autoFocus
+                    autoFocus={!isEditMode}
                     value={make}
                     onChange={(e) => {
                       setMake(e.target.value);
@@ -715,7 +985,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                 </div>
               </div>
 
-              {/* Row 2: Supplier / Source (+ optional custom input when "Другой" selected) */}
+              {/* Row 2: Supplier / Source (+ optional custom input when custom selected) */}
               <div
                 className={`grid grid-cols-1 ${
                   supplierSelection === CUSTOM_SUPPLIER_VALUE ? 'sm:grid-cols-2' : ''
@@ -779,22 +1049,475 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                 )}
               </div>
 
-              {/* Footer Helper Note */}
-              <div className="pt-3.5 border-t border-[var(--border)] flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                <Info className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
-                <span>
-                  {L(
-                    'Les champs étendus (VIN, Carte Grise, Cerfa) sont disponibles après l’ajout dans la fiche véhicule.',
-                    'Расширенные поля (VIN, Carte Grise, Cerfa) доступны после добавления в карточке авто.',
-                    'Ընդլայնված դաշտերը (VIN, Carte Grise, Cerfa) հասանելի են ավելացնելուց հետո՝ մեքենայի քարտում։',
-                    'გაფართოებული ველები (VIN, Carte Grise, Cerfa) ხელმისაწვდომია დამატების შემდეგ ავტომობილის ბარათში.'
-                  )}
+              {!isExtendedOpen && (
+                <div className="pt-3.5 border-t border-[var(--border)] flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+                  <Info className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
+                  <span>
+                    {L(
+                      'Les champs étendus (VIN, Carte Grise, Cerfa) sont disponibles ci-dessous ou dans la fiche véhicule.',
+                      'Расширенные поля (VIN, Carte Grise, Cerfa) можно заполнить ниже или позже в карточке авто.',
+                      'Ընդլայնված դաշտերը (VIN, Carte Grise, Cerfa) կարող եք լրացնել ստորև կամ մեքենայի քարտում։',
+                      'გაფართოებული ველების (VIN, Carte Grise, Cerfa) შევსება შესაძლებელია ქვემოთ ან ავტომობილის ბარათში.'
+                    )}
+                  </span>
+                </div>
+              )}
+            </section>
+
+            {/* Card 3 (Collapsible): Extended Technical, Carte Grise & Cerfa Details */}
+            <section
+              data-testid="add-vehicle-card-extended"
+              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-sm overflow-hidden"
+            >
+              <button
+                type="button"
+                data-testid="add-vehicle-extra-toggle"
+                aria-expanded={isExtendedOpen}
+                aria-controls="add-vehicle-extra-section"
+                onClick={() => setIsExtendedOpen((prev) => !prev)}
+                className="w-full flex items-center justify-between gap-3 px-5 sm:px-6 py-4 text-left hover:bg-[var(--surface-muted)]/40 transition cursor-pointer"
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <FileText className="w-4 h-4 text-[var(--primary)] shrink-0" />
+                  <span className="text-sm font-bold text-[var(--foreground)] truncate">
+                    {isExtendedOpen ? t('extraCerfaToggleHide') : t('extraCerfaToggle')}
+                  </span>
                 </span>
-              </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-[var(--muted-foreground)] shrink-0 transition-transform duration-200 ${
+                    isExtendedOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isExtendedOpen && (
+                <div
+                  id="add-vehicle-extra-section"
+                  data-testid="add-vehicle-extra-section"
+                  className="px-5 sm:px-6 pb-6 pt-4 border-t border-[var(--border)] space-y-5"
+                >
+                  {/* Technical: VIN, Trim, Fuel, Gearbox */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label
+                          htmlFor="add-vehicle-vin"
+                          className="text-xs font-semibold text-[var(--secondary-foreground)]"
+                        >
+                          VIN (E)
+                        </label>
+                        <span
+                          className={`text-[10px] font-mono ${
+                            vin.replace(/\s+/g, '').length === 17
+                              ? 'text-emerald-400'
+                              : 'text-[var(--muted-foreground)]'
+                          }`}
+                        >
+                          {vin.replace(/\s+/g, '').length}/17
+                        </span>
+                      </div>
+                      <input
+                        id="add-vehicle-vin"
+                        data-testid="add-vehicle-vin"
+                        type="text"
+                        maxLength={17}
+                        value={vin}
+                        onChange={(e) => {
+                          setVin(e.target.value.replace(/\s+/g, '').toUpperCase());
+                          setFieldErrors((prev) => ({ ...prev, vin: undefined }));
+                        }}
+                        placeholder="ex. VF3UPHNK0MT129841"
+                        className={getInputClass(
+                          Boolean(fieldErrors.vin),
+                          'font-mono uppercase placeholder:normal-case'
+                        )}
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="add-vehicle-trim" className={labelClass}>
+                        {t('trimVersion')}
+                      </label>
+                      <input
+                        id="add-vehicle-trim"
+                        data-testid="add-vehicle-trim"
+                        type="text"
+                        value={trim}
+                        onChange={(e) => setTrim(e.target.value)}
+                        placeholder="ex. GT Line 130ch"
+                        className={inputClass}
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="add-vehicle-fuel" className={labelClass}>
+                        {t('fuelTypeLabel')}
+                      </label>
+                      <ThemedSelect
+                        id="add-vehicle-fuel"
+                        testId="add-vehicle-fuel-select"
+                        ariaLabel={t('fuelTypeLabel')}
+                        value={fuelType}
+                        onChange={setFuelType}
+                        options={[
+                          {
+                            value: '',
+                            label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
+                          },
+                          {
+                            value: 'Essence',
+                            label: L('Essence', 'Бензин (Essence)', 'Բենզին (Essence)', 'ბენზინი (Essence)'),
+                          },
+                          {
+                            value: 'Diesel',
+                            label: L('Diesel', 'Дизель (Diesel)', 'Դիզել (Diesel)', 'დიზელი (Diesel)'),
+                          },
+                          {
+                            value: 'Hybride',
+                            label: L('Hybride', 'Гибрид (Hybride)', 'Հիբրիդ (Hybride)', 'ჰიბრიდი (Hybride)'),
+                          },
+                          {
+                            value: 'Électrique',
+                            label: L('Électrique', 'Электро (Électrique)', 'Էլեկտրական (Électrique)', 'ელექტრო (Électrique)'),
+                          },
+                          {
+                            value: 'GPL',
+                            label: L('GPL', 'Газ (GPL)', 'Գազ (GPL)', 'გაზი (GPL)'),
+                          },
+                        ]}
+                        triggerClassName={inputClass}
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="add-vehicle-gearbox" className={labelClass}>
+                        {t('gearboxLabel')}
+                      </label>
+                      <ThemedSelect
+                        id="add-vehicle-gearbox"
+                        testId="add-vehicle-gearbox-select"
+                        ariaLabel={t('gearboxLabel')}
+                        value={gearbox}
+                        onChange={setGearbox}
+                        options={[
+                          {
+                            value: '',
+                            label: L('Non précisé', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
+                          },
+                          {
+                            value: 'Manuelle',
+                            label: L('Manuelle', 'Механика (Manuelle)', 'Մեխանիկական (Manuelle)', 'მექანიკა (Manuelle)'),
+                          },
+                          {
+                            value: 'Automatique',
+                            label: L('Automatique', 'Автомат (Automatique)', 'Ավտոմատ (Automatique)', 'ავტომატიკა (Automatique)'),
+                          },
+                          {
+                            value: 'Séquentielle',
+                            label: L('Séquentielle / BVA', 'Робот / Вариатор', 'Ռոբոտ / Վարիատոր', 'რობოტი / ვარიატორი'),
+                          },
+                        ]}
+                        triggerClassName={inputClass}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cerfa (B) First Reg & (D.3) Commercial Designation */}
+                  <div className="pt-4 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="add-vehicle-first-reg" className={labelClass}>
+                        {L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
+                      </label>
+                      <LocaleDateInput
+                        id="add-vehicle-first-reg"
+                        testId="add-vehicle-first-reg-date"
+                        ariaLabel={L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
+                        value={firstRegistrationDate}
+                        onChange={handleFirstRegDateChange}
+                        className={getInputClass(Boolean(fieldErrors.firstRegistrationDate))}
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="add-vehicle-d3" className={labelClass}>
+                        {L(
+                          '(D.3) Dénomination commerciale',
+                          '(D.3) Коммерческое наименование',
+                          '(D.3) Առևտրային անվանում',
+                          '(D.3) კომერციული დასახელება'
+                        )}
+                      </label>
+                      <input
+                        id="add-vehicle-d3"
+                        data-testid="add-vehicle-d3-commercial"
+                        type="text"
+                        value={commercialDesignation}
+                        onChange={(e) => {
+                          setCommercialDesignation(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, commercialDesignation: undefined }));
+                        }}
+                        placeholder="ex. 3008 GT Line, Clio TCe 90..."
+                        className={getInputClass(Boolean(fieldErrors.commercialDesignation))}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Carte Grise Presence (OUI / NON) */}
+                  <div
+                    data-testid="add-vehicle-cert-presence-block"
+                    className={`rounded-2xl border p-4 space-y-3 bg-[var(--background)]/65 transition ${
+                      fieldErrors.hasRegistrationCertificate
+                        ? 'border-red-500 ring-2 ring-red-500/20'
+                        : 'border-[var(--border)]'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-[var(--foreground)]">
+                        {L(
+                          "Présence du certificat d'immatriculation",
+                          'Наличие СТС / Carte Grise',
+                          'Գրանցման վկայականի առկայություն',
+                          'სარეგისტრაციო მოწმობის არსებობა'
+                        )}
+                      </span>
+                      <div
+                        role="radiogroup"
+                        aria-label={L(
+                          "Présence du certificat d'immatriculation",
+                          'Наличие СТС / Carte Grise',
+                          'Գրանցման վկայականի առկայություն',
+                          'სარეგისტრაციო მოწმობის არსებობა'
+                        )}
+                        className="flex items-center gap-2"
+                      >
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={hasRegistrationCertificate === true}
+                          data-testid="add-vehicle-cert-yes"
+                          onClick={() => {
+                            setHasRegistrationCertificate(true);
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              hasRegistrationCertificate: undefined,
+                              absenceReason: undefined,
+                            }));
+                          }}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                            hasRegistrationCertificate === true
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                              : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {L('Oui', 'Да', 'Այո', 'დიახ')}
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={hasRegistrationCertificate === false}
+                          data-testid="add-vehicle-cert-no"
+                          onClick={() => {
+                            setHasRegistrationCertificate(false);
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              hasRegistrationCertificate: undefined,
+                              formulaOrCertificateDate: undefined,
+                            }));
+                          }}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                            hasRegistrationCertificate === false
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                              : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                          }`}
+                        >
+                          {L('Non', 'Нет', 'Ոչ', 'არა')}
+                        </button>
+                      </div>
+                    </div>
+
+                    {hasRegistrationCertificate === true && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <label htmlFor="add-vehicle-formula" className={labelClass}>
+                            {t('formulaNumberLabel')} (2019...)
+                          </label>
+                          <input
+                            id="add-vehicle-formula"
+                            data-testid="add-vehicle-formula-number"
+                            type="text"
+                            value={formulaNumber}
+                            onChange={(e) => {
+                              setFormulaNumber(e.target.value.toUpperCase());
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                formulaOrCertificateDate: undefined,
+                              }));
+                            }}
+                            placeholder="ex. 2019AB12345"
+                            className={getInputClass(
+                              Boolean(fieldErrors.formulaOrCertificateDate),
+                              'font-mono uppercase placeholder:normal-case'
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="add-vehicle-cert-date" className={labelClass}>
+                            {t('certificateDateLabel')}
+                          </label>
+                          <LocaleDateInput
+                            id="add-vehicle-cert-date"
+                            testId="add-vehicle-cert-date"
+                            ariaLabel={t('certificateDateLabel')}
+                            value={certificateDate}
+                            onChange={(val) => {
+                              setCertificateDate(val);
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                formulaOrCertificateDate: undefined,
+                              }));
+                            }}
+                            className={getInputClass(Boolean(fieldErrors.formulaOrCertificateDate))}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {hasRegistrationCertificate === false && (
+                      <div className="pt-1">
+                        <label htmlFor="add-vehicle-absence-reason" className={labelClass}>
+                          {L(
+                            "Motif d'absence du certificat",
+                            'Причина отсутствия СТС',
+                            'Վկայականի բացակայության պատճառը',
+                            'მოწმობის არარსებობის მიზეზი'
+                          )}
+                        </label>
+                        <input
+                          id="add-vehicle-absence-reason"
+                          data-testid="add-vehicle-absence-reason"
+                          type="text"
+                          value={absenceReason}
+                          onChange={(e) => {
+                            setAbsenceReason(e.target.value);
+                            setFieldErrors((prev) => ({ ...prev, absenceReason: undefined }));
+                          }}
+                          placeholder="ex. Déclaration de perte / vol..."
+                          className={getInputClass(Boolean(fieldErrors.absenceReason))}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* French Carte Grise Codes (D.2, J.1, J.3) */}
+                  <div className="pt-4 border-t border-[var(--border)] space-y-3">
+                    <p className="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
+                      {t('carteGriseSectionTitle')}
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                      <div>
+                        <label htmlFor="add-vehicle-d2" className={labelClass}>
+                          {t('d2TypeLabel')}
+                        </label>
+                        <input
+                          id="add-vehicle-d2"
+                          data-testid="add-vehicle-d2"
+                          type="text"
+                          value={typeVariantVersion}
+                          onChange={(e) => setTypeVariantVersion(e.target.value)}
+                          placeholder="ex. UPHNK-01"
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="add-vehicle-j1" className={labelClass}>
+                          {t('j1GenreLabel')}
+                        </label>
+                        <ThemedSelect
+                          id="add-vehicle-j1"
+                          testId="add-vehicle-j1-select"
+                          ariaLabel={t('j1GenreLabel')}
+                          value={nationalGenre}
+                          onChange={setNationalGenre}
+                          options={[
+                            {
+                              value: 'VP',
+                              label: L(
+                                'VP (Voiture particulière)',
+                                'VP (Легковой авто)',
+                                'VP (Մարդատար)',
+                                'VP (მსუბუქი)'
+                              ),
+                            },
+                            {
+                              value: 'CTTE',
+                              label: L(
+                                'CTTE (Camionnette)',
+                                'CTTE (Фургон / LCV)',
+                                'CTTE (Ֆուրգոն)',
+                                'CTTE (ფურგონი)'
+                              ),
+                            },
+                            {
+                              value: 'MTT1',
+                              label: L(
+                                'MTT1 / MTT2 (Moto)',
+                                'MTT1 / MTT2 (Мотоцикл)',
+                                'MTT1 / MTT2 (Մոտոցիկլ)',
+                                'MTT1 / MTT2 (მოტო)'
+                              ),
+                            },
+                            {
+                              value: 'CAM',
+                              label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
+                            },
+                            {
+                              value: 'VASP',
+                              label: L(
+                                'VASP (Véhicule spécialisé)',
+                                'VASP (Спецтехника)',
+                                'VASP (Հատուկ տեխնիկա)',
+                                'VASP (სპეცტექნიკა)'
+                              ),
+                            },
+                          ]}
+                          triggerClassName={inputClass}
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="add-vehicle-j3" className={labelClass}>
+                          {t('j3BodyLabel')}
+                        </label>
+                        <input
+                          id="add-vehicle-j3"
+                          data-testid="add-vehicle-j3"
+                          type="text"
+                          value={bodyType}
+                          onChange={(e) => setBodyType(e.target.value.toUpperCase())}
+                          placeholder="ex. CI, BREAK, FOURGON..."
+                          className={`${inputClass} uppercase placeholder:normal-case`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
 
-          {/* Right Column (~35% width, 4/12): 2 stacked cards */}
+          {/* Right Column (~35% width, 4/12): Photos + Margin Estimate */}
           <div className="lg:col-span-4 space-y-5">
             {/* Card 3: Compact Photo */}
             <section
@@ -945,6 +1668,22 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                   </span>
                 </div>
 
+                {existingExpenses > 0 && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[var(--muted-foreground)]">
+                      {L(
+                        'Frais & réparations',
+                        'Расходы и ремонт',
+                        'Ծախսեր և վերանորոգում',
+                        'ხარჯები და რემონტი'
+                      )}
+                    </span>
+                    <span className="font-mono font-semibold text-[var(--foreground)] tabular-nums">
+                      {formatEuro(existingExpenses)}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[var(--muted-foreground)]">
                     {L(
@@ -1050,14 +1789,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
             ) : (
               <>
                 <Check className="w-4 h-4 stroke-[2.5]" />
-                <span>
-                  {L(
-                    'Enregistrer l’achat',
-                    'Сохранить покупку',
-                    'Պահպանել գնումը',
-                    'შესყიდვის შენახვა'
-                  )}
-                </span>
+                <span>{bottomSubmitLabel}</span>
               </>
             )}
           </button>

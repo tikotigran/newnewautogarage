@@ -976,9 +976,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 }`}
               >
                 {L(
-                  'OUI — Certificat présent',
-                  'ДА — СТС в наличии',
-                  'ԱՅՈ — Վկայականը առկա է',
+                  'Oui — Certificat présent',
+                  'Да — СТС в наличии',
+                  'Այո — Վկայականը առկա է',
                   'დიახ — მოწმობა არსებობს'
                 )}
               </button>
@@ -993,9 +993,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
                 }`}
               >
                 {L(
-                  'NON — Absent',
-                  'НЕТ — Отсутствует',
-                  'ՈՉ — Բացակայում է',
+                  'Non — Absent',
+                  'Нет — Отсутствует',
+                  'Ոչ — Բացակայում է',
                   'არა — არ არის'
                 )}
               </button>

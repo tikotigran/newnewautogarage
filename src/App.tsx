@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Sidebar, SidebarNavTarget } from './components/Sidebar';
 import { VehicleList } from './components/VehicleList';
 import { VehicleDetail } from './components/VehicleDetail';
-import { VehicleModal } from './components/VehicleModal';
 import { AddVehiclePage } from './components/AddVehiclePage';
 import { BuyerModal } from './components/BuyerModal';
 import { CancelSaleConfirmModal } from './components/CancelSaleConfirmModal';
@@ -124,6 +123,7 @@ export type ActiveAppView =
   | 'desktop'
   | 'sold_vehicles'
   | 'new_vehicle'
+  | 'edit_vehicle'
   | 'analytics'
   | 'suppliers'
   | 'documents'
@@ -233,9 +233,12 @@ export default function App() {
     });
   };
 
-  // Modals state
-  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
+  // Modals & dedicated vehicle edit state
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [editReturnTarget, setEditReturnTarget] = useState<{
+    view: 'desktop' | 'sold_vehicles';
+    reopenDetail: boolean;
+  }>({ view: 'desktop', reopenDetail: false });
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [sellingVehicle, setSellingVehicle] = useState<Vehicle | null>(null);
   const [cancelSaleTarget, setCancelSaleTarget] = useState<{
@@ -320,7 +323,11 @@ export default function App() {
   const handleSetActiveView = (view: ActiveAppView) => {
     const safeView = isViewAllowedByFeatureFlags(view, effectiveFeatureFlags) ? view : 'desktop';
     if (safeView === 'settings' && activeView !== 'settings') {
-      setPreviousViewBeforeSettings(activeView as Exclude<ActiveAppView, 'settings'>);
+      setPreviousViewBeforeSettings(
+        activeView === 'edit_vehicle'
+          ? editReturnTarget.view
+          : (activeView as Exclude<ActiveAppView, 'settings'>)
+      );
     }
     if (safeView !== 'documents') {
       setDocumentsAlignerMode(false);
@@ -1187,6 +1194,22 @@ export default function App() {
     });
   };
 
+  const handleStartEditVehicle = (vehicle: Vehicle, reopenDetail: boolean) => {
+    const returnView: 'desktop' | 'sold_vehicles' =
+      activeView === 'sold_vehicles' || vehicle.status === 'sold' ? 'sold_vehicles' : 'desktop';
+    setEditReturnTarget({ view: returnView, reopenDetail });
+    setEditingVehicle(vehicle);
+    handleSetActiveView('edit_vehicle');
+  };
+
+  const handleCancelEditVehicle = () => {
+    setEditingVehicle(null);
+    if (!editReturnTarget.reopenDetail) {
+      setSelectedVehicle(null);
+    }
+    handleSetActiveView(editReturnTarget.view);
+  };
+
   // Create or Update vehicle
   const handleSaveVehicle = async (data: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>) => {
     const actor = userProfile?.email || user?.email || null;
@@ -1233,7 +1256,28 @@ export default function App() {
           changes: diffs,
         });
       }
+      const savedId = editingVehicle.id;
+      const nextReturnView: 'desktop' | 'sold_vehicles' =
+        data.status === 'sold' && editReturnTarget.view === 'sold_vehicles'
+          ? 'sold_vehicles'
+          : data.status !== 'sold' && editReturnTarget.view === 'sold_vehicles'
+          ? 'desktop'
+          : editReturnTarget.view;
       setEditingVehicle(null);
+      if (editReturnTarget.reopenDetail) {
+        setPendingSelectedVehicleId(savedId);
+      } else {
+        setSelectedVehicle(null);
+      }
+      handleSetActiveView(nextReturnView);
+      showGlobalToast(
+        pickLocalized(lang, {
+          fr: 'Fiche véhicule mise à jour.',
+          ru: 'Карточка автомобиля обновлена.',
+          hy: 'Ավտոմեքենայի տվյալները թարմացվել են։',
+          ka: 'ავტომობილის მონაცემები განახლდა.',
+        })
+      );
     } else {
       if (
         !planCapabilities.isUnlimitedVehicles &&
@@ -1241,7 +1285,6 @@ export default function App() {
       ) {
         const curName = currentPlanObj?.name || 'Starter';
         const nextName = upgradePlanObj?.name || 'Pro';
-        setIsVehicleModalOpen(false);
         handleOpenUpgradePlan();
         showGlobalToast(
           pickLocalized(lang, {
@@ -1401,6 +1444,7 @@ export default function App() {
   }
 
   const handleSidebarNavigate = (target: SidebarNavTarget) => {
+    setEditingVehicle(null);
     if (target === 'inventory') {
       setPendingSelectedVehicleId(null);
       setSelectedVehicle(null);
@@ -1548,7 +1592,7 @@ export default function App() {
         onToggleCollapse={handleToggleSidebarCollapse}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
-        activeView={activeView}
+        activeView={activeView === 'edit_vehicle' ? editReturnTarget.view : activeView}
         onNavigate={handleSidebarNavigate}
         soldVehiclesCount={soldGarageVehiclesCount}
         activeSettingsTab={activeSettingsTab}
@@ -1701,6 +1745,7 @@ export default function App() {
           effectiveFeatureFlags.expenseAnalytics ? (
             <AnalyticsView
               vehicles={activeGarageId ? garageVehicles : vehicles}
+              purchases={garagePurchases}
               featureFlags={effectiveFeatureFlags}
               activeGarageId={activeGarageId}
               profileType={activeProfileType}
@@ -1853,6 +1898,19 @@ export default function App() {
               onSubmit={handleSaveVehicle}
               onValidationToast={showGlobalToast}
             />
+          ) : hasOpenGarageWorkspace(effectiveFeatureFlags.multiGarage, activeGarageId) &&
+            activeView === 'edit_vehicle' &&
+            editingVehicle ? (
+            <AddVehiclePage
+              key={editingVehicle.id}
+              userId={effectiveUserId}
+              activeGarageId={activeGarageId}
+              initialVehicle={editingVehicle}
+              suppliers={garageSuppliers}
+              onBack={handleCancelEditVehicle}
+              onSubmit={handleSaveVehicle}
+              onValidationToast={showGlobalToast}
+            />
           ) : selectedVehicle ? (
             <VehicleDetail
               vehicle={selectedVehicle}
@@ -1860,10 +1918,7 @@ export default function App() {
                 setPendingSelectedVehicleId(null);
                 setSelectedVehicle(null);
               }}
-              onOpenEdit={(v) => {
-                setEditingVehicle(v);
-                setIsVehicleModalOpen(true);
-              }}
+              onOpenEdit={(v) => handleStartEditVehicle(v, true)}
               onOpenSellModal={handleOpenSellModal}
               onRequestCancelSale={(v, targetStatus = 'for_sale') =>
                 setCancelSaleTarget({ vehicle: v, targetStatus })
@@ -1893,10 +1948,7 @@ export default function App() {
                 setPendingSelectedVehicleId(null);
                 setSelectedVehicle(v);
               }}
-              onEditVehicle={(v) => {
-                setEditingVehicle(v);
-                setIsVehicleModalOpen(true);
-              }}
+              onEditVehicle={(v) => handleStartEditVehicle(v, false)}
               onNewVehicle={() => {
                 if (
                   !planCapabilities.isUnlimitedVehicles &&
@@ -1930,20 +1982,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* Vehicle Add / Edit Modal */}
-      <VehicleModal
-        isOpen={isVehicleModalOpen}
-        onClose={() => {
-          setIsVehicleModalOpen(false);
-          setEditingVehicle(null);
-        }}
-        onSubmit={handleSaveVehicle}
-        initialVehicle={editingVehicle}
-        userId={effectiveUserId}
-        activeGarageId={activeGarageId}
-        defaultPurchaseStatus="micro"
-        onValidationToast={showGlobalToast}
-      />
 
       {/* Buyer Info & Sale Closing Modal */}
       <BuyerModal

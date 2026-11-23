@@ -717,6 +717,23 @@ test('resolveDefaultSellerProfileId, resolveVehicleSellerProfileId, and buildVeh
   );
   assert.equal(payload.purchaseStatus, 'particulier');
   assert.equal(payload.sellerProfileId, 'pers_2');
+
+  // Editing an existing vehicle and clearing supplier removes old supplierId & supplierName
+  const withSupplier = {
+    ...payload,
+    id: 'veh_sup_edit',
+    supplierId: 'sup_old',
+    supplierName: 'Old Auction',
+    createdAt: '2026-10-01T10:00:00Z',
+    updatedAt: '2026-10-01T10:00:00Z',
+  };
+  const clearedSupplierPayload = buildVehicleSubmitPayload(
+    createBaseInput({ supplierId: '', supplierName: '' }),
+    'user_1',
+    withSupplier
+  );
+  assert.equal(clearedSupplierPayload.supplierId, undefined);
+  assert.equal(clearedSupplierPayload.supplierName, undefined);
 });
 
 

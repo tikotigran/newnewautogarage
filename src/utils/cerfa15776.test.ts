@@ -19,6 +19,7 @@ import {
 } from './cerfa15776';
 import {
   applyOffsetsToCerfa15776Config,
+  CERFA_ALIGNER_FIELDS,
   createDefaultCerfaTemplatesCalibration,
   getCerfa15776FieldAtPath,
   getEffectiveCerfa15776Config,
@@ -805,6 +806,35 @@ test('buildInitialCerfaData selects exact multi-profile Seller via vehicle.selle
   assert.equal(cerfaBiz2.seller.nameOrCompany, 'GARAGE SECONDAIRE SARL');
   assert.equal(cerfaBiz2.seller.siret, '98765432100022');
   assert.equal(cerfaBiz2.seller.city, 'Paris');
+
+  // Particulier gender 'F' from personalProfiles propagates to Cerfa Step 2 sex and CERFA_ALIGNER_FIELDS exposes both M/F checkboxes
+  const femaleSettings: GarageSettings = {
+    ...multiSettings,
+    personalProfiles: [
+      {
+        ...multiSettings.personalProfiles![0],
+        id: 'pers_f',
+        lastName: 'MARTIN',
+        firstName: 'Claire',
+        sex: 'F',
+        isDefault: true,
+      },
+    ],
+  };
+  const femaleVehicle: Vehicle = {
+    ...mockVehicle,
+    purchaseStatus: 'particulier',
+    sellerProfileId: 'pers_f',
+    buyerInfo: undefined,
+  };
+  const cerfaFemale = buildInitialCerfaData(femaleVehicle, femaleSettings);
+  assert.equal(cerfaFemale.seller.entityType, 'physique');
+  assert.equal(cerfaFemale.seller.sex, 'F');
+  assert.equal(cerfaFemale.seller.nameOrCompany, 'MARTIN CLAIRE');
+
+  assert.ok(CERFA_ALIGNER_FIELDS.some((f) => f.path === 'section2Seller.checkboxes.sexM'));
+  assert.ok(CERFA_ALIGNER_FIELDS.some((f) => f.path === 'section2Seller.checkboxes.sexF'));
 });
+
 
 

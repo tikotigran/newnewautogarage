@@ -34,6 +34,7 @@ import {
   FeatureFlagsConfig,
   GarageSettings,
   GeneralExpense,
+  Purchase,
   RepairTask,
   Vehicle,
 } from '../types/garage';
@@ -56,6 +57,7 @@ import { InventoryTransactionFilter } from '../utils/inventoryUtils';
 
 interface AnalyticsViewProps {
   vehicles: Vehicle[];
+  purchases?: Purchase[];
   onSelectVehicle: (vehicle: Vehicle) => void;
   featureFlags?: FeatureFlagsConfig;
   activeGarageId?: string | null;
@@ -117,6 +119,7 @@ function getAgingBadgeClasses(tier: AgingTier): string {
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   vehicles,
+  purchases = [],
   onSelectVehicle,
   featureFlags = DEFAULT_FEATURE_FLAGS,
   activeGarageId,
@@ -177,6 +180,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       vehicles,
       repairs: fleetData.repairs,
       expenses: fleetData.expenses,
+      purchases,
       timeRange,
       customRange:
         timeRange === 'custom'
@@ -190,6 +194,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     });
   }, [
     vehicles,
+    purchases,
     fleetData.repairs,
     fleetData.expenses,
     timeRange,
@@ -259,11 +264,20 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       }
     >();
     const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
+    const standaloneLabelMap = new Map<string, string>();
+    for (const p of purchases) {
+      standaloneLabelMap.set(
+        `__standalone_purchase__:${p.id}`,
+        `${p.supplierName} — ${p.description}`
+      );
+    }
     for (const entry of analytics.entries) {
       const v = vehicleMap.get(entry.vehicleId);
       const prev = byVeh.get(entry.vehicleId) || {
         vehicleId: entry.vehicleId,
-        vehicleName: v ? `${v.make} ${v.model}` : entry.vehicleId,
+        vehicleName: v
+          ? `${v.make} ${v.model}`
+          : standaloneLabelMap.get(entry.vehicleId) || entry.description || entry.vehicleId,
         year: v?.year || 0,
         registrationNumber: v?.registrationNumber,
         vin: v?.vin || '',

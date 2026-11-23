@@ -2,10 +2,13 @@ import {
   FrenchTaxConfiguration,
   Purchase,
   PurchaseCategory,
+  PurchaseDocument,
   PurchasePaymentMethod,
+  RepairTask,
   Supplier,
   SupplierType,
   Vehicle,
+  VehicleDocument,
 } from '../types/garage';
 import {
   calculateSaleTaxReport,
@@ -370,7 +373,7 @@ export function computeSupplierSummaries(params: {
     suppliers,
     purchases,
     vehicles,
-    taxRegime = 'sarl',
+    taxRegime = 'micro',
     taxRatePercent,
     frenchTaxConfig,
   } = params;
@@ -450,7 +453,7 @@ export function computeChannelProfitability(params: {
     suppliers,
     purchases,
     vehicles,
-    taxRegime = 'sarl',
+    taxRegime = 'micro',
     taxRatePercent,
     frenchTaxConfig,
   } = params;
@@ -541,3 +544,162 @@ export function computeChannelProfitability(params: {
     totalVehiclesSourced,
   };
 }
+
+export function shouldCreateVehicleForPurchase(
+  category: PurchaseCategory,
+  vehicleId?: string
+): boolean {
+  return category === 'vehicle' && !vehicleId?.trim();
+}
+
+export function shouldSyncRepairForPurchase(
+  category: PurchaseCategory,
+  vehicleId?: string
+): boolean {
+  return (
+    Boolean(vehicleId?.trim()) &&
+    (category === 'parts' ||
+      category === 'repair' ||
+      category === 'transport' ||
+      category === 'other')
+  );
+}
+
+export function parseMakeModelFromPurchaseDescription(description: string): {
+  make: string;
+  model: string;
+} {
+  const beforeNote = description.split(/[—–|]/)[0]?.trim() || '';
+  const cleaned = (beforeNote || description).trim();
+  if (!cleaned) {
+    return { make: 'Véhicule', model: 'Lot' };
+  }
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const make = tokens[0] || 'Véhicule';
+  const rest = tokens.slice(1).join(' ').trim();
+  return {
+    make: make.slice(0, 80),
+    model: (rest || 'Lot').slice(0, 100),
+  };
+}
+
+export function mapPurchaseDocsToVehicleDocuments(
+  docs: PurchaseDocument[] = [],
+  invoiceProofName?: string,
+  invoiceProofUrl?: string,
+  purchaseDate?: string
+): VehicleDocument[] {
+  const out: VehicleDocument[] = docs.map((d) => ({
+    id: d.id,
+    name: d.name,
+    url: d.url || '#',
+    date: d.date || purchaseDate || new Date().toISOString().split('T')[0],
+    type: d.kind === 'invoice' ? 'INVOICE' : 'DOC',
+  }));
+  const cleanInvoiceName = invoiceProofName?.trim();
+  if (cleanInvoiceName) {
+    const alreadyExists = out.some(
+      (docItem) => docItem.name.toLowerCase() === cleanInvoiceName.toLowerCase()
+    );
+    if (!alreadyExists) {
+      out.push({
+        id: `inv_${Date.now()}`,
+        name: cleanInvoiceName,
+        url: invoiceProofUrl || '#',
+        date: purchaseDate || new Date().toISOString().split('T')[0],
+        type: 'INVOICE',
+      });
+    }
+  }
+  return out;
+}
+
+export function buildVehiclePayloadFromPurchase(params: {
+  userId: string;
+  garageId?: string;
+  supplier: Pick<Supplier, 'id' | 'name'>;
+  description: string;
+  amount: number;
+  date: string;
+  vehicleDocuments?: PurchaseDocument[];
+  invoiceProofName?: string;
+  invoiceProofUrl?: string;
+}): Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'> {
+  const { make, model } = parseMakeModelFromPurchaseDescription(params.description);
+  const price = roundToTwo(Math.max(0, Number(params.amount) || 0));
+  const cleanDate = params.date?.trim() || new Date().toISOString().split('T')[0];
+  const parsedYear = Number(cleanDate.slice(0, 4));
+  const year =
+    Number.isInteger(parsedYear) && parsedYear >= 1950 && parsedYear <= 2100
+      ? parsedYear
+      : new Date().getFullYear();
+
+  return {
+    userId: params.userId,
+    ...(params.garageId ? { garageId: params.garageId } : {}),
+    make,
+    model,
+    trim: '',
+    year,
+    mileage: 0,
+    vin: '',
+    purchaseDate: cleanDate,
+    purchasePrice: price,
+    targetSalePrice: 0,
+    supplierId: params.supplier.id,
+    supplierName: params.supplier.name,
+    status: 'preparation',
+    purchaseStatus: 'micro',
+    photos: [],
+    documents: mapPurchaseDocsToVehicleDocuments(
+      params.vehicleDocuments || [],
+      params.invoiceProofName,
+      params.invoiceProofUrl,
+      cleanDate
+    ),
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: price,
+    netProfit: 0,
+    marginPercentage: 0,
+  };
+}
+
+export function buildSyncedRepairTaskFromPurchase(params: {
+  purchaseId: string;
+  garageId?: string;
+  supplierName: string;
+  category: PurchaseCategory;
+  description: string;
+  amount: number;
+  date: string;
+  invoiceNumber?: string;
+  notes?: string;
+}): Omit<RepairTask, 'id' | 'vehicleId' | 'userId' | 'createdAt' | 'updatedAt' | 'totalCost'> {
+  const amount = roundToTwo(Math.max(0, Number(params.amount) || 0));
+  const baseTitle = params.description.trim() || params.supplierName.trim() || 'Fournisseur';
+  const invoiceTag = params.invoiceNumber?.trim() ? ` · ${params.invoiceNumber.trim()}` : '';
+  const title = `${baseTitle}${invoiceTag}`.slice(0, 160);
+  const isParts = params.category === 'parts';
+
+  const noteParts = [
+    params.supplierName.trim() ? `Fournisseur: ${params.supplierName.trim()}` : '',
+    params.invoiceNumber?.trim() ? `Facture: ${params.invoiceNumber.trim()}` : '',
+    params.notes?.trim() || '',
+  ].filter(Boolean);
+
+  return {
+    ...(params.garageId ? { garageId: params.garageId } : {}),
+    title,
+    status: 'done',
+    partsCost: isParts ? amount : 0,
+    laborCost: isParts ? 0 : amount,
+    date: params.date?.trim() || new Date().toISOString().split('T')[0],
+    categoryPreset: params.category,
+    notes: noteParts.length > 0 ? noteParts.join(' | ').slice(0, 400) : undefined,
+    supplierPurchaseId: params.purchaseId,
+    supplierName: params.supplierName.trim() || undefined,
+  };
+}
+

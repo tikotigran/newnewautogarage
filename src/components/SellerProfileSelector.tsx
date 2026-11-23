@@ -8,6 +8,7 @@ import {
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
+import { LocaleDateInput } from './LocaleDateInput';
 import { saveGarageSettings } from '../services/garageService';
 import {
   ensureBusinessProfiles,
@@ -91,6 +92,8 @@ export const SellerProfileSelector: React.FC<SellerProfileSelectorProps> = ({
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [sex, setSex] = useState<'M' | 'F' | ''>('M');
+  const [birthDate, setBirthDate] = useState('');
+  const [birthPlace, setBirthPlace] = useState('');
   const [streetNumber, setStreetNumber] = useState('');
   const [streetType, setStreetType] = useState('');
   const [streetName, setStreetName] = useState('');
@@ -106,6 +109,8 @@ export const SellerProfileSelector: React.FC<SellerProfileSelectorProps> = ({
     setLastName('');
     setFirstName('');
     setSex('M');
+    setBirthDate('');
+    setBirthPlace('');
     setStreetNumber('');
     setStreetType('');
     setStreetName('');
@@ -142,6 +147,8 @@ export const SellerProfileSelector: React.FC<SellerProfileSelectorProps> = ({
             lastName: lastName.trim().toUpperCase(),
             firstName: firstName.trim(),
             sex,
+            birthDate: birthDate.trim(),
+            birthPlace: birthPlace.trim(),
             streetNumber: streetNumber.trim(),
             streetType: streetType.trim(),
             streetName: streetName.trim(),
@@ -367,18 +374,20 @@ export const SellerProfileSelector: React.FC<SellerProfileSelectorProps> = ({
               </div>
               <div>
                 <span className="block text-[10px] font-semibold text-[var(--muted-foreground)] mb-1">
-                  {L('Sexe', 'Пол', 'Սեռ', 'სქესი')}
+                  {L('Sexe (M / F)', 'Пол (M / F)', 'Սեռ (M / F)', 'სქესი (M / F)')}
                 </span>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 gap-1.5" role="group" aria-label={L('Sexe (M / F)', 'Пол (M / F)', 'Սեռ (M / F)', 'სქესი (M / F)')}>
                   {(['M', 'F'] as const).map((sx) => (
                     <button
                       key={sx}
                       type="button"
+                      data-testid={`${testIdPrefix}-new-sex-${sx}`}
+                      aria-pressed={sex === sx}
                       onClick={() => setSex(sex === sx ? '' : sx)}
                       className={`h-8 rounded-lg text-xs font-bold border transition cursor-pointer ${
                         sex === sx
                           ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
-                          : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)]'
+                          : 'bg-[var(--card)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
                       }`}
                     >
                       {sx}
@@ -425,6 +434,36 @@ export const SellerProfileSelector: React.FC<SellerProfileSelectorProps> = ({
                   onChange={(e) => setIban(e.target.value.toUpperCase())}
                   placeholder="FR76..."
                   className={`${inlineInputClass} font-mono`}
+                />
+              </div>
+            </div>
+          )}
+
+          {isPersonal && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted-foreground)] mb-1">
+                  {L('Date de naissance', 'Дата рождения', 'Ծննդյան ամսաթիվ', 'დაბადების თარიღი')}
+                </label>
+                <LocaleDateInput
+                  testId={`${testIdPrefix}-new-birth-date`}
+                  ariaLabel={L('Date de naissance', 'Дата рождения', 'Ծննդյան ամսաթիվ', 'დაბადების თარიღი')}
+                  value={birthDate}
+                  onChange={setBirthDate}
+                  className={inlineInputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-[var(--muted-foreground)] mb-1">
+                  {L('Lieu de naissance', 'Место рождения', 'Ծննդավայր', 'დაბადების ადგილი')}
+                </label>
+                <input
+                  type="text"
+                  data-testid={`${testIdPrefix}-new-birth-place`}
+                  value={birthPlace}
+                  onChange={(e) => setBirthPlace(e.target.value)}
+                  placeholder={L('ex. Lyon (69)', 'напр. Lyon (69)', 'օր.՝ Lyon (69)', 'მაგ. Lyon (69)')}
+                  className={inlineInputClass}
                 />
               </div>
             </div>

@@ -834,11 +834,21 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-bold text-[var(--foreground)]">
-                        Présence du certificat d'immatriculation (OUI / NON)
+                        {L(
+                          "Présence du certificat d'immatriculation",
+                          'Наличие СТС / Carte Grise',
+                          'Գրանցման վկայականի առկայություն',
+                          'სარეგისტრაციო მოწმობის არსებობა'
+                        )}
                       </span>
                       <div
                         role="radiogroup"
-                        aria-label="Présence du certificat d'immatriculation (OUI / NON)"
+                        aria-label={L(
+                          "Présence du certificat d'immatriculation",
+                          'Наличие СТС / Carte Grise',
+                          'Գրանցման վկայականի առկայություն',
+                          'სარეგისტრაციო მოწმობის არსებობა'
+                        )}
                         className="flex items-center gap-2"
                       >
                         <button
@@ -860,7 +870,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                               : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                           }`}
                         >
-                          OUI
+                          {L('Oui', 'Да', 'Այո', 'დიახ')}
                         </button>
                         <button
                           type="button"
@@ -881,7 +891,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                               : 'bg-[var(--card)] border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
                           }`}
                         >
-                          NON
+                          {L('Non', 'Нет', 'Ոչ', 'არა')}
                         </button>
                       </div>
                     </div>

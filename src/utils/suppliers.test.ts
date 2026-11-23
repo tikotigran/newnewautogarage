@@ -1,10 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildSyncedRepairTaskFromPurchase,
+  buildVehiclePayloadFromPurchase,
   computeChannelProfitability,
   computeSupplierSummaries,
   filterPurchasesByGarage,
   filterSuppliersByGarage,
+  parseMakeModelFromPurchaseDescription,
+  shouldCreateVehicleForPurchase,
+  shouldSyncRepairForPurchase,
   SUPPLIER_TYPES,
   validatePurchaseInput,
   validateSupplierInput,
@@ -269,3 +274,90 @@ test('computeChannelProfitability identifies most profitable sourcing channel', 
   assert.equal(result.bestVehicleChannel?.type, 'auction');
   assert.equal(result.bestVehicleChannel?.realizedNetProfit, 3500);
 });
+
+test('computeSupplierSummaries & computeChannelProfitability default to micro tax regime when omitted', () => {
+  const summaries = computeSupplierSummaries({
+    suppliers: suppliers.slice(0, 1),
+    purchases: purchases.slice(0, 1),
+    vehicles,
+    taxRatePercent: 13.3,
+  });
+  // Sale 22500 -> micro 13.3% tax = 2992.5 -> netProfit = 3500 - 2992.5 = 507.5
+  assert.equal(summaries[0].realizedNetProfit, 507.5);
+
+  const channelStats = computeChannelProfitability({
+    suppliers: suppliers.slice(0, 1),
+    purchases: purchases.slice(0, 1),
+    vehicles,
+    taxRatePercent: 13.3,
+  });
+  assert.equal(channelStats.bestVehicleChannel?.realizedNetProfit, 507.5);
+});
+
+test('supplier purchase sync helpers determine vehicle auto-creation, repair sync, make/model parsing, and documents cleanly', () => {
+  assert.equal(shouldCreateVehicleForPurchase('vehicle', undefined), true);
+  assert.equal(shouldCreateVehicleForPurchase('vehicle', ''), true);
+  assert.equal(shouldCreateVehicleForPurchase('vehicle', 'veh_1'), false);
+  assert.equal(shouldCreateVehicleForPurchase('parts', undefined), false);
+
+  assert.equal(shouldSyncRepairForPurchase('parts', 'veh_1'), true);
+  assert.equal(shouldSyncRepairForPurchase('repair', 'veh_1'), true);
+  assert.equal(shouldSyncRepairForPurchase('transport', 'veh_1'), true);
+  assert.equal(shouldSyncRepairForPurchase('other', 'veh_1'), true);
+  assert.equal(shouldSyncRepairForPurchase('vehicle', 'veh_1'), false);
+  assert.equal(shouldSyncRepairForPurchase('parts', undefined), false);
+
+  assert.deepEqual(parseMakeModelFromPurchaseDescription('Peugeot 3008 GT Line — Lot 42'), {
+    make: 'Peugeot',
+    model: '3008 GT Line',
+  });
+  assert.deepEqual(parseMakeModelFromPurchaseDescription('Renault'), {
+    make: 'Renault',
+    model: 'Lot',
+  });
+
+  const vehiclePayload = buildVehiclePayloadFromPurchase({
+    userId: 'u1',
+    garageId: 'garage_default',
+    supplier: { id: 'sup_auction', name: 'BCA Enchères Paris' },
+    description: 'Volkswagen Golf VII 1.6 TDI | Lot #88',
+    amount: 10500,
+    date: '2026-10-18',
+    vehicleDocuments: [
+      {
+        id: 'pdoc_1',
+        name: 'Carte Grise.pdf',
+        url: 'data:application/pdf;base64,AAA',
+        kind: 'vehicle_doc',
+        date: '2026-10-18',
+      },
+    ],
+    invoiceProofName: 'Facture_BCA_88.pdf',
+    invoiceProofUrl: 'data:application/pdf;base64,BBB',
+  });
+  assert.equal(vehiclePayload.garageId, 'garage_default');
+  assert.equal(vehiclePayload.make, 'Volkswagen');
+  assert.equal(vehiclePayload.model, 'Golf VII 1.6 TDI');
+  assert.equal(vehiclePayload.purchasePrice, 10500);
+  assert.equal(vehiclePayload.status, 'preparation');
+  assert.equal(vehiclePayload.supplierId, 'sup_auction');
+  assert.equal(vehiclePayload.documents.length, 2);
+  assert.equal(vehiclePayload.documents[1].type, 'INVOICE');
+
+  const repairTask = buildSyncedRepairTaskFromPurchase({
+    purchaseId: 'pur_parts_1',
+    garageId: 'garage_default',
+    supplierName: 'Oscaro Pro',
+    category: 'parts',
+    description: 'Kit distribution + pompe à eau',
+    amount: 425.5,
+    date: '2026-10-19',
+    invoiceNumber: 'FAC-771',
+  });
+  assert.equal(repairTask.supplierPurchaseId, 'pur_parts_1');
+  assert.equal(repairTask.partsCost, 425.5);
+  assert.equal(repairTask.laborCost, 0);
+  assert.equal(repairTask.date, '2026-10-19');
+  assert.ok(repairTask.title.includes('FAC-771'));
+});
+

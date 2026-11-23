@@ -13,6 +13,8 @@ export const EMPTY_PARTICULIER_PROFILE: StatusProfileData = {
   lastName: '',
   firstName: '',
   sex: '',
+  birthDate: '',
+  birthPlace: '',
   siret: '',
   streetNumber: '',
   streetExtension: '',
@@ -34,6 +36,8 @@ export const EMPTY_PRO_PROFILE: StatusProfileData = {
   lastName: '',
   firstName: '',
   sex: '',
+  birthDate: '',
+  birthPlace: '',
   siret: '',
   streetNumber: '',
   streetExtension: '',
@@ -76,6 +80,8 @@ export function pickStatusProfileFields(
     lastName: src.lastName ?? base.lastName ?? '',
     firstName: src.firstName ?? base.firstName ?? '',
     sex: src.sex === 'M' || src.sex === 'F' ? src.sex : '',
+    birthDate: src.birthDate ?? '',
+    birthPlace: src.birthPlace ?? '',
     siret: isParticulier ? '' : src.siret ?? '',
     streetNumber: src.streetNumber ?? '',
     streetExtension: src.streetExtension ?? '',
@@ -100,6 +106,8 @@ export function hasAnyIdentityOrContactData(source: Partial<StatusProfileData> |
       source.lastName?.trim() ||
       source.firstName?.trim() ||
       source.sex ||
+      source.birthDate?.trim() ||
+      source.birthPlace?.trim() ||
       source.siret?.trim() ||
       source.streetNumber?.trim() ||
       source.streetExtension?.trim() ||

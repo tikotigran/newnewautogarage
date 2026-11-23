@@ -7,6 +7,8 @@ import {
   DynamicExpenseCategory,
   FrenchTaxConfiguration,
   AppUserProfileType,
+  Purchase,
+  PurchaseCategory,
 } from '../types/garage';
 import {
   calculateSaleTaxReport,
@@ -678,10 +680,41 @@ export function allocateCorporateIsToBuckets(params: {
     }));
 }
 
+export function mapPurchaseCategoryToAnalyticsId(
+  category: PurchaseCategory
+): BuiltInAnalyticsExpenseCategoryId {
+  switch (category) {
+    case 'parts':
+    case 'repair':
+      return 'parts_labor';
+    case 'transport':
+      return 'transport';
+    default:
+      return 'other';
+  }
+}
+
+export function collectSyncedSupplierPurchaseIds(
+  repairs: readonly RepairTask[],
+  expenses: readonly GeneralExpense[]
+): Set<string> {
+  const synced = new Set<string>();
+  for (const r of repairs) {
+    if (r.supplierPurchaseId) synced.add(r.supplierPurchaseId);
+  }
+  for (const e of expenses) {
+    if (e.supplierPurchaseId) synced.add(e.supplierPurchaseId);
+  }
+  return synced;
+}
+
+const STANDALONE_PURCHASE_VEHICLE_PREFIX = '__standalone_purchase__:';
+
 export function computeFleetExpenseAnalytics(params: {
   vehicles: Vehicle[];
   repairs: RepairTask[];
   expenses: GeneralExpense[];
+  purchases?: Purchase[];
   timeRange: AnalyticsTimeRange;
   customRange?: CustomDateRange;
   dynamicCategories?: DynamicExpenseCategory[];
@@ -691,6 +724,7 @@ export function computeFleetExpenseAnalytics(params: {
     vehicles,
     repairs,
     expenses,
+    purchases = [],
     timeRange,
     customRange,
     dynamicCategories,
@@ -700,6 +734,7 @@ export function computeFleetExpenseAnalytics(params: {
   for (const v of vehicles) {
     vehicleMap.set(v.id, v);
   }
+  const purchaseMetaByPseudoId = new Map<string, Purchase>();
 
   const dynamicCatMap = new Map<string, DynamicExpenseCategory>();
   if (dynamicCategories) {
@@ -742,8 +777,37 @@ export function computeFleetExpenseAnalytics(params: {
     });
   }
 
+  const syncedPurchaseIds = collectSyncedSupplierPurchaseIds(repairs, expenses);
+  for (const p of purchases) {
+    if (p.category === 'vehicle') continue;
+    if (syncedPurchaseIds.has(p.id)) continue;
+    const amount = Number(p.amount) || 0;
+    if (amount <= 0) continue;
+    const effectiveDate = p.date || p.createdAt;
+    if (!isWithinTimeRange(effectiveDate, timeRange, now, customRange)) continue;
+    const hasLinkedVehicle = Boolean(p.vehicleId && vehicleMap.has(p.vehicleId));
+    const entryVehicleId = hasLinkedVehicle
+      ? p.vehicleId!
+      : `${STANDALONE_PURCHASE_VEHICLE_PREFIX}${p.id}`;
+    if (!hasLinkedVehicle) {
+      purchaseMetaByPseudoId.set(entryVehicleId, p);
+    }
+    normalized.push({
+      id: `pur_${p.id}`,
+      vehicleId: entryVehicleId,
+      categoryId: mapPurchaseCategoryToAnalyticsId(p.category),
+      amount: roundToTwo(amount),
+      date: effectiveDate,
+      description: p.description,
+    });
+  }
+
   const totalSpent = roundToTwo(normalized.reduce((acc, item) => acc + item.amount, 0));
-  const impactedVehicleIds = new Set(normalized.map((item) => item.vehicleId));
+  const impactedVehicleIds = new Set(
+    normalized
+      .map((item) => item.vehicleId)
+      .filter((vid) => vehicleMap.has(vid))
+  );
 
   const builtInIdSet = new Set<string>(ANALYTICS_CATEGORIES.map((m) => m.id));
   const allCategoryMetas: AnalyticsCategoryMeta[] = [...ANALYTICS_CATEGORIES];
@@ -788,9 +852,14 @@ export function computeFleetExpenseAnalytics(params: {
     const vehicleContributions: VehicleContribution[] = Array.from(byVehicle.entries())
       .map(([vehicleId, stats]) => {
         const v = vehicleMap.get(vehicleId);
+        const standalonePur = purchaseMetaByPseudoId.get(vehicleId);
         return {
           vehicleId,
-          vehicleName: v ? `${v.make} ${v.model}` : vehicleId,
+          vehicleName: v
+            ? `${v.make} ${v.model}`
+            : standalonePur
+            ? `${standalonePur.supplierName} — ${standalonePur.description}`
+            : vehicleId,
           year: v?.year || 0,
           registrationNumber: v?.registrationNumber,
           vin: v?.vin || '',
@@ -860,6 +929,7 @@ export function computeDealershipAnalytics(params: {
   vehicles: Vehicle[];
   repairs: RepairTask[];
   expenses: GeneralExpense[];
+  purchases?: Purchase[];
   timeRange: AnalyticsTimeRange;
   customRange?: CustomDateRange;
   dynamicCategories?: DynamicExpenseCategory[];
@@ -874,6 +944,7 @@ export function computeDealershipAnalytics(params: {
     vehicles,
     repairs,
     expenses,
+    purchases = [],
     timeRange,
     customRange,
     dynamicCategories,
@@ -903,6 +974,7 @@ export function computeDealershipAnalytics(params: {
             resolveAnalyticsVehicleTransactionMode(v, fallbackProfileType) ===
             transactionTypeFilter
         );
+  const allVehicleIds = new Set(vehicles.map((v) => v.id));
   const scopedVehicleIds =
     transactionTypeFilter === 'all' ? null : new Set(scopedVehicles.map((v) => v.id));
   const scopedRepairs = scopedVehicleIds
@@ -911,6 +983,14 @@ export function computeDealershipAnalytics(params: {
   const scopedExpenses = scopedVehicleIds
     ? expenses.filter((e) => scopedVehicleIds.has(e.vehicleId))
     : expenses;
+  const scopedPurchases =
+    transactionTypeFilter === 'all'
+      ? purchases
+      : transactionTypeFilter === 'particulier'
+      ? purchases.filter((p) => Boolean(p.vehicleId && scopedVehicleIds?.has(p.vehicleId)))
+      : purchases.filter(
+          (p) => !p.vehicleId || Boolean(scopedVehicleIds?.has(p.vehicleId))
+        );
 
   const baseTaxLabel = resolveTaxRatePercent(
     normalizedTaxConfig.businessTaxRegime,
@@ -1367,11 +1447,14 @@ export function computeDealershipAnalytics(params: {
       return b.salesCount - a.salesCount;
     });
 
+  const allSyncedPurchaseIds = collectSyncedSupplierPurchaseIds(repairs, expenses);
+
   // 3. Monthly Snapshot (always last 30 days so monthly Revenue & Expenses stay visible)
   const monthlyExpensesAnalytics = computeFleetExpenseAnalytics({
     vehicles: scopedVehicles,
     repairs: scopedRepairs,
     expenses: scopedExpenses,
+    purchases: scopedPurchases,
     timeRange: 'month',
     dynamicCategories,
     now,
@@ -1385,10 +1468,21 @@ export function computeDealershipAnalytics(params: {
   const monthlyRevenue = roundToTwo(
     soldLastMonth.reduce((sum, v) => sum + getRealizedSalePrice(v), 0)
   );
+  const monthlyStandaloneVehiclePurchases = scopedPurchases
+    .filter(
+      (p) =>
+        p.category === 'vehicle' &&
+        !allSyncedPurchaseIds.has(p.id) &&
+        !(p.vehicleId && allVehicleIds.has(p.vehicleId)) &&
+        isWithinTimeRange(p.date || p.createdAt, 'month', now)
+    )
+    .reduce((sum, p) => sum + Math.max(0, Number(p.amount) || 0), 0);
+
   const monthlyPurchases = roundToTwo(
     scopedVehicles
       .filter((v) => isWithinTimeRange(v.purchaseDate || v.createdAt, 'month', now))
-      .reduce((sum, v) => sum + (Number(v.purchasePrice) || 0), 0)
+      .reduce((sum, v) => sum + (Number(v.purchasePrice) || 0), 0) +
+      monthlyStandaloneVehiclePurchases
   );
 
   // 4. Period Expense Breakdown & Cash Flow
@@ -1396,6 +1490,7 @@ export function computeDealershipAnalytics(params: {
     vehicles: scopedVehicles,
     repairs: scopedRepairs,
     expenses: scopedExpenses,
+    purchases: scopedPurchases,
     timeRange,
     customRange,
     dynamicCategories,
@@ -1455,10 +1550,29 @@ export function computeDealershipAnalytics(params: {
       if (isWorkshopExpenseCategory(e.category, dynamicCategories)) {
         repairsOutflow = roundToTwo(repairsOutflow + amount);
       } else {
-        generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
+      generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
       }
       addBucket(effectiveDate, 'outflow', amount);
     }
+  }
+
+  for (const p of scopedPurchases) {
+    // Prevent double-counting: skip purchases already represented by a Vehicle or synced RepairTask/GeneralExpense
+    if (allSyncedPurchaseIds.has(p.id)) continue;
+    if (p.category === 'vehicle' && p.vehicleId && allVehicleIds.has(p.vehicleId)) continue;
+
+    const amount = Number(p.amount) || 0;
+    const pDate = p.date || p.createdAt;
+    if (amount <= 0 || !isWithinTimeRange(pDate, timeRange, now, customRange)) continue;
+
+    if (p.category === 'vehicle') {
+      vehiclePurchasesOutflow = roundToTwo(vehiclePurchasesOutflow + amount);
+    } else if (p.category === 'parts' || p.category === 'repair') {
+      repairsOutflow = roundToTwo(repairsOutflow + amount);
+    } else {
+      generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
+    }
+    addBucket(pDate, 'outflow', amount);
   }
 
   for (const row of mostProfitableVehicles) {

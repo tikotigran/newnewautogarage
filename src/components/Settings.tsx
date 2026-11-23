@@ -54,6 +54,8 @@ import {
 import { SubscriptionPlanTab } from './SubscriptionPlanTab';
 import { SignaturePad } from './SignaturePad';
 import { ThemedSelect } from './ThemedSelect';
+import { LocaleDateInput } from './LocaleDateInput';
+import { formatFrenchDate } from '../utils/cerfa15776';
 import {
   DEFAULT_GARAGE_SETTINGS,
   getGarageSettings,
@@ -535,6 +537,8 @@ export const Settings: React.FC<SettingsProps> = ({
       lastName: '',
       firstName: '',
       sex: 'M',
+      birthDate: '',
+      birthPlace: '',
       siret: '',
       streetNumber: '',
       streetExtension: '',
@@ -566,6 +570,8 @@ export const Settings: React.FC<SettingsProps> = ({
           ...editingPersonalDraft,
           lastName: (editingPersonalDraft.lastName || '').trim().toUpperCase(),
           firstName: (editingPersonalDraft.firstName || '').trim(),
+          birthDate: (editingPersonalDraft.birthDate || '').trim(),
+          birthPlace: (editingPersonalDraft.birthPlace || '').trim(),
           postalCode: (editingPersonalDraft.postalCode || '').replace(/\s+/g, ''),
           city: (editingPersonalDraft.city || '').trim(),
         },
@@ -1817,6 +1823,12 @@ export const Settings: React.FC<SettingsProps> = ({
                               {entry.sex}
                             </span>
                           )}
+                          {(entry.birthDate || entry.birthPlace) && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
+                              {entry.birthDate ? formatFrenchDate(entry.birthDate) : ''}
+                              {entry.birthDate && entry.birthPlace ? ` · ${entry.birthPlace}` : entry.birthPlace || ''}
+                            </span>
+                          )}
                           {entry.isDefault && (
                             <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-bold">
                               {L('Par défaut', 'Основной', 'Հիմնական', 'ძირითადი')}
@@ -1927,11 +1939,13 @@ export const Settings: React.FC<SettingsProps> = ({
                   </div>
                   <div>
                     <span className={labelClass}>{L('Sexe (M / F)', 'Пол (M / F)', 'Սեռ (M / F)', 'სქესი (M / F)')}</span>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-2 gap-2" role="group" aria-label={L('Sexe (M / F)', 'Пол (M / F)', 'Սեռ (M / F)', 'სქესი (M / F)')}>
                       {(['M', 'F'] as const).map((sx) => (
                         <button
                           key={sx}
                           type="button"
+                          data-testid={`personal-draft-sex-${sx}`}
+                          aria-pressed={editingPersonalDraft.sex === sx}
                           onClick={() =>
                             setEditingPersonalDraft((prev) =>
                               prev ? { ...prev, sex: prev.sex === sx ? '' : sx } : prev
@@ -1939,14 +1953,54 @@ export const Settings: React.FC<SettingsProps> = ({
                           }
                           className={`h-9 rounded-xl text-xs font-bold border transition cursor-pointer ${
                             editingPersonalDraft.sex === sx
-                              ? 'bg-sky-600 text-white border-sky-500'
+                              ? 'bg-sky-600 text-white border-sky-500 shadow-sm'
                               : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
                           }`}
                         >
-                          {sx}
+                          {sx === 'M'
+                            ? `M · ${L('Homme', 'Муж.', 'Ար.', 'მამრ.')}`
+                            : `F · ${L('Femme', 'Жен.', 'Իգ.', 'მდედ.')}`}
                         </button>
                       ))}
                     </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="personal-draft-birth-date" className={labelClass}>
+                      {L('Date de naissance (Né(e) le)', 'Дата рождения', 'Ծննդյան ամսաթիվ', 'დაბადების თარიღი')}
+                    </label>
+                    <LocaleDateInput
+                      id="personal-draft-birth-date"
+                      testId="personal-draft-birth-date"
+                      ariaLabel={L('Date de naissance', 'Дата рождения', 'Ծննդյան ամսաթիվ', 'დაბადების თარიღი')}
+                      value={editingPersonalDraft.birthDate || ''}
+                      onChange={(iso) =>
+                        setEditingPersonalDraft((prev) =>
+                          prev ? { ...prev, birthDate: iso } : prev
+                        )
+                      }
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="personal-draft-birth-place" className={labelClass}>
+                      {L('Lieu de naissance (à)', 'Место рождения', 'Ծննդավայր', 'დაბადების ადგილი')}
+                    </label>
+                    <input
+                      id="personal-draft-birth-place"
+                      data-testid="personal-draft-birth-place"
+                      type="text"
+                      value={editingPersonalDraft.birthPlace || ''}
+                      onChange={(e) =>
+                        setEditingPersonalDraft((prev) =>
+                          prev ? { ...prev, birthPlace: e.target.value } : prev
+                        )
+                      }
+                      placeholder={L('ex. Lyon (69)', 'напр. Lyon (69)', 'օր.՝ Lyon (69)', 'მაგ. Lyon (69)')}
+                      className={inputClass}
+                    />
                   </div>
                 </div>
 
@@ -2792,7 +2846,7 @@ export const Settings: React.FC<SettingsProps> = ({
                           : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                       }`}
                     >
-                      {L('OUI', 'ДА', 'ԱՅՈ', 'დიახ')}
+                      {L('Oui', 'Да', 'Այո', 'დიახ')}
                     </button>
                     <button
                       type="button"
@@ -2804,7 +2858,7 @@ export const Settings: React.FC<SettingsProps> = ({
                           : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                       }`}
                     >
-                      {L('NON', 'НЕТ', 'ՈՉ', 'არა')}
+                      {L('Non', 'Нет', 'Ոչ', 'არა')}
                     </button>
                   </div>
                 </div>
