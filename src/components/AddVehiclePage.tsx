@@ -6,7 +6,6 @@ import {
   Check,
   ChevronDown,
   FileText,
-  Info,
   Loader2,
   Plus,
   Trash2,
@@ -36,6 +35,7 @@ import {
   MAX_VEHICLE_PHOTOS_BYTES,
   resolveDefaultPurchaseStatus,
   resolveDefaultSellerProfileId,
+  resolveInitialConsolidatedModel,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
   resolveVehicleSellerProfileId,
@@ -151,7 +151,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
 
   // Core vehicle fields
   const [make, setMake] = useState(() => initialVehicle?.make || '');
-  const [model, setModel] = useState(() => initialVehicle?.model || '');
+  const [model, setModel] = useState(() => resolveInitialConsolidatedModel(initialVehicle));
   const [year, setYear] = useState<number | ''>(
     () => initialVehicle?.year ?? new Date().getFullYear()
   );
@@ -188,22 +188,14 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   // Collapsible Technical & Carte Grise / Cerfa Details
   const [isExtendedOpen, setIsExtendedOpen] = useState<boolean>(() => Boolean(initialVehicle));
   const [vin, setVin] = useState(() => initialVehicle?.vin || '');
-  const [trim, setTrim] = useState(() => initialVehicle?.trim || '');
   const [fuelType, setFuelType] = useState(() => initialVehicle?.fuelType || '');
   const [gearbox, setGearbox] = useState(() => initialVehicle?.gearbox || '');
   const [firstRegistrationDate, setFirstRegistrationDate] = useState(
     () => initialVehicle?.firstRegistrationDate || ''
   );
-  const [commercialDesignation, setCommercialDesignation] = useState(
-    () => initialVehicle?.commercialDesignation || ''
-  );
-  const [typeVariantVersion, setTypeVariantVersion] = useState(
-    () => initialVehicle?.typeVariantVersion || ''
-  );
   const [nationalGenre, setNationalGenre] = useState(
     () => initialVehicle?.nationalGenre || 'VP'
   );
-  const [bodyType, setBodyType] = useState(() => initialVehicle?.bodyType || '');
   const [hasRegistrationCertificate, setHasRegistrationCertificate] = useState<boolean | null>(() =>
     typeof initialVehicle?.hasRegistrationCertificate === 'boolean'
       ? initialVehicle.hasRegistrationCertificate
@@ -238,7 +230,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
 
     if (initialVehicle) {
       setMake(initialVehicle.make);
-      setModel(initialVehicle.model);
+      setModel(resolveInitialConsolidatedModel(initialVehicle));
       setYear(initialVehicle.year);
       setRegistrationNumber(initialVehicle.registrationNumber || '');
       setMileage(initialVehicle.mileage > 0 ? initialVehicle.mileage : '');
@@ -268,14 +260,10 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
 
       setIsExtendedOpen(true);
       setVin(initialVehicle.vin || '');
-      setTrim(initialVehicle.trim || '');
       setFuelType(initialVehicle.fuelType || '');
       setGearbox(initialVehicle.gearbox || '');
       setFirstRegistrationDate(initialVehicle.firstRegistrationDate || '');
-      setCommercialDesignation(initialVehicle.commercialDesignation || '');
-      setTypeVariantVersion(initialVehicle.typeVariantVersion || '');
       setNationalGenre(initialVehicle.nationalGenre || 'VP');
-      setBodyType(initialVehicle.bodyType || '');
       setHasRegistrationCertificate(
         typeof initialVehicle.hasRegistrationCertificate === 'boolean'
           ? initialVehicle.hasRegistrationCertificate
@@ -301,14 +289,10 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
       setCustomSupplierName('');
       setIsExtendedOpen(false);
       setVin('');
-      setTrim('');
       setFuelType('');
       setGearbox('');
       setFirstRegistrationDate('');
-      setCommercialDesignation('');
-      setTypeVariantVersion('');
       setNationalGenre('VP');
-      setBodyType('');
       setHasRegistrationCertificate(null);
       setFormulaNumber('');
       setCertificateDate('');
@@ -459,12 +443,13 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const { supplierId, supplierName } = resolveSelectedSupplier();
+    const consolidatedModel = model.trim();
     const formState = {
       make,
-      model,
-      commercialDesignation,
+      model: consolidatedModel,
+      commercialDesignation: consolidatedModel,
       firstRegistrationDate,
-      trim,
+      trim: consolidatedModel,
       year,
       registrationNumber,
       purchasePrice,
@@ -472,9 +457,9 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
       mileage,
       fuelType,
       gearbox,
-      typeVariantVersion,
+      typeVariantVersion: initialVehicle?.typeVariantVersion || '',
       nationalGenre,
-      bodyType,
+      bodyType: initialVehicle?.bodyType || '',
       hasRegistrationCertificate,
       formulaNumber: hasRegistrationCertificate === false ? '' : formulaNumber,
       certificateDate: hasRegistrationCertificate === false ? '' : certificateDate,
@@ -785,7 +770,12 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="add-vehicle-make" className={labelClass}>
-                    {t('make')} *
+                    {L(
+                      '(D.1) Marque *',
+                      '(D.1) Марка *',
+                      '(D.1) Մակնիշ *',
+                      '(D.1) მარკა *'
+                    )}
                   </label>
                   <input
                     id="add-vehicle-make"
@@ -805,7 +795,12 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
 
                 <div>
                   <label htmlFor="add-vehicle-model" className={labelClass}>
-                    {t('model')} *
+                    {L(
+                      'Modèle / (D.3) Dénomination *',
+                      'Модель / (D.3) Коммерч. назв. *',
+                      'Մոդել / (D.3) Առևտր. անվանում *',
+                      'მოდელი / (D.3) კომერც. დასახელება *'
+                    )}
                   </label>
                   <input
                     id="add-vehicle-model"
@@ -815,10 +810,21 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     value={model}
                     onChange={(e) => {
                       setModel(e.target.value);
-                      setFieldErrors((prev) => ({ ...prev, model: undefined }));
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        model: undefined,
+                        commercialDesignation: undefined,
+                      }));
                     }}
-                    placeholder="3008"
-                    className={getInputClass(Boolean(fieldErrors.model))}
+                    placeholder={L(
+                      'ex. 3008 GT Line, Clio TCe 90...',
+                      'напр. 3008 GT Line, Clio TCe 90...',
+                      'օր.՝ 3008 GT Line, Clio TCe 90...',
+                      'მაგ. 3008 GT Line, Clio TCe 90...'
+                    )}
+                    className={getInputClass(
+                      Boolean(fieldErrors.model || fieldErrors.commercialDesignation)
+                    )}
                   />
                 </div>
               </div>
@@ -848,7 +854,12 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
 
                 <div>
                   <label htmlFor="add-vehicle-plate" className={labelClass}>
-                    {t('thPlate')} *
+                    {L(
+                      '(A) Immatriculation *',
+                      '(A) Госномер *',
+                      '(A) Պետհամարանիշ *',
+                      '(A) სახ. ნომერი *'
+                    )}
                   </label>
                   <input
                     id="add-vehicle-plate"
@@ -904,167 +915,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
               </div>
             </section>
 
-            {/* Card 2: Purchase & Supplier */}
-            <section
-              data-testid="add-vehicle-card-purchase"
-              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 sm:p-6 shadow-sm space-y-5"
-            >
-              <div className="pb-3.5 border-b border-[var(--border)]">
-                <h2 className="text-sm font-bold text-[var(--foreground)]">
-                  {L(
-                    'Achat & fournisseur',
-                    'Покупка и поставщик',
-                    'Գնում և մատակարար',
-                    'შესყიდვა და მომწოდებელი'
-                  )}
-                </h2>
-              </div>
-
-              {/* Row 1 (3 columns): Purchase Price (€) * / Planned Price (€) / Purchase Date */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label htmlFor="add-vehicle-purchase-price" className={labelClass}>
-                    {t('purchasePriceLabel')} (€) *
-                  </label>
-                  <input
-                    id="add-vehicle-purchase-price"
-                    data-testid="add-vehicle-purchase-price"
-                    type="number"
-                    required
-                    min={0}
-                    step="any"
-                    value={purchasePrice}
-                    onChange={(e) => {
-                      setPurchasePrice(e.target.value === '' ? '' : Number(e.target.value));
-                      setFieldErrors((prev) => ({ ...prev, purchasePrice: undefined }));
-                    }}
-                    placeholder="12500"
-                    className={getInputClass(
-                      Boolean(fieldErrors.purchasePrice),
-                      'font-bold tabular-nums'
-                    )}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="add-vehicle-target-price" className={labelClass}>
-                    {L(
-                      'Prix de vente prévu (€)',
-                      'Планируемая цена (€)',
-                      'Նախատեսվող գին (€)',
-                      'დაგეგმილი ფასი (€)'
-                    )}
-                  </label>
-                  <input
-                    id="add-vehicle-target-price"
-                    data-testid="add-vehicle-target-price"
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={targetSalePrice}
-                    onChange={(e) =>
-                      setTargetSalePrice(e.target.value === '' ? '' : Number(e.target.value))
-                    }
-                    placeholder="15900"
-                    className={`${inputClass} font-bold tabular-nums`}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="add-vehicle-purchase-date" className={labelClass}>
-                    {t('purchaseDate')}
-                  </label>
-                  <LocaleDateInput
-                    id="add-vehicle-purchase-date"
-                    testId="add-vehicle-purchase-date"
-                    ariaLabel={t('purchaseDate')}
-                    value={purchaseDate}
-                    onChange={setPurchaseDate}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              {/* Row 2: Supplier / Source (+ optional custom input when custom selected) */}
-              <div
-                className={`grid grid-cols-1 ${
-                  supplierSelection === CUSTOM_SUPPLIER_VALUE ? 'sm:grid-cols-2' : ''
-                } gap-4`}
-              >
-                <div>
-                  <label htmlFor="add-vehicle-supplier" className={labelClass}>
-                    {L(
-                      'Fournisseur / Source',
-                      'Поставщик / Источник',
-                      'Մատակարար / Աղբյուր',
-                      'მომწოდებელი / წყარო'
-                    )}
-                  </label>
-                  <ThemedSelect
-                    id="add-vehicle-supplier"
-                    testId="add-vehicle-supplier-select"
-                    ariaLabel={L(
-                      'Fournisseur / Source',
-                      'Поставщик / Источник',
-                      'Մատակարար / Աղբյուր',
-                      'მომწოდებელი / წყარო'
-                    )}
-                    value={supplierSelection}
-                    onChange={(val) => {
-                      setSupplierSelection(val);
-                      if (val !== CUSTOM_SUPPLIER_VALUE) {
-                        setCustomSupplierName('');
-                      }
-                    }}
-                    options={supplierOptions}
-                    triggerClassName={inputClass}
-                  />
-                </div>
-
-                {supplierSelection === CUSTOM_SUPPLIER_VALUE && (
-                  <div>
-                    <label htmlFor="add-vehicle-supplier-custom" className={labelClass}>
-                      {L(
-                        'Nom du vendeur / source',
-                        'Укажите источник или имя продавца',
-                        'Նշեք աղբյուրը կամ վաճառողի անունը',
-                        'მიუთითეთ წყარო ან გამყიდველის სახელი'
-                      )}
-                    </label>
-                    <input
-                      id="add-vehicle-supplier-custom"
-                      data-testid="add-vehicle-supplier-custom"
-                      type="text"
-                      value={customSupplierName}
-                      onChange={(e) => setCustomSupplierName(e.target.value)}
-                      placeholder={L(
-                        'ex. Leboncoin Paris, Garage Martin...',
-                        'напр. Leboncoin, Автосалон...',
-                        'օր.՝ Leboncoin, Ավտոսրահ...',
-                        'მაგ. Leboncoin, ავტოსალონი...'
-                      )}
-                      className={inputClass}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {!isExtendedOpen && (
-                <div className="pt-3.5 border-t border-[var(--border)] flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-                  <Info className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
-                  <span>
-                    {L(
-                      'Les champs étendus (VIN, Carte Grise, Cerfa) sont disponibles ci-dessous ou dans la fiche véhicule.',
-                      'Расширенные поля (VIN, Carte Grise, Cerfa) можно заполнить ниже или позже в карточке авто.',
-                      'Ընդլայնված դաշտերը (VIN, Carte Grise, Cerfa) կարող եք լրացնել ստորև կամ մեքենայի քարտում։',
-                      'გაფართოებული ველების (VIN, Carte Grise, Cerfa) შევსება შესაძლებელია ქვემოთ ან ავტომობილის ბარათში.'
-                    )}
-                  </span>
-                </div>
-              )}
-            </section>
-
-            {/* Card 3 (Collapsible): Extended Technical, Carte Grise & Cerfa Details */}
+            {/* Card 2 (Collapsible): Extended Technical, Carte Grise & Cerfa Details */}
             <section
               data-testid="add-vehicle-card-extended"
               className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] shadow-sm overflow-hidden"
@@ -1096,7 +947,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                   data-testid="add-vehicle-extra-section"
                   className="px-5 sm:px-6 pb-6 pt-4 border-t border-[var(--border)] space-y-5"
                 >
-                  {/* Technical: VIN, Trim, Fuel, Gearbox */}
+                  {/* Technical: VIN, (B) First Reg, (J.1) Genre, Fuel, Gearbox */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
@@ -1135,17 +986,84 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     </div>
 
                     <div>
-                      <label htmlFor="add-vehicle-trim" className={labelClass}>
-                        {t('trimVersion')}
+                      <label htmlFor="add-vehicle-first-reg" className={labelClass}>
+                        {L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
                       </label>
-                      <input
-                        id="add-vehicle-trim"
-                        data-testid="add-vehicle-trim"
-                        type="text"
-                        value={trim}
-                        onChange={(e) => setTrim(e.target.value)}
-                        placeholder="ex. GT Line 130ch"
-                        className={inputClass}
+                      <LocaleDateInput
+                        id="add-vehicle-first-reg"
+                        testId="add-vehicle-first-reg-date"
+                        ariaLabel={L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
+                        value={firstRegistrationDate}
+                        onChange={handleFirstRegDateChange}
+                        className={getInputClass(Boolean(fieldErrors.firstRegistrationDate))}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label htmlFor="add-vehicle-j1" className={labelClass}>
+                        {t('j1GenreLabel')}
+                      </label>
+                      <ThemedSelect
+                        id="add-vehicle-j1"
+                        testId="add-vehicle-j1-select"
+                        ariaLabel={t('j1GenreLabel')}
+                        value={nationalGenre}
+                        onChange={setNationalGenre}
+                        options={[
+                          {
+                            value: 'VP',
+                            label: L(
+                              'VP (Voiture particulière)',
+                              'VP (Легковой авто)',
+                              'VP (Մարդատար)',
+                              'VP (მსუბუქი)'
+                            ),
+                          },
+                          {
+                            value: 'CTTE',
+                            label: L(
+                              'CTTE (Camionnette)',
+                              'CTTE (Фургон / LCV)',
+                              'CTTE (Ֆուրգոն)',
+                              'CTTE (ფურგონი)'
+                            ),
+                          },
+                          {
+                            value: 'MTT1',
+                            label: L(
+                              'MTT1 / MTT2 (Moto)',
+                              'MTT1 / MTT2 (Мотоцикл)',
+                              'MTT1 / MTT2 (Մոտոցիկլ)',
+                              'MTT1 / MTT2 (მოტო)'
+                            ),
+                          },
+                          {
+                            value: 'CAM',
+                            label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
+                          },
+                          {
+                            value: 'VASP',
+                            label: L(
+                              'VASP (Véhicule spécialisé)',
+                              'VASP (Спецтехника)',
+                              'VASP (Հատուկ տեխնիկա)',
+                              'VASP (სპეცტექნიკა)'
+                            ),
+                          },
+                        ]}
+                        triggerClassName={inputClass}
                       />
                     </div>
 
@@ -1218,56 +1136,6 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                           },
                         ]}
                         triggerClassName={inputClass}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Cerfa (B) First Reg & (D.3) Commercial Designation */}
-                  <div className="pt-4 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="add-vehicle-first-reg" className={labelClass}>
-                        {L(
-                          '(B) 1re immatriculation',
-                          '(B) Дата 1-й регистрации',
-                          '(B) Առաջին գրանցման ամսաթիվ',
-                          '(B) პირველი რეგისტრაცია'
-                        )}
-                      </label>
-                      <LocaleDateInput
-                        id="add-vehicle-first-reg"
-                        testId="add-vehicle-first-reg-date"
-                        ariaLabel={L(
-                          '(B) 1re immatriculation',
-                          '(B) Дата 1-й регистрации',
-                          '(B) Առաջին գրանցման ամսաթիվ',
-                          '(B) პირველი რეგისტრაცია'
-                        )}
-                        value={firstRegistrationDate}
-                        onChange={handleFirstRegDateChange}
-                        className={getInputClass(Boolean(fieldErrors.firstRegistrationDate))}
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="add-vehicle-d3" className={labelClass}>
-                        {L(
-                          '(D.3) Dénomination commerciale',
-                          '(D.3) Коммерческое наименование',
-                          '(D.3) Առևտրային անվանում',
-                          '(D.3) კომერციული დასახელება'
-                        )}
-                      </label>
-                      <input
-                        id="add-vehicle-d3"
-                        data-testid="add-vehicle-d3-commercial"
-                        type="text"
-                        value={commercialDesignation}
-                        onChange={(e) => {
-                          setCommercialDesignation(e.target.value);
-                          setFieldErrors((prev) => ({ ...prev, commercialDesignation: undefined }));
-                        }}
-                        placeholder="ex. 3008 GT Line, Clio TCe 90..."
-                        className={getInputClass(Boolean(fieldErrors.commercialDesignation))}
                       />
                     </div>
                   </div>
@@ -1417,103 +1285,154 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                       </div>
                     )}
                   </div>
-
-                  {/* French Carte Grise Codes (D.2, J.1, J.3) */}
-                  <div className="pt-4 border-t border-[var(--border)] space-y-3">
-                    <p className="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
-                      {t('carteGriseSectionTitle')}
-                    </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-                      <div>
-                        <label htmlFor="add-vehicle-d2" className={labelClass}>
-                          {t('d2TypeLabel')}
-                        </label>
-                        <input
-                          id="add-vehicle-d2"
-                          data-testid="add-vehicle-d2"
-                          type="text"
-                          value={typeVariantVersion}
-                          onChange={(e) => setTypeVariantVersion(e.target.value)}
-                          placeholder="ex. UPHNK-01"
-                          className={inputClass}
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="add-vehicle-j1" className={labelClass}>
-                          {t('j1GenreLabel')}
-                        </label>
-                        <ThemedSelect
-                          id="add-vehicle-j1"
-                          testId="add-vehicle-j1-select"
-                          ariaLabel={t('j1GenreLabel')}
-                          value={nationalGenre}
-                          onChange={setNationalGenre}
-                          options={[
-                            {
-                              value: 'VP',
-                              label: L(
-                                'VP (Voiture particulière)',
-                                'VP (Легковой авто)',
-                                'VP (Մարդատար)',
-                                'VP (მსუბუქი)'
-                              ),
-                            },
-                            {
-                              value: 'CTTE',
-                              label: L(
-                                'CTTE (Camionnette)',
-                                'CTTE (Фургон / LCV)',
-                                'CTTE (Ֆուրգոն)',
-                                'CTTE (ფურგონი)'
-                              ),
-                            },
-                            {
-                              value: 'MTT1',
-                              label: L(
-                                'MTT1 / MTT2 (Moto)',
-                                'MTT1 / MTT2 (Мотоцикл)',
-                                'MTT1 / MTT2 (Մոտոցիկլ)',
-                                'MTT1 / MTT2 (მოტო)'
-                              ),
-                            },
-                            {
-                              value: 'CAM',
-                              label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
-                            },
-                            {
-                              value: 'VASP',
-                              label: L(
-                                'VASP (Véhicule spécialisé)',
-                                'VASP (Спецтехника)',
-                                'VASP (Հատուկ տեխնիկա)',
-                                'VASP (სპეცტექნიკა)'
-                              ),
-                            },
-                          ]}
-                          triggerClassName={inputClass}
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="add-vehicle-j3" className={labelClass}>
-                          {t('j3BodyLabel')}
-                        </label>
-                        <input
-                          id="add-vehicle-j3"
-                          data-testid="add-vehicle-j3"
-                          type="text"
-                          value={bodyType}
-                          onChange={(e) => setBodyType(e.target.value.toUpperCase())}
-                          placeholder="ex. CI, BREAK, FOURGON..."
-                          className={`${inputClass} uppercase placeholder:normal-case`}
-                        />
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
+            </section>
+
+            {/* Card 3: Purchase & Supplier */}
+            <section
+              data-testid="add-vehicle-card-purchase"
+              className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-5 sm:p-6 shadow-sm space-y-5"
+            >
+              <div className="pb-3.5 border-b border-[var(--border)]">
+                <h2 className="text-sm font-bold text-[var(--foreground)]">
+                  {L(
+                    'Achat & fournisseur',
+                    'Покупка и поставщик',
+                    'Գնում և մատակարար',
+                    'შესყიდვა და მომწოდებელი'
+                  )}
+                </h2>
+              </div>
+
+              {/* Row 1 (3 columns): Purchase Price (€) * / Planned Price (€) / Purchase Date */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label htmlFor="add-vehicle-purchase-price" className={labelClass}>
+                    {t('purchasePriceLabel')} (€) *
+                  </label>
+                  <input
+                    id="add-vehicle-purchase-price"
+                    data-testid="add-vehicle-purchase-price"
+                    type="number"
+                    required
+                    min={0}
+                    step="any"
+                    value={purchasePrice}
+                    onChange={(e) => {
+                      setPurchasePrice(e.target.value === '' ? '' : Number(e.target.value));
+                      setFieldErrors((prev) => ({ ...prev, purchasePrice: undefined }));
+                    }}
+                    placeholder="12500"
+                    className={getInputClass(
+                      Boolean(fieldErrors.purchasePrice),
+                      'font-bold tabular-nums'
+                    )}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="add-vehicle-target-price" className={labelClass}>
+                    {L(
+                      'Prix de vente prévu (€)',
+                      'Планируемая цена (€)',
+                      'Նախատեսվող գին (€)',
+                      'დაგეგმილი ფასი (€)'
+                    )}
+                  </label>
+                  <input
+                    id="add-vehicle-target-price"
+                    data-testid="add-vehicle-target-price"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={targetSalePrice}
+                    onChange={(e) =>
+                      setTargetSalePrice(e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    placeholder="15900"
+                    className={`${inputClass} font-bold tabular-nums`}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="add-vehicle-purchase-date" className={labelClass}>
+                    {t('purchaseDate')}
+                  </label>
+                  <LocaleDateInput
+                    id="add-vehicle-purchase-date"
+                    testId="add-vehicle-purchase-date"
+                    ariaLabel={t('purchaseDate')}
+                    value={purchaseDate}
+                    onChange={setPurchaseDate}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Supplier / Source (+ optional custom input when custom selected) */}
+              <div
+                className={`grid grid-cols-1 ${
+                  supplierSelection === CUSTOM_SUPPLIER_VALUE ? 'sm:grid-cols-2' : ''
+                } gap-4`}
+              >
+                <div>
+                  <label htmlFor="add-vehicle-supplier" className={labelClass}>
+                    {L(
+                      'Fournisseur / Source',
+                      'Поставщик / Источник',
+                      'Մատակարար / Աղբյուր',
+                      'მომწოდებელი / წყარო'
+                    )}
+                  </label>
+                  <ThemedSelect
+                    id="add-vehicle-supplier"
+                    testId="add-vehicle-supplier-select"
+                    ariaLabel={L(
+                      'Fournisseur / Source',
+                      'Поставщик / Источник',
+                      'Մատակարար / Աղբյուր',
+                      'მომწოდებელი / წყარო'
+                    )}
+                    value={supplierSelection}
+                    onChange={(val) => {
+                      setSupplierSelection(val);
+                      if (val !== CUSTOM_SUPPLIER_VALUE) {
+                        setCustomSupplierName('');
+                      }
+                    }}
+                    options={supplierOptions}
+                    triggerClassName={inputClass}
+                  />
+                </div>
+
+                {supplierSelection === CUSTOM_SUPPLIER_VALUE && (
+                  <div>
+                    <label htmlFor="add-vehicle-supplier-custom" className={labelClass}>
+                      {L(
+                        'Nom du vendeur / source',
+                        'Укажите источник или имя продавца',
+                        'Նշեք աղբյուրը կամ վաճառողի անունը',
+                        'მიუთითეთ წყარო ან გამყიდველის სახელი'
+                      )}
+                    </label>
+                    <input
+                      id="add-vehicle-supplier-custom"
+                      data-testid="add-vehicle-supplier-custom"
+                      type="text"
+                      value={customSupplierName}
+                      onChange={(e) => setCustomSupplierName(e.target.value)}
+                      placeholder={L(
+                        'ex. Leboncoin Paris, Garage Martin...',
+                        'напр. Leboncoin, Автосалон...',
+                        'օր.՝ Leboncoin, Ավտոսրահ...',
+                        'მაგ. Leboncoin, ავტოსალონი...'
+                      )}
+                      className={inputClass}
+                    />
+                  </div>
+                )}
+              </div>
             </section>
           </div>
 

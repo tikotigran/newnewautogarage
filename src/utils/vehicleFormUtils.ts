@@ -38,6 +38,18 @@ export interface VehicleFormInput {
   photos: string[];
 }
 
+export function resolveInitialCommercialDesignation(
+  vehicle?: Pick<Vehicle, 'commercialDesignation' | 'trim'> | null
+): string {
+  return (vehicle?.commercialDesignation || vehicle?.trim || '').trim();
+}
+
+export function resolveInitialConsolidatedModel(
+  vehicle?: Pick<Vehicle, 'model' | 'commercialDesignation' | 'trim'> | null
+): string {
+  return (vehicle?.model || vehicle?.commercialDesignation || vehicle?.trim || '').trim();
+}
+
 export function mapProfileTypeToPurchaseStatus(
   profileType?: AppUserProfileType | null
 ): VehiclePurchaseStatus {
@@ -387,14 +399,20 @@ export function buildVehicleSubmitPayload(
         ? initialVehicle?.sellerProfileId || undefined
         : undefined;
 
+  const resolvedModel =
+    input.model.trim() || input.commercialDesignation.trim() || input.trim.trim();
+  const resolvedCommercialDesignation =
+    input.commercialDesignation.trim() || resolvedModel;
+  const resolvedTrim = input.trim.trim() || resolvedCommercialDesignation;
+
   return {
     userId,
     ...(targetGarageId ? { garageId: targetGarageId } : {}),
     make: input.make.trim(),
-    model: input.model.trim(),
-    commercialDesignation: input.commercialDesignation.trim(),
+    model: resolvedModel,
+    commercialDesignation: resolvedCommercialDesignation,
     firstRegistrationDate: input.firstRegistrationDate.trim(),
-    trim: input.trim.trim(),
+    trim: resolvedTrim,
     year: resolvedYear,
     mileage: parsedMileage,
     vin: cleanedVin,
@@ -576,12 +594,19 @@ export function stripSaleFieldsFromLocalVehicle(vehicle: Vehicle): Vehicle {
 
 export interface SaleWizardInitialState {
   step: 1;
-  // Step 1: Vehicle technical specs
+  // Step 1: Vehicle technical specs (Cerfa 15776*02 LE VÉHICULE)
+  make: string;
+  typeVariantVersion: string;
+  commercialDesignation: string;
+  nationalGenre: string;
   registrationNumber: string;
   vin: string;
   mileage: number | '';
   firstRegistrationDate: string;
+  hasRegistrationCertificate: boolean;
   formulaNumber: string;
+  certificateDate: string;
+  absenceReason: string;
   // Step 2: Seller & deal timing
   saleDate: string;
   saleTime: string;
@@ -604,6 +629,26 @@ export interface SaleWizardInitialState {
   saleChannel: string;
 }
 
+export function formatBuyerFullAddress(parts: {
+  streetNumber?: string;
+  streetExtension?: string;
+  streetType?: string;
+  streetName?: string;
+  postalCode?: string;
+  city?: string;
+}): string {
+  const streetLine = [
+    parts.streetNumber?.trim(),
+    parts.streetExtension?.trim(),
+    parts.streetType?.trim(),
+    parts.streetName?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const locality = [parts.postalCode?.trim(), parts.city?.trim()].filter(Boolean).join(' ');
+  return [streetLine, locality].filter(Boolean).join(', ');
+}
+
 /**
  * Always initializes the multi-step Sale Wizard on Step 1 of 3.
  * For unsold vehicles (or vehicles whose sale was cancelled), all Step 3 buyer
@@ -613,11 +658,20 @@ export function buildSaleWizardInitialState(
   vehicle: Pick<
     Vehicle,
     | 'status'
+    | 'make'
+    | 'model'
+    | 'trim'
+    | 'typeVariantVersion'
+    | 'commercialDesignation'
+    | 'nationalGenre'
     | 'registrationNumber'
     | 'vin'
     | 'mileage'
     | 'firstRegistrationDate'
+    | 'hasRegistrationCertificate'
     | 'formulaNumber'
+    | 'certificateDate'
+    | 'absenceReason'
     | 'targetSalePrice'
     | 'purchasePrice'
     | 'buyerInfo'
@@ -628,14 +682,22 @@ export function buildSaleWizardInitialState(
     vehicle && vehicle.status === 'sold' && vehicle.buyerInfo
       ? vehicle.buyerInfo
       : undefined;
+  const hasCert = vehicle ? resolveInitialHasRegistrationCertificate(vehicle) : true;
 
   return {
     step: 1,
+    make: vehicle?.make || '',
+    typeVariantVersion: vehicle?.typeVariantVersion || vehicle?.trim || '',
+    commercialDesignation: vehicle?.commercialDesignation || vehicle?.model || '',
+    nationalGenre: vehicle?.nationalGenre || 'VP',
     registrationNumber: vehicle?.registrationNumber || '',
     vin: vehicle?.vin || '',
     mileage: vehicle?.mileage ?? '',
     firstRegistrationDate: vehicle?.firstRegistrationDate || '',
-    formulaNumber: vehicle?.formulaNumber || '',
+    hasRegistrationCertificate: hasCert,
+    formulaNumber: hasCert ? vehicle?.formulaNumber || '' : '',
+    certificateDate: hasCert ? vehicle?.certificateDate || '' : '',
+    absenceReason: hasCert ? '' : vehicle?.absenceReason || '',
     saleDate: activeBuyer?.saleDate || todayIso,
     saleTime: activeBuyer?.saleTime || '14:00',
     isCompany: activeBuyer?.isCompany || false,

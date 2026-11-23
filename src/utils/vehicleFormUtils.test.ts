@@ -7,12 +7,15 @@ import {
   buildVehicleSubmitPayload,
   computeVehicleMarginPreview,
   estimatePhotosPayloadBytes,
+  formatBuyerFullAddress,
   hasVehicleCerfaDetails,
   LEGACY_SALE_FIELDS,
   mapProfileTypeToPurchaseStatus,
   MAX_VEHICLE_PHOTOS_BYTES,
   resolveDefaultPurchaseStatus,
   resolveDefaultSellerProfileId,
+  resolveInitialCommercialDesignation,
+  resolveInitialConsolidatedModel,
   resolveInitialHasRegistrationCertificate,
   resolvePendingVehicleSelection,
   resolveTargetGarageId,
@@ -125,7 +128,8 @@ test('buildVehicleSubmitPayload preserves unset Cerfa fields without fallback sy
     'user_1'
   );
   assert.equal(quickPayload.make, 'Peugeot');
-  assert.equal(quickPayload.commercialDesignation, '');
+  assert.equal(quickPayload.model, '208');
+  assert.equal(quickPayload.commercialDesignation, '208');
   assert.equal(quickPayload.firstRegistrationDate, '');
   assert.equal(quickPayload.registrationNumber, 'AB-123-CD');
   assert.equal(quickPayload.hasRegistrationCertificate, undefined);
@@ -463,27 +467,39 @@ test('stripSaleFieldsFromLocalVehicle deletes buyerInfo and all legacy flat sale
   assert.equal(cleaned.registrationNumber, 'AB-123-CD');
 });
 
-test('buildSaleWizardInitialState always starts at step 1 with blank buyer fields for unsold vehicles', () => {
+test('buildSaleWizardInitialState always starts at step 1 with complete Cerfa vehicle specs and blank buyer fields for unsold vehicles', () => {
   const unsoldWithStaleBuyer = {
     status: 'for_sale' as const,
+    make: 'Peugeot',
+    model: '208',
+    trim: 'GT Line',
+    typeVariantVersion: 'M10PGTVP000H451',
+    commercialDesignation: '208 GT LINE',
+    nationalGenre: 'CTTE',
     registrationNumber: 'EF-456-GH',
     vin: 'VF3UPHNK0MT129841',
     mileage: 45200,
     firstRegistrationDate: '2020-06-15',
+    hasRegistrationCertificate: true,
     formulaNumber: '2020XY12345',
+    certificateDate: '2020-06-20',
+    absenceReason: '',
     targetSalePrice: 14900,
     purchasePrice: 11200,
     buyerInfo: {
       fullName: 'Stale Buyer',
-      address: '99 Rue Stale, 69000 Lyon',
+      sex: 'F' as const,
+      address: '99 bis Avenue Stale, 69000 Lyon',
       streetNumber: '99',
-      streetName: 'Rue Stale',
+      streetExtension: 'bis',
+      streetType: 'Avenue',
+      streetName: 'Stale',
       postalCode: '69000',
       city: 'Lyon',
       birthDate: '1988-05-12',
       birthPlace: 'Marseille',
-      phone: '0611111111',
-      email: 'stale@test.fr',
+      phone: '',
+      email: '',
       salePrice: 14000,
       saleDate: '2026-10-01',
     },
@@ -491,34 +507,83 @@ test('buildSaleWizardInitialState always starts at step 1 with blank buyer field
 
   const state = buildSaleWizardInitialState(unsoldWithStaleBuyer, '2026-11-21');
   assert.equal(state.step, 1);
+  assert.equal(state.make, 'Peugeot');
+  assert.equal(state.typeVariantVersion, 'M10PGTVP000H451');
+  assert.equal(state.commercialDesignation, '208 GT LINE');
+  assert.equal(state.nationalGenre, 'CTTE');
   assert.equal(state.registrationNumber, 'EF-456-GH');
   assert.equal(state.vin, 'VF3UPHNK0MT129841');
   assert.equal(state.mileage, 45200);
   assert.equal(state.firstRegistrationDate, '2020-06-15');
+  assert.equal(state.hasRegistrationCertificate, true);
   assert.equal(state.formulaNumber, '2020XY12345');
+  assert.equal(state.certificateDate, '2020-06-20');
+  assert.equal(state.absenceReason, '');
   assert.equal(state.saleDate, '2026-11-21');
   assert.equal(state.salePrice, 14900);
 
   // Strictly blank buyer fields when status !== 'sold'
+  assert.equal(state.sex, '');
   assert.equal(state.fullName, '');
   assert.equal(state.birthDate, '');
   assert.equal(state.birthPlace, '');
   assert.equal(state.streetNumber, '');
+  assert.equal(state.streetExtension, '');
+  assert.equal(state.streetType, '');
   assert.equal(state.streetName, '');
   assert.equal(state.postalCode, '');
   assert.equal(state.city, '');
   assert.equal(state.phone, '');
   assert.equal(state.email, '');
 
-  // When already sold, still starts at Step 1 and preserves active buyerInfo for editing
+  // When already sold, still starts at Step 1 and preserves active buyerInfo including sex & split address
   const soldState = buildSaleWizardInitialState(
     { ...unsoldWithStaleBuyer, status: 'sold' },
     '2026-11-21'
   );
   assert.equal(soldState.step, 1);
+  assert.equal(soldState.sex, 'F');
   assert.equal(soldState.fullName, 'Stale Buyer');
+  assert.equal(soldState.streetExtension, 'bis');
+  assert.equal(soldState.streetType, 'Avenue');
   assert.equal(soldState.city, 'Lyon');
   assert.equal(soldState.salePrice, 14000);
+
+  // Absent certificate initializes absenceReason cleanly
+  const absentCertState = buildSaleWizardInitialState(
+    {
+      ...unsoldWithStaleBuyer,
+      hasRegistrationCertificate: false,
+      formulaNumber: '2020XY12345',
+      absenceReason: 'Perte du certificat',
+    },
+    '2026-11-21'
+  );
+  assert.equal(absentCertState.hasRegistrationCertificate, false);
+  assert.equal(absentCertState.formulaNumber, '');
+  assert.equal(absentCertState.absenceReason, 'Perte du certificat');
+
+  // formatBuyerFullAddress combines split Cerfa address parts cleanly
+  assert.equal(
+    formatBuyerFullAddress({
+      streetNumber: '14',
+      streetExtension: 'bis',
+      streetType: 'Rue',
+      streetName: 'des Lilas',
+      postalCode: '69003',
+      city: 'Lyon',
+    }),
+    '14 bis Rue des Lilas, 69003 Lyon'
+  );
+  assert.equal(
+    formatBuyerFullAddress({
+      streetNumber: '8',
+      streetName: 'Rue Victor Hugo',
+      postalCode: '75016',
+      city: 'Paris',
+    }),
+    '8 Rue Victor Hugo, 75016 Paris'
+  );
 });
 
 test('buildVehicleSubmitPayload persists supplierId/supplierName and estimatePhotosPayloadBytes tracks Firestore 1 MB budget', () => {
@@ -734,6 +799,68 @@ test('resolveDefaultSellerProfileId, resolveVehicleSellerProfileId, and buildVeh
   );
   assert.equal(clearedSupplierPayload.supplierId, undefined);
   assert.equal(clearedSupplierPayload.supplierName, undefined);
+});
+
+test('resolveInitialCommercialDesignation and buildVehicleSubmitPayload unify (D.3) commercialDesignation and legacy trim', () => {
+  assert.equal(
+    resolveInitialCommercialDesignation({ commercialDesignation: '208 GT Line', trim: 'Allure' }),
+    '208 GT Line'
+  );
+  assert.equal(
+    resolveInitialCommercialDesignation({ commercialDesignation: '', trim: 'Intens 130ch' }),
+    'Intens 130ch'
+  );
+  assert.equal(resolveInitialCommercialDesignation(null), '');
+
+  const payload = buildVehicleSubmitPayload(
+    createBaseInput({
+      commercialDesignation: 'Clio V R.S. Line',
+      trim: '',
+    }),
+    'user_1'
+  );
+  assert.equal(payload.commercialDesignation, 'Clio V R.S. Line');
+  assert.equal(payload.trim, 'Clio V R.S. Line');
+});
+
+test('resolveInitialConsolidatedModel and buildVehicleSubmitPayload keep model and (D.3) commercialDesignation synced', () => {
+  assert.equal(
+    resolveInitialConsolidatedModel({
+      model: '3008 GT Line',
+      commercialDesignation: '3008',
+      trim: 'Allure',
+    }),
+    '3008 GT Line'
+  );
+  assert.equal(
+    resolveInitialConsolidatedModel({
+      model: '',
+      commercialDesignation: 'Clio TCe 90',
+      trim: '',
+    }),
+    'Clio TCe 90'
+  );
+  assert.equal(
+    resolveInitialConsolidatedModel({
+      model: '',
+      commercialDesignation: '',
+      trim: 'Intens',
+    }),
+    'Intens'
+  );
+  assert.equal(resolveInitialConsolidatedModel(null), '');
+
+  const synced = buildVehicleSubmitPayload(
+    createBaseInput({
+      model: '3008 GT Line',
+      commercialDesignation: '',
+      trim: '',
+    }),
+    'user_1'
+  );
+  assert.equal(synced.model, '3008 GT Line');
+  assert.equal(synced.commercialDesignation, '3008 GT Line');
+  assert.equal(synced.trim, '3008 GT Line');
 });
 
 

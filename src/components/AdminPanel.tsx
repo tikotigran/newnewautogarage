@@ -123,6 +123,7 @@ import {
 import { formatEuro } from '../utils/finance';
 import { Language, pickLocalized } from '../utils/i18nUtils';
 import { useI18n } from '../i18n/I18nContext';
+import { BrandLogo } from './BrandLogo';
 import { translations } from '../i18n/translations';
 
 type AdminTab =
@@ -1162,9 +1163,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </span>
           </button>
 
-          <div className="px-2 pb-3 border-b border-slate-800">
-            <p className="text-[11px] font-bold tracking-wider text-amber-400">SUPERADMIN</p>
-            <h2 className="text-sm font-bold text-white mt-0.5">AutoGarage Console</h2>
+          <div className="px-2 pb-3 border-b border-slate-800 flex items-center gap-2.5">
+            <BrandLogo alt="AutoGarage Console" size="sm" testId="admin-sidebar-brand-logo" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold tracking-wider text-amber-400">SUPERADMIN</p>
+              <h2 className="text-sm font-bold text-white mt-0.5 truncate">AutoGarage Console</h2>
+            </div>
           </div>
 
           <nav className="space-y-1" aria-label="SuperAdmin navigation">

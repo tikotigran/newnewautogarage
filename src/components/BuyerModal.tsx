@@ -3,8 +3,6 @@ import {
   X,
   CheckCircle2,
   User,
-  Phone,
-  Mail,
   MapPin,
   Calendar,
   AlertCircle,
@@ -27,9 +25,12 @@ import { getGarageSettings } from '../services/garageService';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { SellerProfileSelector } from './SellerProfileSelector';
+import { ThemedSelect } from './ThemedSelect';
+import { normalizeSplitAddressParts } from '../utils/cerfa15776';
 import { resolveSellerProfileForVehicle } from '../utils/profileSeparationUtils';
 import {
   buildSaleWizardInitialState,
+  formatBuyerFullAddress,
   formatCerfaMissingToast,
   resolveDefaultSellerProfileId,
   VIN_REGEX,
@@ -52,6 +53,11 @@ interface BuyerModalProps {
 type SaleWizardStep = 1 | 2 | 3;
 
 type BuyerFieldErrorKey =
+  | 'make'
+  | 'commercialDesignation'
+  | 'firstRegistrationDate'
+  | 'formulaOrCertificateDate'
+  | 'absenceReason'
   | 'vin'
   | 'mileage'
   | 'salePrice'
@@ -61,6 +67,23 @@ type BuyerFieldErrorKey =
   | 'streetName'
   | 'postalCode'
   | 'city';
+
+const STREET_TYPES = [
+  'Rue',
+  'Avenue',
+  'Boulevard',
+  'Impasse',
+  'Allée',
+  'Chemin',
+  'Place',
+  'Route',
+  'Cours',
+  'Square',
+  'Passage',
+  'Voie',
+  'Quai',
+  'Résidence',
+];
 
 export const BuyerModal: React.FC<BuyerModalProps> = ({
   isOpen,
@@ -141,14 +164,25 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     ...buildProfileSettingsPatch(sellerProfileType, resolvedSettings),
   };
 
-  // Step 1: Vehicle technical details
+  // Step 1: Vehicle technical details (Cerfa 15776*02 LE VÉHICULE)
+  const [make, setMake] = useState(initialWizard.make);
+  const [typeVariantVersion, setTypeVariantVersion] = useState(initialWizard.typeVariantVersion);
+  const [commercialDesignation, setCommercialDesignation] = useState(
+    initialWizard.commercialDesignation
+  );
+  const [nationalGenre, setNationalGenre] = useState(initialWizard.nationalGenre);
   const [registrationNumber, setRegistrationNumber] = useState(initialWizard.registrationNumber);
   const [vin, setVin] = useState(initialWizard.vin);
   const [mileage, setMileage] = useState<number | ''>(initialWizard.mileage);
   const [firstRegistrationDate, setFirstRegistrationDate] = useState(
     initialWizard.firstRegistrationDate
   );
+  const [hasRegistrationCertificate, setHasRegistrationCertificate] = useState<boolean>(
+    initialWizard.hasRegistrationCertificate
+  );
   const [formulaNumber, setFormulaNumber] = useState(initialWizard.formulaNumber);
+  const [certificateDate, setCertificateDate] = useState(initialWizard.certificateDate);
+  const [absenceReason, setAbsenceReason] = useState(initialWizard.absenceReason);
 
   // Step 2: Seller & deal date/time
   const [saleDate, setSaleDate] = useState(initialWizard.saleDate);
@@ -156,16 +190,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
   // Step 3: Buyer & final price (strictly blank for unsold vehicles)
   const [isCompany, setIsCompany] = useState(initialWizard.isCompany);
+  const [buyerSex, setBuyerSex] = useState<'M' | 'F' | ''>(initialWizard.sex);
   const [fullName, setFullName] = useState(initialWizard.fullName);
   const [siret, setSiret] = useState(initialWizard.siret);
   const [birthDate, setBirthDate] = useState(initialWizard.birthDate);
   const [birthPlace, setBirthPlace] = useState(initialWizard.birthPlace);
   const [streetNumber, setStreetNumber] = useState(initialWizard.streetNumber);
+  const [streetExtension, setStreetExtension] = useState(initialWizard.streetExtension);
+  const [streetType, setStreetType] = useState(initialWizard.streetType);
   const [streetName, setStreetName] = useState(initialWizard.streetName);
   const [postalCode, setPostalCode] = useState(initialWizard.postalCode);
   const [city, setCity] = useState(initialWizard.city);
-  const [phone, setPhone] = useState(initialWizard.phone);
-  const [email, setEmail] = useState(initialWizard.email);
   const [salePrice, setSalePrice] = useState<number | ''>(initialWizard.salePrice);
   const [saleChannel, setSaleChannel] = useState(initialWizard.saleChannel);
 
@@ -188,24 +223,32 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             latestSettings
           )
       );
+      setMake(resetState.make);
+      setTypeVariantVersion(resetState.typeVariantVersion);
+      setCommercialDesignation(resetState.commercialDesignation);
+      setNationalGenre(resetState.nationalGenre);
       setRegistrationNumber(resetState.registrationNumber);
       setVin(resetState.vin);
       setMileage(resetState.mileage);
       setFirstRegistrationDate(resetState.firstRegistrationDate);
+      setHasRegistrationCertificate(resetState.hasRegistrationCertificate);
       setFormulaNumber(resetState.formulaNumber);
+      setCertificateDate(resetState.certificateDate);
+      setAbsenceReason(resetState.absenceReason);
       setSaleDate(resetState.saleDate);
       setSaleTime(resetState.saleTime);
       setIsCompany(resetState.isCompany);
+      setBuyerSex(resetState.sex);
       setFullName(resetState.fullName);
       setSiret(resetState.siret);
       setBirthDate(resetState.birthDate);
       setBirthPlace(resetState.birthPlace);
       setStreetNumber(resetState.streetNumber);
+      setStreetExtension(resetState.streetExtension);
+      setStreetType(resetState.streetType);
       setStreetName(resetState.streetName);
       setPostalCode(resetState.postalCode);
       setCity(resetState.city);
-      setPhone(resetState.phone);
-      setEmail(resetState.email);
       setSalePrice(resetState.salePrice);
       setSaleChannel(resetState.saleChannel);
       setError(null);
@@ -242,6 +285,35 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   const projectedMargin = numericSalePrice > 0 ? (projectedNetProfit / numericSalePrice) * 100 : 0;
 
   const validateStep1 = (): boolean => {
+    const nextErrors: Partial<Record<BuyerFieldErrorKey, string>> = {};
+    const missingLabels: string[] = [];
+
+    if (!make.trim()) {
+      const lbl = L('(D.1) Marque', '(D.1) Марка', '(D.1) Մակնիշ', '(D.1) მარკა');
+      nextErrors.make = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!commercialDesignation.trim()) {
+      const lbl = L(
+        '(D.3) Dénomination commerciale',
+        '(D.3) Коммерческое наименование',
+        '(D.3) Առևտրային անվանում',
+        '(D.3) კომერციული დასახელება'
+      );
+      nextErrors.commercialDesignation = lbl;
+      missingLabels.push(lbl);
+    }
+    if (!firstRegistrationDate.trim()) {
+      const lbl = L(
+        '(B) 1re immatriculation',
+        '(B) Дата 1-й регистрации',
+        '(B) Առաջին գրանցում',
+        '(B) პირველი რეგისტრაცია'
+      );
+      nextErrors.firstRegistrationDate = lbl;
+      missingLabels.push(lbl);
+    }
+
     const cleanedVin = vin.replace(/\s+/g, '').toUpperCase();
     if (cleanedVin.length > 0 && !VIN_REGEX.test(cleanedVin)) {
       const msg = L(
@@ -255,6 +327,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       onValidationToast?.(msg);
       return false;
     }
+
     if (mileage !== '' && (Number.isNaN(Number(mileage)) || Number(mileage) < 0)) {
       const msg = L(
         'Le kilométrage doit être positif.',
@@ -264,8 +337,40 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       );
       setFieldErrors({ mileage: msg });
       setError(msg);
+      onValidationToast?.(msg);
       return false;
     }
+
+    if (hasRegistrationCertificate) {
+      if (!formulaNumber.trim() && !certificateDate.trim()) {
+        const lbl = L(
+          'Numéro de formule / (I) Date du certificat',
+          'Номер формулы / (I) Дата СТС',
+          'Ձևաթղթի համար / (I) Ամսաթիվ',
+          'ფორმულის ნომერი / (I) მოწმობის თარიღი'
+        );
+        nextErrors.formulaOrCertificateDate = lbl;
+        missingLabels.push(lbl);
+      }
+    } else if (!absenceReason.trim()) {
+      const lbl = L(
+        "Motif d'absence du certificat",
+        'Причина отсутствия СТС',
+        'Վկայականի բացակայության պատճառ',
+        'მოწმობის არქონის მიზეზი'
+      );
+      nextErrors.absenceReason = lbl;
+      missingLabels.push(lbl);
+    }
+
+    if (missingLabels.length > 0) {
+      const toastMsg = formatCerfaMissingToast(missingLabels, lang);
+      setFieldErrors(nextErrors);
+      setError(toastMsg);
+      onValidationToast?.(toastMsg);
+      return false;
+    }
+
     setError(null);
     setFieldErrors({});
     return true;
@@ -363,7 +468,14 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       setError(null);
       setFieldErrors({});
 
-      const fullFormattedAddress = `${streetNumber ? streetNumber + ' ' : ''}${streetName.trim()}, ${postalCode.trim()} ${city.trim()}`;
+      const fullFormattedAddress = formatBuyerFullAddress({
+        streetNumber,
+        streetExtension,
+        streetType,
+        streetName,
+        postalCode,
+        city,
+      });
 
       const existingSnapshot =
         vehicle.status === 'sold' ? vehicle.buyerInfo?.taxSnapshot : undefined;
@@ -390,21 +502,27 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
               vatRateOverride: 0,
             });
 
+      const preservedPhone = vehicle.status === 'sold' ? vehicle.buyerInfo?.phone || '' : '';
+      const preservedEmail = vehicle.status === 'sold' ? vehicle.buyerInfo?.email || '' : '';
+
       const buyerData: BuyerInfo = {
         isCompany,
         sellerProfileType,
         sellerProfileId,
+        sex: isCompany ? undefined : buyerSex || undefined,
         fullName: fullName.trim(),
-        siret: siret.trim() || undefined,
+        siret: isCompany ? siret.trim() || undefined : undefined,
         birthDate: isCompany ? undefined : birthDate || undefined,
         birthPlace: isCompany ? undefined : birthPlace.trim() || undefined,
         streetNumber: streetNumber.trim(),
+        streetExtension: streetExtension.trim() || undefined,
+        streetType: streetType.trim() || undefined,
         streetName: streetName.trim(),
         postalCode: postalCode.trim(),
         city: city.trim(),
         address: fullFormattedAddress,
-        phone: phone.trim() || L('Non renseigné', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
-        email: email.trim() || L('Non renseigné', 'Не указано', 'Նշված չէ', 'მითითებული არ არის'),
+        phone: preservedPhone,
+        email: preservedEmail,
         salePrice: Number(salePrice),
         saleDate,
         saleTime,
@@ -418,11 +536,18 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       const cleanedVin = vin.replace(/\s+/g, '').toUpperCase();
       const cleanedFormula = formulaNumber.replace(/\s+/g, '').toUpperCase();
       const vehicleUpdates: Partial<Vehicle> = {
+        make: make.trim(),
+        typeVariantVersion: typeVariantVersion.trim(),
+        commercialDesignation: commercialDesignation.trim().toUpperCase(),
+        nationalGenre: nationalGenre.trim() || 'VP',
         registrationNumber: cleanedReg,
         vin: cleanedVin,
         mileage: mileage === '' ? vehicle.mileage : Math.max(0, Number(mileage)),
         firstRegistrationDate: firstRegistrationDate.trim(),
-        formulaNumber: cleanedFormula,
+        hasRegistrationCertificate,
+        formulaNumber: hasRegistrationCertificate ? cleanedFormula : '',
+        certificateDate: hasRegistrationCertificate ? certificateDate.trim() : '',
+        absenceReason: hasRegistrationCertificate ? '' : absenceReason.trim(),
         purchaseStatus: isParticulierSeller ? 'particulier' : 'micro',
         sellerProfileId,
       };
@@ -471,20 +596,18 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       ? L('Vendeur particulier', 'Частное лицо', 'Անհատ վաճառող', 'კერძო გამყიდველი')
       : L('Garage / Entreprise', 'Гараж / ИП', 'Ավտոսրահ / ԱՁ', 'გარაჟი / ი/მ'));
 
-  const sellerAddressLine = [
-    [
-      resolvedSellerInfo.profile.streetNumber,
-      resolvedSellerInfo.profile.streetType,
-      resolvedSellerInfo.profile.streetName,
-    ]
+  const sellerSplitAddress = normalizeSplitAddressParts({
+    streetNumber: resolvedSellerInfo.profile.streetNumber,
+    streetExtension: resolvedSellerInfo.profile.streetExtension,
+    streetType: resolvedSellerInfo.profile.streetType,
+    streetName: resolvedSellerInfo.profile.streetName,
+  });
+
+  const sellerFullNameFormatted =
+    [resolvedSellerInfo.profile.lastName, resolvedSellerInfo.profile.firstName]
       .filter(Boolean)
-      .join(' '),
-    [resolvedSellerInfo.profile.postalCode, resolvedSellerInfo.profile.city]
-      .filter(Boolean)
-      .join(' '),
-  ]
-    .filter(Boolean)
-    .join(', ');
+      .join(', ')
+      .toUpperCase() || sellerDisplayName.toUpperCase();
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
@@ -584,7 +707,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: VEHICLE TECHNICAL DATA */}
+          {/* STEP 1: VEHICLE TECHNICAL DATA (Cerfa 15776*02 LE VÉHICULE) */}
           {step === 1 && (
             <div data-testid="sale-wizard-step-1" className="space-y-3.5">
               <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 flex items-center gap-3">
@@ -594,38 +717,40 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 <div className="min-w-0">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400">
                     {L(
-                      'Étape 1 : Vérification des données du véhicule',
-                      'Шаг 1: Данные автомобиля (для ДКП и Cerfa)',
-                      'Քայլ 1․ Ավտոմեքենայի տվյալներ',
-                      'ნაბიჯი 1: ავტომობილის მონაცემები'
+                      'Étape 1 : Le Véhicule (Cerfa 15776*02)',
+                      'Шаг 1: Данные автомобиля (Cerfa 15776*02)',
+                      'Քայլ 1․ Ավտոմեքենա (Cerfa 15776*02)',
+                      'ნაბიჯი 1: ავტომობილი (Cerfa 15776*02)'
                     )}
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    {vehicle.make} {vehicle.model} ({vehicle.year})
+                    {make || vehicle.make} {vehicle.model} ({vehicle.year})
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="sale-step1-registration" className="block text-xs font-semibold text-slate-300 mb-1">
                     {L('Immatriculation (A)', 'Госномер (A)', 'Պետհամարանիշ (A)', 'სახელმწიფო ნომერი (A)')}
                   </label>
                   <input
+                    id="sale-step1-registration"
                     type="text"
                     data-testid="sale-step1-registration"
                     value={registrationNumber}
                     onChange={(e) => setRegistrationNumber(e.target.value.toUpperCase())}
                     placeholder="AB-123-CD"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                    className="w-full h-[38px] px-3 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="sale-step1-mileage" className="block text-xs font-semibold text-slate-300 mb-1">
                     {L('Kilométrage (km)', 'Пробег (км)', 'Վազք (կմ)', 'გარბენი (კმ)')}
                   </label>
                   <input
+                    id="sale-step1-mileage"
                     type="number"
                     min={0}
                     data-testid="sale-step1-mileage"
@@ -635,9 +760,36 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       setFieldErrors((prev) => ({ ...prev, mileage: undefined }));
                     }}
                     placeholder="84500"
-                    className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                    className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                       fieldErrors.mileage
                         ? 'border-red-500 focus:border-red-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="sale-step1-first-reg-date" className="block text-xs font-semibold text-slate-300 mb-1">
+                    {L(
+                      '1re immatriculation (B) *',
+                      '1-я регистрация (B) *',
+                      '1-ին գրանցում (B) *',
+                      '1-ლი რეგისტრაცია (B) *'
+                    )}
+                  </label>
+                  <input
+                    id="sale-step1-first-reg-date"
+                    type="date"
+                    required
+                    data-testid="sale-step1-first-reg-date"
+                    value={firstRegistrationDate}
+                    onChange={(e) => {
+                      setFirstRegistrationDate(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, firstRegistrationDate: undefined }));
+                    }}
+                    className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none ${
+                      fieldErrors.firstRegistrationDate
+                        ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                         : 'border-slate-800 focus:border-amber-500'
                     }`}
                   />
@@ -645,10 +797,11 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                <label htmlFor="sale-step1-vin" className="block text-xs font-semibold text-slate-300 mb-1">
                   VIN (E)
                 </label>
                 <input
+                  id="sale-step1-vin"
                   type="text"
                   maxLength={17}
                   data-testid="sale-step1-vin"
@@ -658,7 +811,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     setFieldErrors((prev) => ({ ...prev, vin: undefined }));
                   }}
                   placeholder="VF3UPHNK0MT129841"
-                  className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none ${
+                  className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none ${
                     fieldErrors.vin
                       ? 'border-red-500 focus:border-red-500'
                       : 'border-slate-800 focus:border-amber-500'
@@ -666,43 +819,298 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    {L(
-                      'Date de 1ère immatriculation (B)',
-                      'Дата 1-й регистрации (B)',
-                      'Առաջին գրանցման ամսաթիվ (B)',
-                      'პირველი რეგისტრაციის თარიღი (B)'
-                    )}
+                  <label htmlFor="sale-step1-make" className="block text-xs font-semibold text-slate-300 mb-1">
+                    {L('(D.1) Marque *', '(D.1) Марка *', '(D.1) Մակնիշ *', '(D.1) მარკა *')}
                   </label>
                   <input
-                    type="date"
-                    data-testid="sale-step1-first-reg-date"
-                    value={firstRegistrationDate}
-                    onChange={(e) => setFirstRegistrationDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                    id="sale-step1-make"
+                    type="text"
+                    required
+                    data-testid="sale-step1-make"
+                    value={make}
+                    onChange={(e) => {
+                      setMake(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, make: undefined }));
+                    }}
+                    placeholder="PEUGEOT"
+                    className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                      fieldErrors.make
+                        ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  <label htmlFor="sale-step1-d2" className="block text-xs font-semibold text-slate-300 mb-1">
                     {L(
-                      'N° de formule (Carte Grise)',
-                      'Номер формулы (N° de formule)',
-                      'Ձևաթղթի համար (N° de formule)',
-                      'ფორმულის ნომერი (N° de formule)'
+                      '(D.2) Type, variante, version',
+                      '(D.2) Тип, вариант, версия',
+                      '(D.2) Տիպ, տարբերակ',
+                      '(D.2) ტიპი, ვარიანტი, ვერსია'
                     )}
                   </label>
                   <input
+                    id="sale-step1-d2"
                     type="text"
-                    data-testid="sale-step1-formula-number"
-                    value={formulaNumber}
-                    onChange={(e) => setFormulaNumber(e.target.value.toUpperCase())}
-                    placeholder="2021AB12345"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                    data-testid="sale-step1-d2"
+                    value={typeVariantVersion}
+                    onChange={(e) => setTypeVariantVersion(e.target.value)}
+                    placeholder="M10PGTVP000H451"
+                    className="w-full h-[38px] px-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label htmlFor="sale-step1-j1" className="block text-xs font-semibold text-slate-300 mb-1">
+                    {L(
+                      '(J.1) Genre national',
+                      '(J.1) Категория ТС',
+                      '(J.1) Տեսակ',
+                      '(J.1) კატეგორია'
+                    )}
+                  </label>
+                  <ThemedSelect
+                    id="sale-step1-j1"
+                    testId="sale-step1-j1"
+                    ariaLabel={L(
+                      '(J.1) Genre national',
+                      '(J.1) Категория ТС',
+                      '(J.1) Տեսակ',
+                      '(J.1) კატეგორია'
+                    )}
+                    value={nationalGenre}
+                    onChange={setNationalGenre}
+                    options={[
+                      {
+                        value: 'VP',
+                        label: L(
+                          'VP (Voiture particulière)',
+                          'VP (Легковой авто)',
+                          'VP (Մարդատար ավտո)',
+                          'VP (მსუბუქი ავტო)'
+                        ),
+                      },
+                      {
+                        value: 'CTTE',
+                        label: L(
+                          'CTTE (Camionnette)',
+                          'CTTE (Фургон / LCV)',
+                          'CTTE (Ֆուրգոն)',
+                          'CTTE (ფურგონი)'
+                        ),
+                      },
+                      {
+                        value: 'MTT1',
+                        label: L(
+                          'MTT1 / MTT2 (Moto)',
+                          'MTT1 / MTT2 (Мотоцикл)',
+                          'MTT1 / MTT2 (Մոտոցիկլ)',
+                          'MTT1 / MTT2 (მოტოციკლი)'
+                        ),
+                      },
+                      {
+                        value: 'CAM',
+                        label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
+                      },
+                      {
+                        value: 'VASP',
+                        label: L(
+                          'VASP (Véhicule spécialisé)',
+                          'VASP (Спецтехника)',
+                          'VASP (Հատուկ տեխնիկա)',
+                          'VASP (სპეცტექნიკა)'
+                        ),
+                      },
+                    ]}
+                    triggerClassName="w-full h-[38px] px-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="sale-step1-d3" className="block text-xs font-semibold text-slate-300 mb-1">
+                    {L(
+                      '(D.3) Dénomination commerciale *',
+                      '(D.3) Коммерческое наименование *',
+                      '(D.3) Առևտրային անվանում *',
+                      '(D.3) კომერციული დასახელება *'
+                    )}
+                  </label>
+                  <input
+                    id="sale-step1-d3"
+                    type="text"
+                    required
+                    data-testid="sale-step1-d3"
+                    value={commercialDesignation}
+                    onChange={(e) => {
+                      setCommercialDesignation(e.target.value.toUpperCase());
+                      setFieldErrors((prev) => ({ ...prev, commercialDesignation: undefined }));
+                    }}
+                    placeholder="208 GT LINE"
+                    className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm uppercase text-white placeholder-slate-600 focus:outline-none ${
+                      fieldErrors.commercialDesignation
+                        ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                        : 'border-slate-800 focus:border-amber-500'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Présence du certificat d'immatriculation */}
+              <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    {L(
+                      "Présence du certificat d'immatriculation *",
+                      'Наличие свидетельства о регистрации (Carte Grise) *',
+                      'Գրանցման վկայականի առկայություն *',
+                      'რეგისტრაციის მოწმობის არსებობა *'
+                    )}
+                  </span>
+                  <div
+                    role="group"
+                    aria-label={L(
+                      "Présence du certificat d'immatriculation",
+                      'Наличие свидетельства о регистрации',
+                      'Գրանցման վկայականի առկայություն',
+                      'რეგისტრაციის მოწმობის არსებობა'
+                    )}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <button
+                      type="button"
+                      data-testid="sale-step1-cert-yes"
+                      aria-pressed={hasRegistrationCertificate}
+                      onClick={() => {
+                        setHasRegistrationCertificate(true);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          absenceReason: undefined,
+                          formulaOrCertificateDate: undefined,
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        hasRegistrationCertificate
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {L('Oui', 'Да', 'Այո', 'დიახ')}
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="sale-step1-cert-no"
+                      aria-pressed={!hasRegistrationCertificate}
+                      onClick={() => {
+                        setHasRegistrationCertificate(false);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          absenceReason: undefined,
+                          formulaOrCertificateDate: undefined,
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                        !hasRegistrationCertificate
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {L('Non', 'Нет', 'Ոչ', 'არა')}
+                    </button>
+                  </div>
+                </div>
+
+                {hasRegistrationCertificate ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                    <div>
+                      <label htmlFor="sale-step1-formula-number" className="block text-xs font-semibold text-slate-300 mb-1">
+                        {L(
+                          'N° de formule (Carte Grise) *',
+                          'N° de formule (Номер формулы) *',
+                          'Ձևաթղթի համար (N° de formule) *',
+                          'ფორმულის ნომერი (N° de formule) *'
+                        )}
+                      </label>
+                      <input
+                        id="sale-step1-formula-number"
+                        type="text"
+                        data-testid="sale-step1-formula-number"
+                        value={formulaNumber}
+                        onChange={(e) => {
+                          setFormulaNumber(e.target.value.toUpperCase());
+                          setFieldErrors((prev) => ({ ...prev, formulaOrCertificateDate: undefined }));
+                        }}
+                        placeholder="2021AB12345"
+                        className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm font-mono uppercase text-white placeholder-slate-600 focus:outline-none ${
+                          fieldErrors.formulaOrCertificateDate
+                            ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                            : 'border-slate-800 focus:border-amber-500'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="sale-step1-cert-date" className="block text-xs font-semibold text-slate-300 mb-1">
+                        {L(
+                          'ou (I) Date du certificat (ancien format)',
+                          'или (I) Дата выдачи СТС (старый формат)',
+                          'կամ (I) Վկայականի ամսաթիվ (հին ձև)',
+                          'ან (I) მოწმობის თარიღი (ძველი ფორმატი)'
+                        )}
+                      </label>
+                      <input
+                        id="sale-step1-cert-date"
+                        type="date"
+                        data-testid="sale-step1-cert-date"
+                        value={certificateDate}
+                        onChange={(e) => {
+                          setCertificateDate(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, formulaOrCertificateDate: undefined }));
+                        }}
+                        className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-xs text-white focus:outline-none ${
+                          fieldErrors.formulaOrCertificateDate
+                            ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                            : 'border-slate-800 focus:border-amber-500'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label htmlFor="sale-step1-absence-reason" className="block text-xs font-semibold text-slate-300 mb-1">
+                      {L(
+                        "Motif d'absence du certificat *",
+                        'Причина отсутствия СТС *',
+                        'Բացակայության պատճառ *',
+                        'მოწმობის არქონის მიზეზი *'
+                      )}
+                    </label>
+                    <input
+                      id="sale-step1-absence-reason"
+                      type="text"
+                      data-testid="sale-step1-absence-reason"
+                      value={absenceReason}
+                      onChange={(e) => {
+                        setAbsenceReason(e.target.value);
+                        setFieldErrors((prev) => ({ ...prev, absenceReason: undefined }));
+                      }}
+                      placeholder={L(
+                        'ex. Perte, vol, destruction...',
+                        'напр. Утеря, кража, утилизация...',
+                        'օր.՝ Կորուստ, գողություն...',
+                        'მაგ. დაკარგვა, ქურდობა...'
+                      )}
+                      className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                        fieldErrors.absenceReason
+                          ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
+                          : 'border-slate-800 focus:border-amber-500'
+                      }`}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -815,51 +1223,103 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 </div>
               </div>
 
-              {/* Garage / Seller Credentials Recap from Settings */}
+              {/* Garage / Seller Credentials Recap from Settings (Cerfa 15776*02 — no phone/email) */}
               <div
                 data-testid="sale-step2-seller-recap"
-                className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2 text-xs"
+                className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5 text-xs"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-bold uppercase tracking-wider text-amber-400 text-[11px]">
                     {L(
-                      'Coordonnées du vendeur (depuis les paramètres)',
-                      'Реквизиты продавца (из настроек гаража / ИП)',
-                      'Վաճառողի տվյալներ (կարգավորումներից)',
-                      'გამყიდველის რეკვიზიტები (პარამეტრებიდან)'
+                      'COORDONNÉES DU VENDEUR (Cerfa 15776*02)',
+                      'ДАННЫЕ ПРОДАВЦА (Cerfa 15776*02)',
+                      'ՎԱՃԱՌՈՂԻ ՏՎՅԱԼՆԵՐ (Cerfa 15776*02)',
+                      'გამყიდველის მონაცემები (Cerfa 15776*02)'
                     )}
                   </span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    {isParticulierSeller
+                      ? L('Personne physique', 'Физическое лицо', 'Ֆիզիկական անձ', 'ფიზიკური პირი')
+                      : L('Personne morale', 'Юридическое лицо / ИП', 'Իրավաբանական անձ', 'იურიდიული პირი')}
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-slate-300">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">
-                      {L('Nom / Raison sociale', 'Продавец / Гараж', 'Անվանում', 'დასახელება')}
-                    </span>
-                    <span className="font-semibold text-white">{sellerDisplayName}</span>
-                  </div>
-                  {!isParticulierSeller && (
+
+                {isParticulierSeller ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-slate-300">
                     <div>
-                      <span className="text-[10px] text-slate-500 block">SIRET</span>
-                      <span className="font-mono text-white">
+                      <span className="text-[10px] text-slate-500 block">
+                        {L('Sexe', 'Пол (Sexe)', 'Սեռ (Sexe)', 'სქესი (Sexe)')}
+                      </span>
+                      <span data-testid="sale-step2-seller-sex" className="font-bold text-white">
+                        {resolvedSellerInfo.profile.sex || '—'}
+                      </span>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <span className="text-[10px] text-slate-500 block">
+                        {L('NOM, PRÉNOM', 'ФАМИЛИЯ, ИМЯ (NOM, PRÉNOM)', 'ԱԶԳԱՆՈՒՆ, ԱՆՈՒՆ', 'გვარი, სახელი')}
+                      </span>
+                      <span data-testid="sale-step2-seller-name" className="font-semibold text-white">
+                        {sellerFullNameFormatted}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-slate-300">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">
+                        {L('RAISON SOCIALE', 'НАЗВАНИЕ КОМПАНИИ (RAISON SOCIALE)', 'ԿԱԶՄԱԿԵՐՊՈՒԹՅԱՆ ԱՆՎԱՆՈՒՄ', 'კომპანიის დასახელება')}
+                      </span>
+                      <span data-testid="sale-step2-seller-name" className="font-semibold text-white">
+                        {sellerDisplayName}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">N° SIRET</span>
+                      <span data-testid="sale-step2-seller-siret" className="font-mono text-white">
                         {resolvedSellerInfo.profile.siret || L('Non renseigné', 'Не указан', 'Նշված չէ', 'არ არის მითითებული')}
                       </span>
                     </div>
-                  )}
-                  <div className="sm:col-span-2">
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-slate-300">
+                  <div>
                     <span className="text-[10px] text-slate-500 block">
-                      {L('Adresse', 'Адрес', 'Հասցե', 'მისამართი')}
+                      {L('N° de la voie', 'Номер дома (N°)', 'Տան համար', 'ქუჩის №')}
                     </span>
-                    <span>
-                      {sellerAddressLine || L('À compléter dans les paramètres', 'Укажите в настройках гаража', 'Լրացրեք կարգավորումներում', 'შეავსეთ პარამეტრებში')}
-                    </span>
+                    <span className="text-white font-medium">{sellerSplitAddress.streetNumber || '—'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block">{t('phone')}</span>
-                    <span>{resolvedSellerInfo.profile.phone || '—'}</span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {L('Extension (bis, ter, .)', 'Корпус (bis, ter, .)', 'Կցորդ (bis, ter, .)', 'დამატ. (bis, ter, .)')}
+                    </span>
+                    <span className="text-white font-medium">{sellerSplitAddress.streetExtension || '—'}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block">{t('email')}</span>
-                    <span className="truncate block">{resolvedSellerInfo.profile.email || '—'}</span>
+                    <span className="text-[10px] text-slate-500 block">
+                      {L('Type de voie', 'Тип улицы', 'Փողոցի տիպ', 'ქუჩის ტიპი')}
+                    </span>
+                    <span className="text-white font-medium">{sellerSplitAddress.streetType || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {L('Nom de la voie', 'Улица', 'Փողոց', 'ქუჩა')}
+                    </span>
+                    <span className="text-white font-medium">{sellerSplitAddress.streetName || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">
+                      {L('Code postal', 'Почтовый индекс', 'Փոստային ինդեքս', 'საფოსტო ინდექსი')}
+                    </span>
+                    <span className="font-mono text-white font-medium">
+                      {resolvedSellerInfo.profile.postalCode || '—'}
+                    </span>
+                  </div>
+                  <div className="sm:col-span-3">
+                    <span className="text-[10px] text-slate-500 block">
+                      {L('Commune', 'Город (Commune)', 'Քաղաք (Commune)', 'ქალაქი (Commune)')}
+                    </span>
+                    <span className="text-white font-medium">{resolvedSellerInfo.profile.city || '—'}</span>
                   </div>
                 </div>
               </div>
@@ -1040,7 +1500,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
               {/* Section: Nouveau Propriétaire (Clean blank form for fresh sales) */}
               <div className="pt-2 border-t border-slate-800">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
                   <label className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
                     {L(
                       'Section Cerfa 15776 : Nouveau Propriétaire (Acquéreur)',
@@ -1049,11 +1509,11 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       'სექცია Cerfa 15776: მყიდველი (Acquéreur)'
                     )}
                   </label>
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-xs shrink-0">
                     <button
                       type="button"
                       onClick={() => setIsCompany(false)}
-                      className={`px-2.5 py-1 rounded-lg border transition ${
+                      className={`px-2.5 py-1 rounded-lg border whitespace-nowrap transition ${
                         !isCompany
                           ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold'
                           : 'bg-slate-950 border-slate-800 text-slate-400'
@@ -1064,7 +1524,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setIsCompany(true)}
-                      className={`px-2.5 py-1 rounded-lg border transition ${
+                      className={`px-2.5 py-1 rounded-lg border whitespace-nowrap transition ${
                         isCompany
                           ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold'
                           : 'bg-slate-950 border-slate-800 text-slate-400'
@@ -1075,22 +1535,28 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                   </div>
                 </div>
 
-                {/* Buyer Name & SIRET / Birth */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                {/* Buyer Name, Sex (if Particulier), & SIRET / Birth */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 items-end">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    <label htmlFor="buyer-full-name" className="block text-xs font-semibold text-slate-300 mb-1">
                       {isCompany
                         ? L(
-                            'Raison Sociale de l’Entreprise *',
-                            'Название компании (Raison sociale) *',
-                            'Կազմակերպության անվանումը *',
+                            'Raison sociale *',
+                            'Название компании *',
+                            'Կազմակերպության անվանում *',
                             'კომპანიის დასახელება *'
                           )
-                        : t('buyerFullNameLabel')}
+                        : L(
+                            'NOM et PRÉNOM *',
+                            'ФИО покупателя *',
+                            'ԱՆՈՒՆ, ԱԶԳԱՆՈՒՆ *',
+                            'სახელი და გვარი *'
+                          )}
                     </label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
+                        id="buyer-full-name"
                         type="text"
                         required
                         data-testid="buyer-full-name"
@@ -1109,7 +1575,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                               )
                             : t('buyerFullNamePlaceholder')
                         }
-                        className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                        className={`w-full h-[38px] pl-9 pr-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                           fieldErrors.fullName
                             ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                             : 'border-slate-800 focus:border-amber-500'
@@ -1120,12 +1586,14 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
 
                   {isCompany ? (
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      <label htmlFor="buyer-siret" className="block text-xs font-semibold text-slate-300 mb-1">
                         {t('buyerSiretLabel')}
                       </label>
                       <div className="relative">
                         <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                         <input
+                          id="buyer-siret"
+                          data-testid="buyer-siret"
                           type="text"
                           value={siret}
                           onChange={(e) => setSiret(e.target.value)}
@@ -1135,46 +1603,71 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                             'օր.՝ 912 345 678 00019',
                             'მაგ. 912 345 678 00019'
                           )}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                          className="w-full h-[38px] pl-9 pr-3 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          {t('buyerBirthDateLabel')}
+                    <div className="grid grid-cols-12 gap-2 items-end">
+                      <div className="col-span-3">
+                        <span className="block text-xs font-semibold text-slate-300 mb-1">
+                          {L('Sexe', 'Пол', 'Սեռ', 'სქესი')}
+                        </span>
+                        <div className="grid grid-cols-2 gap-1" role="group" aria-label={L('Sexe', 'Пол', 'Սեռ', 'სქესი')}>
+                          {(['M', 'F'] as const).map((sx) => (
+                            <button
+                              key={sx}
+                              type="button"
+                              data-testid={`buyer-sex-${sx.toLowerCase()}`}
+                              aria-pressed={buyerSex === sx}
+                              onClick={() => setBuyerSex((prev) => (prev === sx ? '' : sx))}
+                              className={`h-[38px] rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                buyerSex === sx
+                                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {sx}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="col-span-5">
+                        <label htmlFor="buyer-birth-date" className="block text-xs font-semibold text-slate-300 mb-1">
+                          {L('Né(e) le', 'Дата рожд.', 'Ծննդ. ամսաթիվ', 'დაბად. თარიღი')}
                         </label>
                         <input
+                          id="buyer-birth-date"
                           type="date"
                           data-testid="buyer-birth-date"
                           value={birthDate}
                           onChange={(e) => setBirthDate(e.target.value)}
-                          className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                          className="w-full h-[38px] px-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-300 mb-1">
-                          {t('buyerBirthPlaceLabel')}
+                      <div className="col-span-4">
+                        <label htmlFor="buyer-birth-place" className="block text-xs font-semibold text-slate-300 mb-1">
+                          {L('À (Lieu)', 'Место рожд.', 'Ծննդավայր', 'დაბ. ადგილი')}
                         </label>
                         <input
+                          id="buyer-birth-place"
                           type="text"
                           data-testid="buyer-birth-place"
                           value={birthPlace}
                           onChange={(e) => setBirthPlace(e.target.value)}
-                          placeholder={L('ex. Lyon (69)', 'напр. Lyon (69)', 'օր.՝ Lyon (69)', 'მაგ. Lyon (69)')}
-                          className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                          placeholder={L('ex. Lyon', 'напр. Lyon', 'օր.՝ Lyon', 'მაგ. Lyon')}
+                          className="w-full h-[38px] px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Address fields */}
-                <div className="grid grid-cols-4 gap-3 mb-3">
-                  <div className="col-span-1">
+                {/* Split Address fields matching Cerfa 15776*02 */}
+                <div className="grid grid-cols-2 sm:grid-cols-12 gap-2.5 mb-3 items-end">
+                  <div className="sm:col-span-2">
                     <label htmlFor="buyer-street-number" className="block text-xs font-semibold text-slate-300 mb-1">
-                      {L('N° de voie *', 'Номер дома *', 'Տան համար *', 'ქუჩის № *')}
+                      {L('N° de voie *', 'Номер дома *', 'Տան № *', 'ქუჩის № *')}
                     </label>
                     <input
                       id="buyer-street-number"
@@ -1187,14 +1680,45 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                         setFieldErrors((prev) => ({ ...prev, streetNumber: undefined }));
                       }}
                       placeholder="14"
-                      className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                      className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                         fieldErrors.streetNumber
                           ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                           : 'border-slate-800 focus:border-amber-500'
                       }`}
                     />
                   </div>
-                  <div className="col-span-3">
+                  <div className="sm:col-span-3">
+                    <label htmlFor="buyer-street-extension" className="block text-xs font-semibold text-slate-300 mb-1">
+                      {L('Extension (bis, ter, .)', 'Корпус (bis, ter, .)', 'Կցորդ (bis, ter, .)', 'დამატ. (bis, ter, .)')}
+                    </label>
+                    <input
+                      id="buyer-street-extension"
+                      data-testid="buyer-street-extension"
+                      type="text"
+                      value={streetExtension}
+                      onChange={(e) => setStreetExtension(e.target.value)}
+                      placeholder="bis"
+                      className="w-full h-[38px] px-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label htmlFor="buyer-street-type" className="block text-xs font-semibold text-slate-300 mb-1">
+                      {L('Type de voie', 'Тип улицы', 'Փողոցի տիպ', 'ქუჩის ტიპი')}
+                    </label>
+                    <ThemedSelect
+                      id="buyer-street-type"
+                      testId="buyer-street-type"
+                      ariaLabel={L('Type de voie', 'Тип улицы', 'Փողոցի տիպ', 'ქუჩის ტიპი')}
+                      value={streetType}
+                      onChange={setStreetType}
+                      options={[
+                        { value: '', label: L('— Choisir —', '— Выбрать —', '— Ընտրել —', '— არჩევა —') },
+                        ...STREET_TYPES.map((st) => ({ value: st, label: st })),
+                      ]}
+                      triggerClassName="w-full h-[38px] px-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="col-span-2 sm:col-span-4">
                     <label htmlFor="buyer-street-name" className="block text-xs font-semibold text-slate-300 mb-1">
                       {L('Nom de la voie *', 'Улица *', 'Փողոցի անվանում *', 'ქუჩის დასახელება *')}
                     </label>
@@ -1211,12 +1735,12 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                           setFieldErrors((prev) => ({ ...prev, streetName: undefined }));
                         }}
                         placeholder={L(
-                          'ex. Rue des Lilas',
-                          'напр. ул. Сиреневая',
-                          'օր.՝ Աբովյան փողոց',
-                          'მაგ. რუსთაველის გამზ.'
+                          'ex. des Lilas',
+                          'напр. Сиреневая',
+                          'օր.՝ Աբովյան',
+                          'მაგ. რუსთაველის'
                         )}
-                        className={`w-full pl-9 pr-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                        className={`w-full h-[38px] pl-9 pr-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                           fieldErrors.streetName
                             ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                             : 'border-slate-800 focus:border-amber-500'
@@ -1229,7 +1753,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                   <div>
                     <label htmlFor="buyer-postal-code" className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t('buyerPostalCodeLabel')}
+                      {L('Code postal *', 'Почтовый индекс *', 'Փոստային ինդեքս *', 'საფოსტო ინდექსი *')}
                     </label>
                     <input
                       id="buyer-postal-code"
@@ -1242,7 +1766,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                         setFieldErrors((prev) => ({ ...prev, postalCode: undefined }));
                       }}
                       placeholder="69003"
-                      className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none ${
+                      className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm font-mono text-white placeholder-slate-600 focus:outline-none ${
                         fieldErrors.postalCode
                           ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                           : 'border-slate-800 focus:border-amber-500'
@@ -1251,7 +1775,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                   </div>
                   <div>
                     <label htmlFor="buyer-city" className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t('buyerCityLabel')}
+                      {L('Commune *', 'Город (Commune) *', 'Քաղաք (Commune) *', 'ქალაქი (Commune) *')}
                     </label>
                     <input
                       id="buyer-city"
@@ -1264,46 +1788,12 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                         setFieldErrors((prev) => ({ ...prev, city: undefined }));
                       }}
                       placeholder={L('ex. Lyon', 'напр. Лион', 'օր.՝ Երևան', 'მაგ. თბილისი')}
-                      className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
+                      className={`w-full h-[38px] px-3 bg-slate-950 border rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none ${
                         fieldErrors.city
                           ? 'border-red-500 ring-2 ring-red-500/20 focus:border-red-500'
                           : 'border-slate-800 focus:border-amber-500'
                       }`}
                     />
-                  </div>
-                </div>
-
-                {/* Phone & Email */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t('phone')}
-                    </label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder={t('buyerPhonePlaceholder')}
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      {t('email')}
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder={t('buyerEmailPlaceholder')}
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
                   </div>
                 </div>
 

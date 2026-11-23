@@ -34,6 +34,7 @@ import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
 import { pickLocalized } from '../utils/i18nUtils';
 import type { SettingsTab } from './Settings';
+import { BrandLogo } from './BrandLogo';
 
 export type SidebarNavTarget =
   | 'inventory'
@@ -582,9 +583,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="flex items-center gap-2 min-w-0 text-left hover:opacity-90 transition-opacity focus:outline-none"
                   title={t('appName')}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-sm shrink-0">
-                    <Car className="w-4 h-4" />
-                  </div>
+                  <BrandLogo
+                    alt={t('appName')}
+                    size="sm"
+                    testId={isMobileDrawer ? 'sidebar-mobile-brand-logo' : 'sidebar-brand-logo'}
+                  />
                   <div className="min-w-0">
                     <span
                       style={getTextStyle('appName')}

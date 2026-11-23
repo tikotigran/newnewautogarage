@@ -788,12 +788,13 @@ export function buildFacturXXml(
     ? ''
     : (sellerSource.siret || settings.siret || '').replace(/\s+/g, '');
   const sellerName =
-    isParticulierDeal || settings.entityType === 'physique'
-      ? `${sellerSource.firstName || ''} ${sellerSource.lastName || ''}`.trim() ||
+    resolvedSeller.displayName ||
+    (isParticulierDeal || settings.entityType === 'physique'
+      ? `${sellerSource.lastName || ''} ${sellerSource.firstName || ''}`.trim() ||
         sellerSource.name ||
-        `${settings.firstName || ''} ${settings.lastName || ''}`.trim() ||
+        `${settings.lastName || ''} ${settings.firstName || ''}`.trim() ||
         settings.name
-      : sellerSource.name || settings.name;
+      : sellerSource.name || settings.name);
   const sellerStreet = [
     sellerSource.streetNumber ?? settings.streetNumber,
     sellerSource.streetExtension ?? settings.streetExtension,
@@ -806,7 +807,12 @@ export function buildFacturXXml(
 
   const buyerName = vehicle.buyerInfo?.fullName?.trim() || 'Client Particulier';
   const buyerStreet =
-    [vehicle.buyerInfo?.streetNumber, vehicle.buyerInfo?.streetName]
+    [
+      vehicle.buyerInfo?.streetNumber,
+      vehicle.buyerInfo?.streetExtension,
+      vehicle.buyerInfo?.streetType,
+      vehicle.buyerInfo?.streetName,
+    ]
       .filter(Boolean)
       .join(' ')
       .trim() ||

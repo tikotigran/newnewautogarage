@@ -19,6 +19,7 @@ import {
   buildVehicleSubmitPayload,
   resolveDefaultPurchaseStatus,
   resolveDefaultSellerProfileId,
+  resolveInitialConsolidatedModel,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
   resolveVehicleSellerProfileId,
@@ -55,7 +56,6 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   // Primary & Mandatory Cerfa Vehicle Fields
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
-  const [commercialDesignation, setCommercialDesignation] = useState('');
   const [firstRegistrationDate, setFirstRegistrationDate] = useState('');
   const [year, setYear] = useState<number | ''>(2021);
   const [registrationNumber, setRegistrationNumber] = useState('');
@@ -65,14 +65,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   // Collapsible Secondary & Carte Grise Fields
   const [isExtendedOpen, setIsExtendedOpen] = useState(false);
-  const [trim, setTrim] = useState('');
   const [mileage, setMileage] = useState<number | ''>('');
   const [vin, setVin] = useState('');
   const [fuelType, setFuelType] = useState('');
   const [gearbox, setGearbox] = useState('');
-  const [typeVariantVersion, setTypeVariantVersion] = useState('');
   const [nationalGenre, setNationalGenre] = useState('VP');
-  const [bodyType, setBodyType] = useState('');
   const [formulaNumber, setFormulaNumber] = useState('');
   const [certificateDate, setCertificateDate] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
@@ -110,8 +107,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
         : 'micro_entrepreneur';
     if (initialVehicle) {
       setMake(initialVehicle.make);
-      setModel(initialVehicle.model);
-      setCommercialDesignation(initialVehicle.commercialDesignation || '');
+      setModel(resolveInitialConsolidatedModel(initialVehicle));
       setFirstRegistrationDate(initialVehicle.firstRegistrationDate || '');
       setYear(initialVehicle.year);
       setRegistrationNumber(initialVehicle.registrationNumber || '');
@@ -124,14 +120,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setAbsenceReason(initialVehicle.absenceReason || '');
 
       setIsExtendedOpen(true);
-      setTrim(initialVehicle.trim || '');
       setMileage(initialVehicle.mileage > 0 ? initialVehicle.mileage : '');
       setVin(initialVehicle.vin || '');
       setFuelType(initialVehicle.fuelType || '');
       setGearbox(initialVehicle.gearbox || '');
-      setTypeVariantVersion(initialVehicle.typeVariantVersion || '');
       setNationalGenre(initialVehicle.nationalGenre || 'VP');
-      setBodyType(initialVehicle.bodyType || '');
       setFormulaNumber(initialVehicle.formulaNumber || '');
       setCertificateDate(initialVehicle.certificateDate || '');
       setPurchaseDate(initialVehicle.purchaseDate || new Date().toISOString().split('T')[0]);
@@ -153,7 +146,6 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
     } else {
       setMake('');
       setModel('');
-      setCommercialDesignation('');
       setFirstRegistrationDate('');
       setYear(2021);
       setRegistrationNumber('');
@@ -162,14 +154,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setAbsenceReason('');
 
       setIsExtendedOpen(false);
-      setTrim('');
       setMileage('');
       setVin('');
       setFuelType('');
       setGearbox('');
-      setTypeVariantVersion('');
       setNationalGenre('VP');
-      setBodyType('');
       setFormulaNumber('');
       setCertificateDate('');
       setPurchaseDate(new Date().toISOString().split('T')[0]);
@@ -267,12 +256,13 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const consolidatedModel = model.trim();
     const formState = {
       make,
-      model,
-      commercialDesignation,
+      model: consolidatedModel,
+      commercialDesignation: consolidatedModel,
       firstRegistrationDate,
-      trim,
+      trim: consolidatedModel,
       year,
       registrationNumber,
       purchasePrice,
@@ -280,9 +270,9 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       mileage,
       fuelType,
       gearbox,
-      typeVariantVersion,
+      typeVariantVersion: initialVehicle?.typeVariantVersion || '',
       nationalGenre,
-      bodyType,
+      bodyType: initialVehicle?.bodyType || '',
       hasRegistrationCertificate,
       formulaNumber,
       certificateDate,
@@ -480,7 +470,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="vehicle-make" className={labelClass}>
-                  {t('make')} *
+                  {L(
+                    '(D.1) Marque *',
+                    '(D.1) Марка *',
+                    '(D.1) Մակնիշ *',
+                    '(D.1) მარკა *'
+                  )}
                 </label>
                 <input
                   id="vehicle-make"
@@ -499,19 +494,36 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
               <div>
                 <label htmlFor="vehicle-model" className={labelClass}>
-                  {t('model')} *
+                  {L(
+                    'Modèle / (D.3) Dénomination *',
+                    'Модель / (D.3) Коммерч. назв. *',
+                    'Մոդել / (D.3) Առևտր. անվանում *',
+                    'მოდელი / (D.3) კომერც. დასახელება *'
+                  )}
                 </label>
                 <input
                   id="vehicle-model"
+                  data-testid="vehicle-model"
                   type="text"
                   required
                   value={model}
                   onChange={(e) => {
                     setModel(e.target.value);
-                    setFieldErrors((prev) => ({ ...prev, model: undefined }));
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      model: undefined,
+                      commercialDesignation: undefined,
+                    }));
                   }}
-                  placeholder="ex. 208, Clio V, Golf..."
-                  className={getInputClass(Boolean(fieldErrors.model))}
+                  placeholder={L(
+                    'ex. 208 GT Line, Clio TCe 90...',
+                    'напр. 208 GT Line, Clio TCe 90...',
+                    'օր.՝ 208 GT Line, Clio TCe 90...',
+                    'მაგ. 208 GT Line, Clio TCe 90...'
+                  )}
+                  className={getInputClass(
+                    Boolean(fieldErrors.model || fieldErrors.commercialDesignation)
+                  )}
                 />
               </div>
             </div>
@@ -538,7 +550,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
               <div>
                 <label htmlFor="vehicle-reg" className={labelClass}>
-                  {t('thPlate')} *
+                  {L(
+                    '(A) Immatriculation *',
+                    '(A) Госномер *',
+                    '(A) Պետհամարանիշ *',
+                    '(A) სახ. ნომერი *'
+                  )}
                 </label>
                 <input
                   id="vehicle-reg"
@@ -789,12 +806,22 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="vehicle-first-reg" className={labelClass}>
-                        (B) 1re immatriculation
+                        {L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
                       </label>
                       <LocaleDateInput
                         id="vehicle-first-reg"
                         testId="vehicle-first-reg-date"
-                        ariaLabel="(B) 1re immatriculation"
+                        ariaLabel={L(
+                          '(B) 1re immatriculation',
+                          '(B) Дата 1-й регистрации',
+                          '(B) Առաջին գրանցման ամսաթիվ',
+                          '(B) პირველი რეგისტრაცია'
+                        )}
                         value={firstRegistrationDate}
                         onChange={handleFirstRegDateChange}
                         className={getInputClass(Boolean(fieldErrors.firstRegistrationDate))}
@@ -802,23 +829,58 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                     </div>
 
                     <div>
-                      <label htmlFor="vehicle-d3-commercial" className={labelClass}>
-                        (D.3) Dénomination commerciale
+                      <label htmlFor="vehicle-j1" className={labelClass}>
+                        {t('j1GenreLabel')}
                       </label>
-                      <input
-                        id="vehicle-d3-commercial"
-                        data-testid="vehicle-d3-commercial"
-                        type="text"
-                        value={commercialDesignation}
-                        onChange={(e) => {
-                          setCommercialDesignation(e.target.value);
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            commercialDesignation: undefined,
-                          }));
-                        }}
-                        placeholder="ex. 208 GT Line, Clio TCe 90..."
-                        className={getInputClass(Boolean(fieldErrors.commercialDesignation))}
+                      <ThemedSelect
+                        id="vehicle-j1"
+                        testId="vehicle-j1-select"
+                        ariaLabel={t('j1GenreLabel')}
+                        value={nationalGenre}
+                        onChange={setNationalGenre}
+                        options={[
+                          {
+                            value: 'VP',
+                            label: L(
+                              'VP (Voiture particulière)',
+                              'VP (Легковой авто)',
+                              'VP (Մարդատար)',
+                              'VP (მსუბუქი)'
+                            ),
+                          },
+                          {
+                            value: 'CTTE',
+                            label: L(
+                              'CTTE (Camionnette)',
+                              'CTTE (Фургон / LCV)',
+                              'CTTE (Ֆուրգոն)',
+                              'CTTE (ფურგონი)'
+                            ),
+                          },
+                          {
+                            value: 'MTT1',
+                            label: L(
+                              'MTT1 / MTT2 (Moto)',
+                              'MTT1 / MTT2 (Мотоцикл)',
+                              'MTT1 / MTT2 (Մոտոցիկլ)',
+                              'MTT1 / MTT2 (მოტო)'
+                            ),
+                          },
+                          {
+                            value: 'CAM',
+                            label: L('CAM (Camion)', 'CAM (Грузовик)', 'CAM (Բեռնատար)', 'CAM (სატვირთო)'),
+                          },
+                          {
+                            value: 'VASP',
+                            label: L(
+                              'VASP (Véhicule spécialisé)',
+                              'VASP (Спецтехника)',
+                              'VASP (Հատուկ տեխնիկա)',
+                              'VASP (სპეცტექნიკა)'
+                            ),
+                          },
+                        ]}
+                        triggerClassName={inputClass}
                       />
                     </div>
                   </div>
@@ -970,111 +1032,37 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   </div>
                 </div>
 
-                {/* Technical Details: VIN & Finition / Version */}
-                <div className="pt-3 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label
-                        htmlFor="vehicle-vin"
-                        className="text-xs font-semibold text-[var(--secondary-foreground)]"
-                      >
-                        VIN (E)
-                      </label>
-                      <span
-                        className={`text-[10px] font-mono ${
-                          vin.replace(/\s+/g, '').length === 17
-                            ? 'text-emerald-400'
-                            : 'text-[var(--muted-foreground)]'
-                        }`}
-                      >
-                        {vin.replace(/\s+/g, '').length}/17
-                      </span>
-                    </div>
-                    <input
-                      id="vehicle-vin"
-                      type="text"
-                      maxLength={17}
-                      value={vin}
-                      onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
-                      placeholder="ex. VF3UPHNK0MT129841"
-                      className={getInputClass(
-                        Boolean(fieldErrors.vin),
-                        'font-mono uppercase placeholder:normal-case'
-                      )}
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="vehicle-trim" className={labelClass}>
-                      {t('trimVersion')}
+                {/* VIN (E) */}
+                <div className="pt-3 border-t border-[var(--border)]">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label
+                      htmlFor="vehicle-vin"
+                      className="text-xs font-semibold text-[var(--secondary-foreground)]"
+                    >
+                      VIN (E)
                     </label>
-                    <input
-                      id="vehicle-trim"
-                      type="text"
-                      value={trim}
-                      onChange={(e) => setTrim(e.target.value)}
-                      placeholder="ex. GT Line 130ch"
-                      className={inputClass}
-                    />
+                    <span
+                      className={`text-[10px] font-mono ${
+                        vin.replace(/\s+/g, '').length === 17
+                          ? 'text-emerald-400'
+                          : 'text-[var(--muted-foreground)]'
+                      }`}
+                    >
+                      {vin.replace(/\s+/g, '').length}/17
+                    </span>
                   </div>
-                </div>
-
-                {/* French Carte Grise Codes (D.2, J.1, J.3) */}
-                <div className="pt-3 border-t border-[var(--border)] space-y-3">
-                  <p className="text-xs font-bold text-[var(--primary)] uppercase tracking-wider">
-                    {t('carteGriseSectionTitle')}
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-                    <div>
-                      <label htmlFor="vehicle-d2" className={labelClass}>
-                        {t('d2TypeLabel')}
-                      </label>
-                      <input
-                        id="vehicle-d2"
-                        type="text"
-                        value={typeVariantVersion}
-                        onChange={(e) => setTypeVariantVersion(e.target.value)}
-                        placeholder="ex. UPHNK-01"
-                        className={inputClass}
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="vehicle-j1" className={labelClass}>
-                        {t('j1GenreLabel')}
-                      </label>
-                      <ThemedSelect
-                        id="vehicle-j1"
-                        testId="vehicle-j1-select"
-                        ariaLabel={t('j1GenreLabel')}
-                        value={nationalGenre}
-                        onChange={setNationalGenre}
-                        options={[
-                          { value: 'VP', label: 'VP (Voiture particulière)' },
-                          { value: 'CTTE', label: 'CTTE (Camionnette)' },
-                          { value: 'MTT1', label: 'MTT1 / MTT2 (Moto)' },
-                          { value: 'CAM', label: 'CAM (Camion)' },
-                          { value: 'VASP', label: 'VASP (Véhicule spécialisé)' },
-                        ]}
-                        triggerClassName={inputClass}
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="vehicle-j3" className={labelClass}>
-                        {t('j3BodyLabel')}
-                      </label>
-                      <input
-                        id="vehicle-j3"
-                        type="text"
-                        value={bodyType}
-                        onChange={(e) => setBodyType(e.target.value.toUpperCase())}
-                        placeholder="ex. CI, BREAK"
-                        className={`${inputClass} uppercase placeholder:normal-case`}
-                      />
-                    </div>
-                  </div>
+                  <input
+                    id="vehicle-vin"
+                    type="text"
+                    maxLength={17}
+                    value={vin}
+                    onChange={(e) => setVin(e.target.value.replace(/\s+/g, '').toUpperCase())}
+                    placeholder="ex. VF3UPHNK0MT129841"
+                    className={getInputClass(
+                      Boolean(fieldErrors.vin),
+                      'font-mono uppercase placeholder:normal-case'
+                    )}
+                  />
                 </div>
 
                 {/* Acquisition Date & Target Price */}

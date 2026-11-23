@@ -223,8 +223,8 @@ export interface BuyerInfo {
   postalCode?: string;     // Code postal
   city?: string;           // Commune
   address: string;         // Full combined address
-  phone: string;
-  email: string;
+  phone?: string;
+  email?: string;
   salePrice: number;
   saleDate: string;
   saleTime?: string;       // e.g. "14:30"

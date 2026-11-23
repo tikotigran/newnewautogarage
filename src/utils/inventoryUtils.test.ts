@@ -234,18 +234,24 @@ test('formatListTrimSubtitle truncates subtitles over 15 chars with ellipsis and
   });
 });
 
-test('toggleTableSortState toggles direction on same column and selects sensible defaults for new columns', () => {
+test('toggleTableSortState cycles asc -> desc -> null on same column and starts asc on new columns', () => {
   const first = toggleTableSortState(null, 'vehicle');
   assert.deepEqual(first, { column: 'vehicle', direction: 'asc' });
 
   const second = toggleTableSortState(first, 'vehicle');
   assert.deepEqual(second, { column: 'vehicle', direction: 'desc' });
 
-  const numeric = toggleTableSortState(second, 'totalInvested');
-  assert.deepEqual(numeric, { column: 'totalInvested', direction: 'desc' });
+  const thirdReset = toggleTableSortState(second, 'vehicle');
+  assert.equal(thirdReset, null);
 
-  const numericFlipped = toggleTableSortState(numeric, 'totalInvested');
-  assert.deepEqual(numericFlipped, { column: 'totalInvested', direction: 'asc' });
+  const numericFirst = toggleTableSortState(second, 'totalInvested');
+  assert.deepEqual(numericFirst, { column: 'totalInvested', direction: 'asc' });
+
+  const numericSecond = toggleTableSortState(numericFirst, 'totalInvested');
+  assert.deepEqual(numericSecond, { column: 'totalInvested', direction: 'desc' });
+
+  const numericReset = toggleTableSortState(numericSecond, 'totalInvested');
+  assert.equal(numericReset, null);
 });
 
 test('sortInventoryVehiclesByColumn sorts cleanly across all inventory table columns', () => {

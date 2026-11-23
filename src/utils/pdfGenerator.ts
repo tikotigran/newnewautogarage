@@ -306,7 +306,15 @@ export function generateSalesInvoicePDF(
     doc.text(`Né(e) le : ${buyer.birthDate}${buyer.birthPlace ? ' à ' + buyer.birthPlace : ''}`, 116, 58);
   }
   doc.text(`Adresse : ${buyer.address}`, 116, 64, { maxWidth: 76 });
-  doc.text(`Tél : ${buyer.phone}  |  ${buyer.email}`, 116, 76, { maxWidth: 76 });
+  const buyerContactLine = [
+    buyer.phone?.trim() ? `Tél : ${buyer.phone.trim()}` : '',
+    buyer.email?.trim() ? buyer.email.trim() : '',
+  ]
+    .filter(Boolean)
+    .join('  |  ');
+  if (buyerContactLine) {
+    doc.text(buyerContactLine, 116, 76, { maxWidth: 76 });
+  }
 
   // Vehicle Information Section
   doc.setFont('helvetica', 'bold');
@@ -1087,7 +1095,15 @@ function generateFallbackCerfaPDF(
     );
   }
   doc.text(`Adresse de domicile : ${buyer.address}`, 18, 170, { maxWidth: 174 });
-  doc.text(`Contact : Tél : ${buyer.phone}  |  Email : ${buyer.email}`, 18, 178);
+  const fallbackContact = [
+    buyer.phone?.trim() ? `Tél : ${buyer.phone.trim()}` : '',
+    buyer.email?.trim() ? `Email : ${buyer.email.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('  |  ');
+  if (fallbackContact) {
+    doc.text(`Contact : ${fallbackContact}`, 18, 178);
+  }
   doc.text(`Certifie acquérir le véhicule désigné ci-dessus aux dates et heures indiquées.`, 18, 186);
 
   // Signatures

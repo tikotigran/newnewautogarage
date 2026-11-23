@@ -836,5 +836,43 @@ test('buildInitialCerfaData selects exact multi-profile Seller via vehicle.selle
   assert.ok(CERFA_ALIGNER_FIELDS.some((f) => f.path === 'section2Seller.checkboxes.sexF'));
 });
 
+test('buildInitialCerfaData maps BuyerInfo sex (M/F) and split address (extension, streetType) without phone/email', () => {
+  const soldVehicle: Vehicle = {
+    ...mockVehicle,
+    status: 'sold',
+    buyerInfo: {
+      isCompany: false,
+      sex: 'F',
+      fullName: 'MOREAU Claire',
+      birthDate: '1991-08-22',
+      birthPlace: 'Bordeaux',
+      streetNumber: '14',
+      streetExtension: 'bis',
+      streetType: 'Avenue',
+      streetName: 'Jean Jaurès',
+      postalCode: '69007',
+      city: 'Lyon',
+      address: '14 bis Avenue Jean Jaurès, 69007 Lyon',
+      salePrice: 14500,
+      saleDate: '2026-11-20',
+      saleTime: '15:30',
+    },
+  };
+
+  const cerfa = buildInitialCerfaData(soldVehicle, mockGarage);
+  assert.equal(cerfa.buyer.entityType, 'physique');
+  assert.equal(cerfa.buyer.sex, 'F');
+  assert.equal(cerfa.buyer.nameOrCompany, 'MOREAU Claire');
+  assert.equal(cerfa.buyer.birthDate, '1991-08-22');
+  assert.equal(cerfa.buyer.birthPlace, 'Bordeaux');
+  assert.equal(cerfa.buyer.streetNumber, '14');
+  assert.equal(cerfa.buyer.streetExtension, 'bis');
+  assert.equal(cerfa.buyer.streetType, 'Avenue');
+  assert.equal(cerfa.buyer.streetName, 'Jean Jaurès');
+  assert.equal(cerfa.buyer.postalCode, '69007');
+  assert.equal(cerfa.buyer.city, 'Lyon');
+});
+
+
 
 

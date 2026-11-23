@@ -10,7 +10,6 @@ import {
   UserPlus,
   User as UserIcon,
   Briefcase,
-  Car,
   Sparkles,
   Copy,
   Check,
@@ -29,6 +28,7 @@ import { getPendingProfileType, setPendingProfileType } from '../services/adminS
 import { AppUserProfileType, UserProfile } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
+import { BrandLogo } from './BrandLogo';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -192,9 +192,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       {/* Header */}
       {isFullPage ? (
         <div className="px-6 pt-6 pb-4 border-b border-slate-800 text-center space-y-2.5">
-          <div className="mx-auto w-12 h-12 rounded-2xl bg-[var(--primary)] text-[var(--primary-foreground)] flex items-center justify-center shadow-lg">
-            <Car className="w-6 h-6" />
-          </div>
+          <BrandLogo
+            alt={t('appName')}
+            size="lg"
+            testId="auth-page-brand-logo"
+            className="mx-auto border-slate-700/80 shadow-lg"
+          />
           <div>
             <div className="text-lg font-extrabold tracking-tight text-white">
               {t('appName')}
@@ -208,9 +211,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       ) : (
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-              <LogIn className="w-4 h-4 text-amber-400" />
-            </div>
+            <BrandLogo
+              alt={t('appName')}
+              size="sm"
+              testId="auth-modal-brand-logo"
+              className="border-slate-700/80"
+            />
             <div>
               <h2 id="auth-modal-title" className="text-base font-bold text-white">
                 {mode === 'login' ? t('authSignInTitle') : t('authRegisterTitle')}

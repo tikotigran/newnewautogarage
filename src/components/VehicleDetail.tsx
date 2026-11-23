@@ -107,14 +107,9 @@ import { LocaleDateInput } from './LocaleDateInput';
 import {
   buildCerfaSpecsUpdatePayload,
   buildSoldRevertUpdate,
-  resolveDefaultSellerProfileId,
   resolveInitialHasRegistrationCertificate,
-  resolveVehiclePurchaseStatus,
-  resolveVehicleSellerProfileId,
   validateCerfaSpecsForm,
 } from '../utils/vehicleFormUtils';
-import { SellerProfileSelector } from './SellerProfileSelector';
-import { Building2, User } from 'lucide-react';
 
 interface VehicleDetailProps {
   vehicle: Vehicle;
@@ -186,7 +181,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
   // Inline Carte Grise / Cerfa technical editor state
   const [isEditingSpecs, setIsEditingSpecs] = useState(false);
   const [specMake, setSpecMake] = useState(vehicle.make || '');
-  const [specD3, setSpecD3] = useState(vehicle.commercialDesignation || '');
+  const [specD3, setSpecD3] = useState(vehicle.commercialDesignation || vehicle.model || '');
   const [specReg, setSpecReg] = useState(vehicle.registrationNumber || '');
   const [specFirstRegDate, setSpecFirstRegDate] = useState(vehicle.firstRegistrationDate || '');
   const [specVin, setSpecVin] = useState(vehicle.vin || '');
@@ -207,7 +202,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
 
   useEffect(() => {
     setSpecMake(vehicle.make || '');
-    setSpecD3(vehicle.commercialDesignation || '');
+    setSpecD3(vehicle.commercialDesignation || vehicle.model || '');
     setSpecReg(vehicle.registrationNumber || '');
     setSpecFirstRegDate(vehicle.firstRegistrationDate || '');
     setSpecVin(vehicle.vin || '');
@@ -408,48 +403,6 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     activeProfileType
   );
   const isParticulier = dealProfileType === 'particulier';
-  const currentVehiclePurchaseStatus = resolveVehiclePurchaseStatus(
-    vehicle,
-    activeProfileType
-  );
-  const currentVehicleSellerProfileId = resolveVehicleSellerProfileId(
-    vehicle,
-    currentVehiclePurchaseStatus,
-    garageSettings
-  );
-
-  const handleVehicleSellerModeChange = async (nextStatus: 'micro' | 'particulier') => {
-    const nextProfileId = resolveDefaultSellerProfileId(nextStatus, garageSettings);
-    const nextSellerProfileType: AppUserProfileType =
-      nextStatus === 'particulier' ? 'particulier' : 'micro_entrepreneur';
-    await updateVehicle(vehicle.id, {
-      purchaseStatus: nextStatus,
-      sellerProfileId: nextProfileId,
-      ...(vehicle.buyerInfo
-        ? {
-            buyerInfo: {
-              ...vehicle.buyerInfo,
-              sellerProfileType: nextSellerProfileType,
-              sellerProfileId: nextProfileId,
-            },
-          }
-        : {}),
-    });
-  };
-
-  const handleVehicleSellerProfileChange = async (nextProfileId: string | undefined) => {
-    await updateVehicle(vehicle.id, {
-      sellerProfileId: nextProfileId,
-      ...(vehicle.buyerInfo
-        ? {
-            buyerInfo: {
-              ...vehicle.buyerInfo,
-              sellerProfileId: nextProfileId,
-            },
-          }
-        : {}),
-    });
-  };
   const dealEffectiveSettings = resolveEffectiveSettingsForDeal({
     vehicle,
     garageSettings,
@@ -790,79 +743,6 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
           >
             <Trash2 className="w-4 h-4" />
           </button>
-        </div>
-      </div>
-
-      {/* Per-Vehicle Transaction Mode & Seller Profile Bar */}
-      <div
-        data-testid="vehicle-detail-seller-bar"
-        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-3.5 sm:px-4 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3"
-      >
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
-            {pickLocalized(lang, {
-              fr: 'Mode & vendeur du véhicule',
-              ru: 'Режим и продавец авто',
-              hy: 'Մեքենայի ռեժիմ և վաճառող',
-              ka: 'ავტოს რეჟიმი და გამყიდველი',
-            })}
-          </span>
-          <div className="inline-flex items-center p-0.5 rounded-full bg-[var(--background)] border border-[var(--border)]">
-            <button
-              type="button"
-              data-testid="vehicle-detail-mode-pro"
-              onClick={() => void handleVehicleSellerModeChange('micro')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                currentVehiclePurchaseStatus === 'micro'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <Building2 className="w-3 h-3 shrink-0" />
-              <span>
-                {pickLocalized(lang, {
-                  fr: 'Activité pro',
-                  ru: 'Проф. деятельность',
-                  hy: 'Մասնագիտական',
-                  ka: 'პროფ. საქმიანობა',
-                })}
-              </span>
-            </button>
-            <button
-              type="button"
-              data-testid="vehicle-detail-mode-personal"
-              onClick={() => void handleVehicleSellerModeChange('particulier')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                currentVehiclePurchaseStatus === 'particulier'
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
-                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              <User className="w-3 h-3 shrink-0" />
-              <span>
-                {pickLocalized(lang, {
-                  fr: 'Vente personnelle',
-                  ru: 'Личная продажа',
-                  hy: 'Անձնական վաճառք',
-                  ka: 'პირადი გაყიდვა',
-                })}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 max-w-xl min-w-0">
-          <SellerProfileSelector
-            compact
-            purchaseStatus={currentVehiclePurchaseStatus}
-            selectedProfileId={currentVehicleSellerProfileId}
-            garageSettings={garageSettings}
-            userId={userId}
-            garageId={vehicle.garageId || activeGarageId}
-            onSelectProfileId={(id) => void handleVehicleSellerProfileChange(id)}
-            onSettingsUpdated={setGarageSettings}
-            testIdPrefix="vehicle-detail-seller-profile"
-          />
         </div>
       </div>
 
@@ -1429,7 +1309,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
               hy: '(D.3) Առևտրային անվանում',
               ka: '(D.3) კომერციული დასახელება',
             }),
-            value: vehicle.commercialDesignation || '—',
+            value: vehicle.commercialDesignation || vehicle.model || '—',
           },
           {
             label: t('vinFieldLabel'),
@@ -2056,17 +1936,19 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <span className="text-[var(--muted-foreground)] block">{t('phone')}</span>
-                      <span className="text-[var(--secondary-foreground)]">{vehicle.buyerInfo.phone}</span>
+                      <span className="text-[var(--secondary-foreground)]">{vehicle.buyerInfo.phone?.trim() || '—'}</span>
                     </div>
                     <div>
                       <span className="text-[var(--muted-foreground)] block">{t('saleDateLabel')}</span>
                       <span className="text-[var(--secondary-foreground)] tabular-nums">{formatDate(vehicle.buyerInfo.saleDate)}</span>
                     </div>
                   </div>
-                  <div>
-                    <span className="text-[var(--muted-foreground)] block">{t('email')}</span>
-                    <span className="text-[var(--secondary-foreground)] truncate block">{vehicle.buyerInfo.email}</span>
-                  </div>
+                  {vehicle.buyerInfo.email?.trim() && (
+                    <div>
+                      <span className="text-[var(--muted-foreground)] block">{t('email')}</span>
+                      <span className="text-[var(--secondary-foreground)] truncate block">{vehicle.buyerInfo.email}</span>
+                    </div>
+                  )}
                   <div>
                     <span className="text-[var(--muted-foreground)] block">{t('billingAddress')}</span>
                     <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.address}</span>
@@ -3048,11 +2930,28 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       {isParticulier ? 'Particulier (0 €)' : 'Micro-entrepreneur'}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[var(--muted-foreground)] block">{t('phone')} & {t('email')}</span>
-                    <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.phone}</span>
-                    <span className="text-[var(--muted-foreground)] block truncate">{vehicle.buyerInfo.email}</span>
-                  </div>
+                  {(!vehicle.buyerInfo.isCompany && (vehicle.buyerInfo.sex || vehicle.buyerInfo.birthDate)) ? (
+                    <div>
+                      <span className="text-[var(--muted-foreground)] block">Cerfa 15776</span>
+                      <span className="text-[var(--secondary-foreground)] block">
+                        {[
+                          vehicle.buyerInfo.sex ? `Sexe: ${vehicle.buyerInfo.sex}` : '',
+                          vehicle.buyerInfo.birthDate ? `Né(e): ${formatDate(vehicle.buyerInfo.birthDate)}` : '',
+                          vehicle.buyerInfo.birthPlace || '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-[var(--muted-foreground)] block">{t('phone')} & {t('email')}</span>
+                      <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.phone?.trim() || '—'}</span>
+                      {vehicle.buyerInfo.email?.trim() && (
+                        <span className="text-[var(--muted-foreground)] block truncate">{vehicle.buyerInfo.email}</span>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <span className="text-[var(--muted-foreground)] block">{t('billingAddress')}</span>
                     <span className="text-[var(--secondary-foreground)] block">{vehicle.buyerInfo.address}</span>

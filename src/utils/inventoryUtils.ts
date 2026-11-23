@@ -321,18 +321,20 @@ const STATUS_SORT_ORDER: Record<VehicleStatus, number> = {
 export function toggleTableSortState(
   current: InventoryTableSortState | null,
   column: InventoryTableSortColumn
-): InventoryTableSortState {
-  if (current?.column === column) {
+): InventoryTableSortState | null {
+  if (current?.column !== column) {
     return {
       column,
-      direction: current.direction === 'asc' ? 'desc' : 'asc',
+      direction: 'asc',
     };
   }
-  const defaultAsc = column === 'vehicle' || column === 'status';
-  return {
-    column,
-    direction: defaultAsc ? 'asc' : 'desc',
-  };
+  if (current.direction === 'asc') {
+    return {
+      column,
+      direction: 'desc',
+    };
+  }
+  return null;
 }
 
 export function sortInventoryVehiclesByColumn(

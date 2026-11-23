@@ -16,8 +16,11 @@ import { AuthModal } from './components/AuthModal';
 import { GarageSelector } from './components/GarageSelector';
 import { DemoModeBanner } from './components/DemoModeBanner';
 import { QuickCreateAction, QuickCreateDropdown } from './components/QuickCreateDropdown';
+import { QuickVehiclePickerModal } from './components/QuickVehiclePickerModal';
+import { QuickVehicleExpenseModal } from './components/QuickVehicleExpenseModal';
 import { HeaderNotifications } from './components/HeaderNotifications';
 import { HeaderLanguageDropdown } from './components/HeaderLanguageDropdown';
+import { BrandLogo } from './components/BrandLogo';
 import { AppUserProfileType, Vehicle, VehicleStatus, BuyerInfo, UserProfile, SystemThemeConfig, GarageWorkspace, FeatureFlagsConfig, Supplier, Purchase, GarageDocument, DocumentHistoryEvent, UserActivityLog, ChangeLogEntry, BackupSnapshotRecord, LegalStatus, TaxRegime, RepairTask, GeneralExpense, SubscriptionPlan } from './types/garage';
 import {
   auth,
@@ -118,6 +121,12 @@ import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Menu, Moon, Sun } from '
 import { useI18n } from './i18n/I18nContext';
 import { pickLocalized } from './utils/i18nUtils';
 import { buildSoldRevertUpdate, resolvePendingVehicleSelection } from './utils/vehicleFormUtils';
+import { computeVehicleInventoryFinancials } from './utils/inventoryUtils';
+import {
+  getQuickCreateEligibleVehicles,
+  QuickCreateVehicleAction,
+  resolveQuickCreateVehicleAction,
+} from './utils/quickCreateUtils';
 
 export type ActiveAppView =
   | 'desktop'
@@ -241,6 +250,9 @@ export default function App() {
   }>({ view: 'desktop', reopenDetail: false });
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [sellingVehicle, setSellingVehicle] = useState<Vehicle | null>(null);
+  const [quickVehiclePickerAction, setQuickVehiclePickerAction] =
+    useState<QuickCreateVehicleAction | null>(null);
+  const [quickExpenseVehicleId, setQuickExpenseVehicleId] = useState<string | null>(null);
   const [cancelSaleTarget, setCancelSaleTarget] = useState<{
     vehicle: Vehicle;
     targetStatus: VehicleStatus;
@@ -726,6 +738,27 @@ export default function App() {
     () => garageVehicles.filter((v) => v.status === 'sold').length,
     [garageVehicles]
   );
+
+  const quickPickerVehicles = useMemo(() => {
+    if (!quickVehiclePickerAction) return [];
+    return getQuickCreateEligibleVehicles(garageVehicles, quickVehiclePickerAction);
+  }, [garageVehicles, quickVehiclePickerAction]);
+
+  const quickExpenseVehicle = useMemo(() => {
+    if (!quickExpenseVehicleId) return null;
+    return (
+      garageVehicles.find((v) => v.id === quickExpenseVehicleId) ||
+      vehicles.find((v) => v.id === quickExpenseVehicleId) ||
+      null
+    );
+  }, [quickExpenseVehicleId, garageVehicles, vehicles]);
+
+  const quickExpenseFinancials = useMemo(() => {
+    if (!quickExpenseVehicle) return null;
+    const vehicleRepairs = fleetRepairs.filter((r) => r.vehicleId === quickExpenseVehicle.id);
+    const vehicleExpenses = fleetExpenses.filter((e) => e.vehicleId === quickExpenseVehicle.id);
+    return computeVehicleInventoryFinancials(quickExpenseVehicle, vehicleRepairs, vehicleExpenses);
+  }, [quickExpenseVehicle, fleetRepairs, fleetExpenses]);
 
   // Wait until a newly created vehicle appears in the resolved list before opening its detail view
   useEffect(() => {
@@ -1381,6 +1414,7 @@ export default function App() {
         data-testid="auth-loading-screen"
         className="min-h-screen bg-[var(--background)] flex flex-col items-center justify-center text-[var(--foreground)] space-y-4 p-4"
       >
+        <BrandLogo alt="AutoGarage Manager" size="lg" testId="loading-brand-logo" />
         <Loader2 className="w-8 h-8 animate-spin text-[var(--primary)]" />
         <p className="text-sm font-semibold text-[var(--muted-foreground)]">
           Initialisation sécurisée d'AutoGarage Manager...
@@ -1501,19 +1535,26 @@ export default function App() {
       return;
     }
 
-    if (action === 'sales') {
-      const target =
-        (selectedVehicle && selectedVehicle.status !== 'sold' ? selectedVehicle : null) ||
-        garageVehicles.find((v) => v.status === 'for_sale') ||
-        garageVehicles.find((v) => v.status !== 'sold');
-      if (target) {
-        setPendingSelectedVehicleId(null);
-        setSelectedVehicle(target);
-        handleSetActiveView('desktop');
-        handleOpenSellModal(target);
-      } else {
-        setSelectedVehicle(null);
-        handleSetActiveView('desktop');
+    if (action === 'sales' || action === 'expenses') {
+      const resolution = resolveQuickCreateVehicleAction({
+        action,
+        activeView,
+        selectedVehicle,
+        garageVehicles,
+        documentsAlignerMode,
+        isAdminMode,
+      });
+
+      if (resolution.mode === 'direct') {
+        if (action === 'sales') {
+          handleOpenSellModal(resolution.vehicle);
+        } else {
+          setQuickExpenseVehicleId(resolution.vehicle.id);
+        }
+        return;
+      }
+
+      if (resolution.mode === 'empty' && action === 'sales') {
         showGlobalToast(
           pickLocalized(lang, {
             fr: 'Aucun véhicule disponible à la vente. Ajoutez d’abord un véhicule.',
@@ -1523,24 +1564,8 @@ export default function App() {
           })
         );
       }
-      return;
-    }
 
-    if (action === 'expenses') {
-      const target =
-        selectedVehicle ||
-        garageVehicles.find((v) => v.status !== 'sold') ||
-        garageVehicles[0];
-      if (target) {
-        setPendingSelectedVehicleId(null);
-        setSelectedVehicle(target);
-        setVehicleDetailTabRequest({ tab: 'expenses', nonce });
-        handleSetActiveView('desktop');
-      } else if (effectiveFeatureFlags.expenseAnalytics) {
-        handleSetActiveView('analytics');
-      } else {
-        handleSetActiveView('new_vehicle');
-      }
+      setQuickVehiclePickerAction(action);
       return;
     }
 
@@ -1982,6 +2007,49 @@ export default function App() {
         </main>
       </div>
 
+
+      {/* Searchable Vehicle Picker for Quick-Create Sales / Expenses */}
+      <QuickVehiclePickerModal
+        isOpen={Boolean(quickVehiclePickerAction)}
+        action={quickVehiclePickerAction}
+        vehicles={quickPickerVehicles}
+        onSelectVehicle={(chosenVehicle) => {
+          const pendingAction = quickVehiclePickerAction;
+          setQuickVehiclePickerAction(null);
+          if (pendingAction === 'sales') {
+            handleOpenSellModal(chosenVehicle);
+          } else if (pendingAction === 'expenses') {
+            setQuickExpenseVehicleId(chosenVehicle.id);
+          }
+        }}
+        onClose={() => setQuickVehiclePickerAction(null)}
+        onAddVehicle={() => {
+          if (
+            !planCapabilities.isUnlimitedVehicles &&
+            vehicles.length >= planCapabilities.vehicleLimit
+          ) {
+            handleOpenUpgradePlan();
+            return;
+          }
+          setEditingVehicle(null);
+          setSelectedVehicle(null);
+          handleSetActiveView('new_vehicle');
+        }}
+      />
+
+      {/* Global Quick Expense Modal */}
+      <QuickVehicleExpenseModal
+        isOpen={Boolean(quickExpenseVehicle)}
+        vehicle={quickExpenseVehicle}
+        expenses={fleetExpenses}
+        repairs={fleetRepairs}
+        totalExpenses={quickExpenseFinancials?.totalExpenses ?? 0}
+        totalInvested={quickExpenseFinancials?.totalInvested ?? 0}
+        onClose={() => setQuickExpenseVehicleId(null)}
+        onAddExpense={handleAddQuickExpense}
+        onDeleteExpense={handleDeleteQuickExpense}
+        onDeleteRepair={handleDeleteQuickRepair}
+      />
 
       {/* Buyer Info & Sale Closing Modal */}
       <BuyerModal
