@@ -45,6 +45,7 @@ service cloud.firestore {
              data.purchasePrice is number && data.purchasePrice >= 0 &&
              data.status in ['preparation', 'repair', 'for_sale', 'sold'] &&
              (!('purchaseStatus' in data) || data.purchaseStatus in ['micro', 'particulier']) &&
+             (!('sellerProfileId' in data) || (data.sellerProfileId is string && data.sellerProfileId.size() <= 128)) &&
              (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 30)) &&
              (!('totalExpenses' in data) || (data.totalExpenses is number && data.totalExpenses >= 0)) &&
              (!('totalInvested' in data) || (data.totalInvested is number && data.totalInvested >= 0));
@@ -167,7 +168,9 @@ service cloud.firestore {
              (!('entityType' in data) || data.entityType in ['morale', 'physique']) &&
              (!('profileType' in data) || data.profileType in ['particulier', 'micro_entrepreneur']) &&
              (!('taxRegime' in data) || data.taxRegime in ['sarl', 'sas', 'micro', 'custom', 'none']) &&
-             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100));
+             (!('taxRatePercent' in data) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100)) &&
+             (!('businessProfiles' in data) || (data.businessProfiles is list && data.businessProfiles.size() <= 20)) &&
+             (!('personalProfiles' in data) || (data.personalProfiles is list && data.personalProfiles.size() <= 50));
     }
 
     function isValidSupplier(data) {

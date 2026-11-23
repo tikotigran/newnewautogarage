@@ -12,10 +12,12 @@ import {
   mapProfileTypeToPurchaseStatus,
   MAX_VEHICLE_PHOTOS_BYTES,
   resolveDefaultPurchaseStatus,
+  resolveDefaultSellerProfileId,
   resolveInitialHasRegistrationCertificate,
   resolvePendingVehicleSelection,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
+  resolveVehicleSellerProfileId,
   stripSaleFieldsFromLocalVehicle,
   validateCerfaSpecsForm,
   validateQuickVehicleForm,
@@ -637,4 +639,84 @@ test('validateCerfaSpecsForm and buildCerfaSpecsUpdatePayload handle D.1, B, D.3
   assert.equal(noPayload.certificateDate, '');
   assert.equal(noPayload.nationalGenre, 'VP');
 });
+
+test('resolveDefaultSellerProfileId, resolveVehicleSellerProfileId, and buildVehicleSubmitPayload preserve sellerProfileId', () => {
+  const settings = {
+    businessProfiles: [
+      {
+        id: 'biz_a',
+        name: 'Garage A',
+        siret: '11122233300011',
+        streetNumber: '1',
+        streetName: 'Rue A',
+        postalCode: '69001',
+        city: 'Lyon',
+        phone: '0400000001',
+        email: 'a@garage.fr',
+        isDefault: false,
+      },
+      {
+        id: 'biz_b',
+        name: 'Garage B',
+        siret: '22233344400022',
+        streetNumber: '2',
+        streetName: 'Rue B',
+        postalCode: '75001',
+        city: 'Paris',
+        phone: '0100000002',
+        email: 'b@garage.fr',
+        isDefault: true,
+      },
+    ],
+    personalProfiles: [
+      {
+        id: 'pers_1',
+        name: '',
+        siret: '',
+        lastName: 'DUPONT',
+        firstName: 'Jean',
+        streetNumber: '3',
+        streetName: 'Rue C',
+        postalCode: '69002',
+        city: 'Lyon',
+        phone: '0600000001',
+        email: 'jean@perso.fr',
+        isDefault: true,
+      },
+      {
+        id: 'pers_2',
+        name: '',
+        siret: '',
+        lastName: 'DUPONT',
+        firstName: 'Luc',
+        streetNumber: '4',
+        streetName: 'Rue D',
+        postalCode: '13001',
+        city: 'Marseille',
+        phone: '0600000002',
+        email: 'luc@perso.fr',
+        isDefault: false,
+      },
+    ],
+  };
+
+  assert.equal(resolveDefaultSellerProfileId('micro', settings), 'biz_b');
+  assert.equal(resolveDefaultSellerProfileId('particulier', settings), 'pers_1');
+  assert.equal(
+    resolveVehicleSellerProfileId(
+      { purchaseStatus: 'particulier', sellerProfileId: 'pers_2' },
+      'particulier',
+      settings
+    ),
+    'pers_2'
+  );
+
+  const payload = buildVehicleSubmitPayload(
+    createBaseInput({ purchaseStatus: 'particulier', sellerProfileId: 'pers_2' }),
+    'user_1'
+  );
+  assert.equal(payload.purchaseStatus, 'particulier');
+  assert.equal(payload.sellerProfileId, 'pers_2');
+});
+
 

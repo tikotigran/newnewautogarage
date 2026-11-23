@@ -37,6 +37,11 @@ import {
   validateAllCerfaSteps,
   validateCerfaStep,
 } from '../utils/cerfa15776';
+import {
+  ensureBusinessProfiles,
+  ensurePersonalProfiles,
+  getSellerProfileDisplayName,
+} from '../utils/profileSeparationUtils';
 import { formatCerfaMissingToast } from '../utils/vehicleFormUtils';
 import {
   Cerfa15776Config,
@@ -122,6 +127,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
   const [latestGarageSettings, setLatestGarageSettings] = useState<GarageSettings>(() =>
     getGarageSettings(targetGarageId)
   );
+  const [selectedSellerProfileId, setSelectedSellerProfileId] = useState<string>(
+    () => targetVehicle.sellerProfileId || targetVehicle.buyerInfo?.sellerProfileId || ''
+  );
   const hasSellerEditsRef = useRef(false);
 
   const [formData, setFormData] = useState<Cerfa15776FormData>(() =>
@@ -179,9 +187,17 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         setSelectedTemplateId(normalizeCerfaTemplateId(cloud.defaultCerfaTemplate));
         if (!hasSellerEditsRef.current && !calibrationDummyMode) {
           const mode = resolveCerfaSellerModeForVehicle(currentVehicle, cloud);
+          const explicitProfileId =
+            currentVehicle.sellerProfileId || currentVehicle.buyerInfo?.sellerProfileId;
+          setSelectedSellerProfileId(explicitProfileId || '');
           setFormData((prev) => ({
             ...prev,
-            seller: buildCerfaSellerFromProfile(cloud, mode, prev.seller),
+            seller: buildCerfaSellerFromProfile(
+              cloud,
+              mode,
+              prev.seller,
+              explicitProfileId
+            ),
           }));
         }
       });
@@ -201,6 +217,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       setSelectedTemplateId(normalizeCerfaTemplateId(freshSettings.defaultCerfaTemplate));
       setStep(1);
       setSelectedVehicleId(vehicle.id);
+      setSelectedSellerProfileId(
+        vehicle.sellerProfileId || vehicle.buyerInfo?.sellerProfileId || ''
+      );
       setFormData(
         calibrationDummyMode
           ? createCalibrationDummyCerfaData()
@@ -232,6 +251,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     const freshSettings = getGarageSettings(resolvedGarageId);
     setLatestGarageSettings(freshSettings);
     setSelectedTemplateId(normalizeCerfaTemplateId(freshSettings.defaultCerfaTemplate));
+    setSelectedSellerProfileId(
+      activePick.vehicle.sellerProfileId || activePick.vehicle.buyerInfo?.sellerProfileId || ''
+    );
     setFormData(
       calibrationDummyMode
         ? createCalibrationDummyCerfaData()
@@ -249,8 +271,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     () =>
       buildCerfa15776PdfBytes(formData, cloudCalibration.cerfa_15776_02.config, {
         customOffsets: cloudCalibration.cerfa_15776_02.offsets,
+        sellerSignatureDataUrl: latestGarageSettings.signatureDataUrl,
       }),
-    [formData, cloudCalibration]
+    [formData, cloudCalibration, latestGarageSettings.signatureDataUrl]
   );
 
   const livePagePreviewDependencyKey = useMemo(
@@ -259,8 +282,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         formData,
         cerfaCalibration: cloudCalibration.cerfa_15776_02,
         selectedTemplateId,
+        sellerSignatureDataUrl: latestGarageSettings.signatureDataUrl || '',
       }),
-    [formData, cloudCalibration, selectedTemplateId]
+    [formData, cloudCalibration, selectedTemplateId, latestGarageSettings.signatureDataUrl]
   );
 
   if (!isOpen && !isPage) return null;
@@ -278,6 +302,9 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
     hasSellerEditsRef.current = false;
     setLatestGarageSettings(pickedSettings);
     setSelectedTemplateId(normalizeCerfaTemplateId(pickedSettings.defaultCerfaTemplate));
+    setSelectedSellerProfileId(
+      picked.vehicle.sellerProfileId || picked.vehicle.buyerInfo?.sellerProfileId || ''
+    );
     setFormData(buildInitialCerfaData(picked.vehicle, pickedSettings));
     setErrors({});
     setGenerationError(null);
@@ -348,9 +375,49 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
       return next;
     });
 
+    const candidateList =
+      targetMode === 'particulier'
+        ? ensurePersonalProfiles(resolvedSettings)
+        : ensureBusinessProfiles(resolvedSettings);
+    const defaultProfile =
+      candidateList.find((item) => item.isDefault) || candidateList[0];
+    setSelectedSellerProfileId(defaultProfile?.id || '');
+
     setFormData((prev) => ({
       ...prev,
-      seller: buildCerfaSellerFromProfile(resolvedSettings, targetMode, prev.seller),
+      seller: buildCerfaSellerFromProfile(
+        resolvedSettings,
+        targetMode,
+        prev.seller,
+        defaultProfile?.id
+      ),
+    }));
+  };
+
+  const handleSelectSavedSellerProfile = (profileId: string) => {
+    hasSellerEditsRef.current = true;
+    setSaveSuccess(null);
+    setSelectedSellerProfileId(profileId);
+    const targetMode: AppUserProfileType =
+      formData.seller.entityType === 'physique' ? 'particulier' : 'micro_entrepreneur';
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.sellerName;
+      delete next.sellerSiret;
+      delete next.sellerStreetNumber;
+      delete next.sellerStreetName;
+      delete next.sellerCity;
+      delete next.sellerSigningCity;
+      return next;
+    });
+    setFormData((prev) => ({
+      ...prev,
+      seller: buildCerfaSellerFromProfile(
+        latestGarageSettings,
+        targetMode,
+        prev.seller,
+        profileId || undefined
+      ),
     }));
   };
 
@@ -498,6 +565,7 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
         : cloudCalibration.cerfa_15776_02.config;
       await generateCerfa15776FromFormData(formData, action, activeConfig, {
         customOffsets: cloudCalibration.cerfa_15776_02.offsets,
+        sellerSignatureDataUrl: latestGarageSettings.signatureDataUrl,
       });
       setGeneratedSuccess(true);
     } catch (err) {
@@ -1100,6 +1168,57 @@ export const Cerfa15776Modal: React.FC<Cerfa15776ModalProps> = ({
               )}
             </div>
           )}
+
+          {(() => {
+            const isPersonalEntity = formData.seller.entityType === 'physique';
+            const savedProfiles = isPersonalEntity
+              ? ensurePersonalProfiles(latestGarageSettings)
+              : ensureBusinessProfiles(latestGarageSettings);
+            if (savedProfiles.length === 0) return null;
+            const currentMatchId = savedProfiles.some((item) => item.id === selectedSellerProfileId)
+              ? selectedSellerProfileId
+              : (savedProfiles.find((item) => item.isDefault) || savedProfiles[0])?.id || '';
+            return (
+              <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--background)]/50 space-y-1.5">
+                <label className="block text-[11px] font-semibold text-[var(--secondary-foreground)]">
+                  {isPersonalEntity
+                    ? L(
+                        'Profil particulier enregistré (auto-remplissage)',
+                        'Сохранённый личный профиль продавца (автозаполнение)',
+                        'Պահպանված անհատական պրոֆիլ',
+                        'შენახული პირადი პროფილი'
+                      )
+                    : L(
+                        'Profil professionnel enregistré (auto-remplissage)',
+                        'Сохранённый профиль компании (автозаполнение)',
+                        'Պահպանված բիզնես պրոֆիլ',
+                        'შენახული კომპანიის პროფილი'
+                      )}
+                </label>
+                <ThemedSelect
+                  testId="cerfa-saved-seller-select"
+                  ariaLabel={L(
+                    'Sélectionner un vendeur enregistré',
+                    'Выбрать сохранённого продавца',
+                    'Ընտրել պահպանված վաճառողին',
+                    'აირჩიეთ შენახული გამყიდველი'
+                  )}
+                  value={currentMatchId}
+                  onChange={handleSelectSavedSellerProfile}
+                  options={savedProfiles.map((entry) => ({
+                    value: entry.id,
+                    label: `${getSellerProfileDisplayName(
+                      entry,
+                      isPersonalEntity ? 'particulier' : 'micro'
+                    )}${entry.city ? ` — ${entry.city}` : ''}${
+                      entry.isDefault ? L(' (par défaut)', ' (осн.)', ' (հիմն.)', ' (ძირ.)') : ''
+                    }`,
+                  }))}
+                  triggerClassName="w-full h-9 px-3 py-1.5 bg-[var(--card)] border border-[var(--border)] rounded-xl text-xs font-semibold text-[var(--foreground)]"
+                />
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>

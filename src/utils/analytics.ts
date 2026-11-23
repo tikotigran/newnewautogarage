@@ -6,6 +6,7 @@ import {
   VehicleStatus,
   DynamicExpenseCategory,
   FrenchTaxConfiguration,
+  AppUserProfileType,
 } from '../types/garage';
 import {
   calculateSaleTaxReport,
@@ -21,6 +22,8 @@ import {
   CorporateIsResult,
   normalizeFrenchTaxConfig,
 } from './frenchTaxEngine';
+import { InventoryTransactionFilter } from './inventoryUtils';
+import { resolveVehiclePurchaseStatus } from './vehicleFormUtils';
 
 export type BuiltInAnalyticsExpenseCategoryId =
   | 'parts_labor'
@@ -260,9 +263,43 @@ export interface AgingVehicleRow {
   ageTier: AgingTier;
 }
 
+export type StockAgeBracketId = '0_30' | '31_60' | '61_90' | '90_plus';
+
+export interface StockAgeBracket {
+  id: StockAgeBracketId;
+  vehicleCount: number;
+  totalInvested: number;
+  sharePercent: number;
+  capitalSharePercent: number;
+}
+
+export interface SalesEconomicsSummary {
+  averagePurchasePrice: number;
+  averageSalePrice: number;
+  averageExpensesPerVehicle: number;
+  averageNetMargin: number;
+}
+
+export type NormalizedSaleChannelId = 'leboncoin' | 'direct' | 'referral' | 'other';
+
+export interface SalesChannelBreakdownRow {
+  channelId: NormalizedSaleChannelId;
+  salesCount: number;
+  revenue: number;
+  grossProfit: number;
+  netProfit: number;
+  netMarginPercent: number;
+  averageDaysToSell: number | null;
+  revenueSharePercent: number;
+}
+
 export interface DealershipAnalyticsReport {
+  filteredFleetCount: number;
   inventory: InventoryValuationMetrics;
+  stockAgeDistribution: StockAgeBracket[];
   salesPerformance: SalesPerformanceMetrics;
+  salesEconomics: SalesEconomicsSummary;
+  salesChannels: SalesChannelBreakdownRow[];
   monthlySnapshot: MonthlySnapshotMetrics;
   cashFlow: CashFlowMetrics;
   mostProfitableVehicles: ProfitableVehicleRow[];
@@ -341,6 +378,24 @@ function buildCustomCategoryMeta(
   };
 }
 
+const WORKSHOP_EXPENSE_CATEGORY_KEYS = new Set<string>([
+  'parts_labor',
+  'repair',
+  'repairs',
+  'parts',
+  'workshop',
+  'atelier',
+  'tires',
+  'pneus',
+  'maintenance',
+  'bodywork',
+  'oil_change',
+  'brake_pads',
+  'diagnostics',
+  'timing_belt',
+  'clutch',
+]);
+
 export function mapGeneralExpenseCategory(
   category: GeneralExpenseCategory | string,
   dynamicCategories?: DynamicExpenseCategory[]
@@ -348,9 +403,12 @@ export function mapGeneralExpenseCategory(
   const trimmed = typeof category === 'string' ? category.trim() : '';
   if (!trimmed) return 'other';
 
-  switch (trimmed) {
-    case 'parts_labor':
-      return 'parts_labor';
+  const normalizedKey = trimmed.toLowerCase();
+  if (WORKSHOP_EXPENSE_CATEGORY_KEYS.has(normalizedKey)) {
+    return 'parts_labor';
+  }
+
+  switch (normalizedKey) {
     case 'fuel':
       return 'fuel';
     case 'detailing':
@@ -371,6 +429,48 @@ export function mapGeneralExpenseCategory(
       return trimmed;
     }
   }
+}
+
+export function isWorkshopExpenseCategory(
+  category: GeneralExpenseCategory | string,
+  dynamicCategories?: DynamicExpenseCategory[]
+): boolean {
+  return mapGeneralExpenseCategory(category, dynamicCategories) === 'parts_labor';
+}
+
+export function resolveAnalyticsVehicleTransactionMode(
+  vehicle: Pick<Vehicle, 'status' | 'purchaseStatus' | 'buyerInfo'>,
+  fallbackProfileType: AppUserProfileType = 'micro_entrepreneur'
+): 'micro' | 'particulier' {
+  if (vehicle.status === 'sold' && vehicle.buyerInfo?.sellerProfileType) {
+    return vehicle.buyerInfo.sellerProfileType === 'particulier' ? 'particulier' : 'micro';
+  }
+  return resolveVehiclePurchaseStatus(vehicle, fallbackProfileType);
+}
+
+export function normalizeSaleChannel(rawChannel?: string): NormalizedSaleChannelId {
+  const normalized = (rawChannel || '').trim().toLowerCase();
+  if (!normalized) return 'other';
+  if (normalized === 'leboncoin' || normalized.includes('leboncoin') || normalized === 'lbc') {
+    return 'leboncoin';
+  }
+  if (
+    normalized === 'direct' ||
+    normalized === 'client_direct' ||
+    normalized === 'client direct' ||
+    normalized.includes('direct')
+  ) {
+    return 'direct';
+  }
+  if (
+    normalized === 'referral' ||
+    normalized === 'recommandation' ||
+    normalized.includes('recommand') ||
+    normalized.includes('refer')
+  ) {
+    return 'referral';
+  }
+  return 'other';
 }
 
 export function parseExpenseDateMs(dateStr?: string): number | null {
@@ -766,6 +866,8 @@ export function computeDealershipAnalytics(params: {
   taxRegime?: TaxRegime;
   taxRatePercent?: number;
   frenchTaxConfig?: FrenchTaxConfiguration;
+  transactionTypeFilter?: InventoryTransactionFilter;
+  profileType?: AppUserProfileType;
   now?: Date;
 }): DealershipAnalyticsReport {
   const {
@@ -778,6 +880,8 @@ export function computeDealershipAnalytics(params: {
     taxRegime = 'sarl',
     taxRatePercent,
     frenchTaxConfig,
+    transactionTypeFilter = 'all',
+    profileType,
     now = new Date(),
   } = params;
 
@@ -787,23 +891,56 @@ export function computeDealershipAnalytics(params: {
     frenchTaxConfig,
   });
 
-  const { label: taxLabel } = resolveTaxRatePercent(
+  const isParticulierMode = normalizedTaxConfig.businessTaxRegime === 'none';
+  const fallbackProfileType: AppUserProfileType =
+    profileType ?? (isParticulierMode ? 'particulier' : 'micro_entrepreneur');
+
+  const scopedVehicles =
+    transactionTypeFilter === 'all'
+      ? vehicles
+      : vehicles.filter(
+          (v) =>
+            resolveAnalyticsVehicleTransactionMode(v, fallbackProfileType) ===
+            transactionTypeFilter
+        );
+  const scopedVehicleIds =
+    transactionTypeFilter === 'all' ? null : new Set(scopedVehicles.map((v) => v.id));
+  const scopedRepairs = scopedVehicleIds
+    ? repairs.filter((r) => scopedVehicleIds.has(r.vehicleId))
+    : repairs;
+  const scopedExpenses = scopedVehicleIds
+    ? expenses.filter((e) => scopedVehicleIds.has(e.vehicleId))
+    : expenses;
+
+  const baseTaxLabel = resolveTaxRatePercent(
     normalizedTaxConfig.businessTaxRegime,
     taxRatePercent,
     normalizedTaxConfig
-  );
+  ).label;
+
+  let taxLabel = baseTaxLabel;
+  if (transactionTypeFilter === 'particulier') {
+    taxLabel = '0%';
+  } else if (transactionTypeFilter === 'micro' && isParticulierMode) {
+    const microPatch = buildProfileSettingsPatch('micro_entrepreneur', {
+      taxRegime: normalizedTaxConfig.businessTaxRegime,
+      frenchTaxConfig: normalizedTaxConfig,
+    });
+    taxLabel = resolveTaxRatePercent('micro', microPatch.taxRatePercent, microPatch.frenchTaxConfig).label;
+  }
+
   const nowDayKey = getUtcDayKey(now);
 
   // Aggregate lifetime repairs and general expenses per vehicle
   const repairsByVehicle = new Map<string, number>();
-  for (const r of repairs) {
+  for (const r of scopedRepairs) {
     const amt = Number(r.totalCost ?? (Number(r.partsCost) || 0) + (Number(r.laborCost) || 0)) || 0;
     if (amt <= 0) continue;
     repairsByVehicle.set(r.vehicleId, roundToTwo((repairsByVehicle.get(r.vehicleId) || 0) + amt));
   }
 
   const expensesByVehicle = new Map<string, number>();
-  for (const e of expenses) {
+  for (const e of scopedExpenses) {
     const amt = Number(e.amount) || 0;
     if (amt <= 0) continue;
     expensesByVehicle.set(e.vehicleId, roundToTwo((expensesByVehicle.get(e.vehicleId) || 0) + amt));
@@ -825,7 +962,7 @@ export function computeDealershipAnalytics(params: {
   };
 
   // 1. Active Inventory & Capital Metrics
-  const activeVehicles = vehicles.filter((v) => v.status !== 'sold');
+  const activeVehicles = scopedVehicles.filter((v) => v.status !== 'sold');
   let totalStockValue = 0;
   let totalTargetListingValue = 0;
   let totalInvestedInStock = 0;
@@ -833,7 +970,14 @@ export function computeDealershipAnalytics(params: {
   let pricedCount = 0;
   let unpricedCount = 0;
 
+  const activeDaysInStockSamples: number[] = [];
   const agingUnsoldVehicles: AgingVehicleRow[] = [];
+  const ageBracketBuckets: Record<StockAgeBracketId, { count: number; invested: number }> = {
+    '0_30': { count: 0, invested: 0 },
+    '31_60': { count: 0, invested: 0 },
+    '61_90': { count: 0, invested: 0 },
+    '90_plus': { count: 0, invested: 0 },
+  };
 
   for (const v of activeVehicles) {
     const { totalInvested } = getVehicleLifetimeCosts(v);
@@ -852,33 +996,68 @@ export function computeDealershipAnalytics(params: {
     }
 
     const daysInStock = getDaysBetween(v.purchaseDate || v.createdAt, nowDayKey) ?? 0;
-    agingUnsoldVehicles.push({
-      vehicleId: v.id,
-      vehicleName: `${v.make} ${v.model}`.trim(),
-      year: v.year,
-      status: v.status,
-      registrationNumber: v.registrationNumber,
-      purchaseDate: v.purchaseDate || '',
-      daysInStock,
-      totalInvested,
-      targetSalePrice: targetPrice,
-      potentialProfit: targetPrice > 0 ? roundToTwo(targetPrice - totalInvested) : null,
-      ageTier: getAgingTier(daysInStock),
-    });
+    activeDaysInStockSamples.push(daysInStock);
+
+    const bracketId: StockAgeBracketId =
+      daysInStock <= 30
+        ? '0_30'
+        : daysInStock <= 60
+        ? '31_60'
+        : daysInStock <= 90
+        ? '61_90'
+        : '90_plus';
+    ageBracketBuckets[bracketId].count += 1;
+    ageBracketBuckets[bracketId].invested = roundToTwo(
+      ageBracketBuckets[bracketId].invested + totalInvested
+    );
+
+    // Strictly filter long-stock alert to vehicles currently listed 'En vente' ('for_sale') for > 30 days
+    if (v.status === 'for_sale' && daysInStock > 30) {
+      agingUnsoldVehicles.push({
+        vehicleId: v.id,
+        vehicleName: `${v.make} ${v.model}`.trim(),
+        year: v.year,
+        status: v.status,
+        registrationNumber: v.registrationNumber,
+        purchaseDate: v.purchaseDate || '',
+        daysInStock,
+        totalInvested,
+        targetSalePrice: targetPrice,
+        potentialProfit: targetPrice > 0 ? roundToTwo(targetPrice - totalInvested) : null,
+        ageTier: getAgingTier(daysInStock),
+      });
+    }
   }
 
+  const stockAgeDistribution: StockAgeBracket[] = (
+    ['0_30', '31_60', '61_90', '90_plus'] as StockAgeBracketId[]
+  ).map((id) => {
+    const bucket = ageBracketBuckets[id];
+    return {
+      id,
+      vehicleCount: bucket.count,
+      totalInvested: bucket.invested,
+      sharePercent:
+        activeVehicles.length > 0 ? roundToTwo((bucket.count / activeVehicles.length) * 100) : 0,
+      capitalSharePercent:
+        totalInvestedInStock > 0
+          ? roundToTwo((bucket.invested / totalInvestedInStock) * 100)
+          : 0,
+    };
+  });
+
   agingUnsoldVehicles.sort((a, b) => b.daysInStock - a.daysInStock);
-  const slowMovingCount = agingUnsoldVehicles.filter((v) => v.daysInStock >= 30).length;
+  const slowMovingCount = agingUnsoldVehicles.length;
   const averageDaysInStock =
-    agingUnsoldVehicles.length > 0
+    activeDaysInStockSamples.length > 0
       ? Math.round(
-          agingUnsoldVehicles.reduce((sum, item) => sum + item.daysInStock, 0) /
-            agingUnsoldVehicles.length
+          activeDaysInStockSamples.reduce((sum, days) => sum + days, 0) /
+            activeDaysInStockSamples.length
         )
       : null;
 
   // 2. Realized Sales Performance (Strictly separated: Revenue vs Gross Profit vs Net Profit)
-  const soldVehiclesAll = vehicles.filter((v) => getRealizedSalePrice(v) > 0);
+  const soldVehiclesAll = scopedVehicles.filter((v) => getRealizedSalePrice(v) > 0);
   const soldInPeriod = soldVehiclesAll.filter((v) => {
     const effectiveSaleDate = v.buyerInfo?.saleDate || v.updatedAt || v.purchaseDate;
     return isWithinTimeRange(effectiveSaleDate, timeRange, now, customRange);
@@ -893,10 +1072,18 @@ export function computeDealershipAnalytics(params: {
   let vatAmount = 0;
   let particulierDealsCount = 0;
   let taxedDealsCount = 0;
+  let totalSoldPurchasePrice = 0;
+  let totalSoldExpenses = 0;
   const daysToSellSamples: number[] = [];
   const mostProfitableVehicles: ProfitableVehicleRow[] = [];
-
-  const isParticulierMode = normalizedTaxConfig.businessTaxRegime === 'none';
+  const soldChannelDealRows: Array<{
+    channelId: NormalizedSaleChannelId;
+    revenue: number;
+    grossProfit: number;
+    netProfitBeforePeriodIs: number;
+    daysToSell: number | null;
+    isCorporateIsEligible: boolean;
+  }> = [];
 
   for (const v of soldInPeriod) {
     const salePrice = getRealizedSalePrice(v);
@@ -906,7 +1093,11 @@ export function computeDealershipAnalytics(params: {
     const explicitDealProfile = v.buyerInfo?.sellerProfileType;
     const isDealParticulier =
       explicitDealProfile === 'particulier' ||
-      (!explicitDealProfile && isParticulierMode);
+      (!explicitDealProfile && v.purchaseStatus === 'particulier') ||
+      (!explicitDealProfile && !v.purchaseStatus && isParticulierMode);
+    const isDealMicro =
+      explicitDealProfile === 'micro_entrepreneur' ||
+      (!explicitDealProfile && v.purchaseStatus === 'micro');
 
     let report: SaleFinancialReport;
     if (isDealParticulier) {
@@ -929,7 +1120,7 @@ export function computeDealershipAnalytics(params: {
         vatAmount: 0,
         netProfitAfterTax: rawReport.grossMargin,
       };
-    } else if (explicitDealProfile === 'micro_entrepreneur') {
+    } else if (isDealMicro) {
       const microPatch = buildProfileSettingsPatch('micro_entrepreneur', {
         taxRegime: normalizedTaxConfig.businessTaxRegime,
         frenchTaxConfig: normalizedTaxConfig,
@@ -970,7 +1161,7 @@ export function computeDealershipAnalytics(params: {
     if (isDealParticulier) {
       particulierDealsCount += 1;
     } else if (
-      explicitDealProfile === 'micro_entrepreneur' ||
+      isDealMicro ||
       report.taxAmount > 0 ||
       report.urssafAmount > 0 ||
       report.versementLiberatoireAmount > 0 ||
@@ -991,12 +1182,33 @@ export function computeDealershipAnalytics(params: {
       microBicEstimatedIrAmount + report.microBicEstimatedTax
     );
     vatAmount = roundToTwo(vatAmount + report.vatAmount);
+    totalSoldPurchasePrice = roundToTwo(totalSoldPurchasePrice + purchasePrice);
+    totalSoldExpenses = roundToTwo(totalSoldExpenses + totalExpenses);
 
     const effectiveSaleDate = v.buyerInfo?.saleDate || v.updatedAt || v.purchaseDate || '';
     const daysToSell = getDaysBetween(v.purchaseDate, effectiveSaleDate);
     if (daysToSell !== null) {
       daysToSellSamples.push(daysToSell);
     }
+
+    const snap = v.buyerInfo?.taxSnapshot;
+    const isCorporateIsEligible =
+      !isParticulierMode &&
+      transactionTypeFilter !== 'particulier' &&
+      (normalizedTaxConfig.businessTaxRegime === 'sarl' ||
+        normalizedTaxConfig.businessTaxRegime === 'sas') &&
+      !v.buyerInfo?.sellerProfileType &&
+      v.purchaseStatus !== 'particulier' &&
+      !(snap?.isHistoricalSnapshot && snap.taxRegime !== 'sarl' && snap.taxRegime !== 'sas');
+
+    soldChannelDealRows.push({
+      channelId: normalizeSaleChannel(v.buyerInfo?.saleChannel),
+      revenue: report.salePrice,
+      grossProfit: report.grossMargin,
+      netProfitBeforePeriodIs: report.netProfitAfterTax,
+      daysToSell,
+      isCorporateIsEligible,
+    });
 
     const netMarginPct =
       report.salePrice > 0 ? roundToTwo((report.netProfitAfterTax / report.salePrice) * 100) : 0;
@@ -1028,12 +1240,13 @@ export function computeDealershipAnalytics(params: {
   const corporateSalesForIs: Array<{ saleDate: string; profitBeforeTax: number }> = [];
   if (
     !isParticulierMode &&
+    transactionTypeFilter !== 'particulier' &&
     (normalizedTaxConfig.businessTaxRegime === 'sarl' ||
       normalizedTaxConfig.businessTaxRegime === 'sas')
   ) {
     // Only apply IS to profit from vehicles that don't already have an explicit non-corporate profile/snapshot
     const corporateProfitBase = soldInPeriod.reduce((sum, v) => {
-      if (v.buyerInfo?.sellerProfileType) {
+      if (v.buyerInfo?.sellerProfileType || v.purchaseStatus === 'particulier') {
         return sum;
       }
       const snap = v.buyerInfo?.taxSnapshot;
@@ -1075,11 +1288,90 @@ export function computeDealershipAnalytics(params: {
         )
       : null;
 
+  const salesEconomics: SalesEconomicsSummary = {
+    averagePurchasePrice: soldCount > 0 ? roundToTwo(totalSoldPurchasePrice / soldCount) : 0,
+    averageSalePrice: soldCount > 0 ? roundToTwo(revenue / soldCount) : 0,
+    averageExpensesPerVehicle: soldCount > 0 ? roundToTwo(totalSoldExpenses / soldCount) : 0,
+    averageNetMargin: averageNetMarginEuro,
+  };
+
+  // Allocate period corporate IS (if any) across corporate-eligible sold rows for exact channel reconciliation
+  const corporateWeightSum = soldChannelDealRows.reduce(
+    (sum, r) => (r.isCorporateIsEligible ? sum + Math.max(0, r.grossProfit) : sum),
+    0
+  );
+  const corporateEligibleCount = soldChannelDealRows.filter((r) => r.isCorporateIsEligible).length;
+
+  const canonicalChannelOrder: NormalizedSaleChannelId[] = [
+    'leboncoin',
+    'direct',
+    'referral',
+    'other',
+  ];
+  const channelMap = new Map<
+    NormalizedSaleChannelId,
+    { salesCount: number; revenue: number; grossProfit: number; netProfit: number; daysSamples: number[] }
+  >();
+  for (const ch of canonicalChannelOrder) {
+    channelMap.set(ch, { salesCount: 0, revenue: 0, grossProfit: 0, netProfit: 0, daysSamples: [] });
+  }
+
+  for (const row of soldChannelDealRows) {
+    const bucket = channelMap.get(row.channelId)!;
+    let allocatedIs = 0;
+    if (corporateIsAmount > 0 && row.isCorporateIsEligible) {
+      if (corporateWeightSum > 0) {
+        allocatedIs = (corporateIsAmount * Math.max(0, row.grossProfit)) / corporateWeightSum;
+      } else if (corporateEligibleCount > 0) {
+        allocatedIs = corporateIsAmount / corporateEligibleCount;
+      }
+    }
+    const dealNetProfit = roundToTwo(row.netProfitBeforePeriodIs - allocatedIs);
+    bucket.salesCount += 1;
+    bucket.revenue = roundToTwo(bucket.revenue + row.revenue);
+    bucket.grossProfit = roundToTwo(bucket.grossProfit + row.grossProfit);
+    bucket.netProfit = roundToTwo(bucket.netProfit + dealNetProfit);
+    if (row.daysToSell !== null) {
+      bucket.daysSamples.push(row.daysToSell);
+    }
+  }
+
+  const salesChannels: SalesChannelBreakdownRow[] = canonicalChannelOrder
+    .map((channelId) => {
+      const stats = channelMap.get(channelId)!;
+      const netMarginPct =
+        stats.revenue > 0 ? roundToTwo((stats.netProfit / stats.revenue) * 100) : 0;
+      const avgDays =
+        stats.daysSamples.length > 0
+          ? Math.round(
+              stats.daysSamples.reduce((s, d) => s + d, 0) / stats.daysSamples.length
+            )
+          : null;
+      const revenueSharePct = revenue > 0 ? roundToTwo((stats.revenue / revenue) * 100) : 0;
+      return {
+        channelId,
+        salesCount: stats.salesCount,
+        revenue: stats.revenue,
+        grossProfit: stats.grossProfit,
+        netProfit: stats.netProfit,
+        netMarginPercent: netMarginPct,
+        averageDaysToSell: avgDays,
+        revenueSharePercent: revenueSharePct,
+      };
+    })
+    .sort((a, b) => {
+      if ((a.salesCount > 0) !== (b.salesCount > 0)) {
+        return b.salesCount > 0 ? 1 : -1;
+      }
+      if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+      return b.salesCount - a.salesCount;
+    });
+
   // 3. Monthly Snapshot (always last 30 days so monthly Revenue & Expenses stay visible)
   const monthlyExpensesAnalytics = computeFleetExpenseAnalytics({
-    vehicles,
-    repairs,
-    expenses,
+    vehicles: scopedVehicles,
+    repairs: scopedRepairs,
+    expenses: scopedExpenses,
     timeRange: 'month',
     dynamicCategories,
     now,
@@ -1094,23 +1386,23 @@ export function computeDealershipAnalytics(params: {
     soldLastMonth.reduce((sum, v) => sum + getRealizedSalePrice(v), 0)
   );
   const monthlyPurchases = roundToTwo(
-    vehicles
+    scopedVehicles
       .filter((v) => isWithinTimeRange(v.purchaseDate || v.createdAt, 'month', now))
       .reduce((sum, v) => sum + (Number(v.purchasePrice) || 0), 0)
   );
 
   // 4. Period Expense Breakdown & Cash Flow
   const expenseBreakdown = computeFleetExpenseAnalytics({
-    vehicles,
-    repairs,
-    expenses,
+    vehicles: scopedVehicles,
+    repairs: scopedRepairs,
+    expenses: scopedExpenses,
     timeRange,
     customRange,
     dynamicCategories,
     now,
   });
 
-  const vehicleMap = new Map(vehicles.map((v) => [v.id, v]));
+  const vehicleMap = new Map(scopedVehicles.map((v) => [v.id, v]));
   const useMonthly = shouldUseMonthlyBuckets(timeRange, customRange);
   const buckets = new Map<string, { inflow: number; outflow: number }>();
 
@@ -1132,7 +1424,7 @@ export function computeDealershipAnalytics(params: {
   };
 
   let vehiclePurchasesOutflow = 0;
-  for (const v of vehicles) {
+  for (const v of scopedVehicles) {
     const pDate = v.purchaseDate || v.createdAt;
     const pPrice = Number(v.purchasePrice) || 0;
     if (pPrice > 0 && isWithinTimeRange(pDate, timeRange, now, customRange)) {
@@ -1142,7 +1434,7 @@ export function computeDealershipAnalytics(params: {
   }
 
   let repairsOutflow = 0;
-  for (const r of repairs) {
+  for (const r of scopedRepairs) {
     const amount = Number(r.totalCost ?? (Number(r.partsCost) || 0) + (Number(r.laborCost) || 0)) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(r.vehicleId);
@@ -1154,13 +1446,17 @@ export function computeDealershipAnalytics(params: {
   }
 
   let generalExpensesOutflow = 0;
-  for (const e of expenses) {
+  for (const e of scopedExpenses) {
     const amount = Number(e.amount) || 0;
     if (amount <= 0) continue;
     const veh = vehicleMap.get(e.vehicleId);
     const effectiveDate = resolveGeneralExpenseDate(e, veh);
     if (isWithinTimeRange(effectiveDate, timeRange, now, customRange)) {
-      generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
+      if (isWorkshopExpenseCategory(e.category, dynamicCategories)) {
+        repairsOutflow = roundToTwo(repairsOutflow + amount);
+      } else {
+        generalExpensesOutflow = roundToTwo(generalExpensesOutflow + amount);
+      }
       addBucket(effectiveDate, 'outflow', amount);
     }
   }
@@ -1209,6 +1505,7 @@ export function computeDealershipAnalytics(params: {
     });
 
   return {
+    filteredFleetCount: scopedVehicles.length,
     inventory: {
       activeCount: activeVehicles.length,
       totalStockValue,
@@ -1218,6 +1515,7 @@ export function computeDealershipAnalytics(params: {
       pricedCount,
       unpricedCount,
     },
+    stockAgeDistribution,
     salesPerformance: {
       soldCount,
       revenue,
@@ -1239,6 +1537,8 @@ export function computeDealershipAnalytics(params: {
       particulierDealsCount,
       taxedDealsCount,
     },
+    salesEconomics,
+    salesChannels,
     monthlySnapshot: {
       monthlyRevenue,
       monthlySoldCount: soldLastMonth.length,

@@ -283,4 +283,85 @@ describe('exportBackup utilities', () => {
     assert.throws(() => parseFullBackupPayload('{"settings":{}}', 'hy'), /vehicles/);
     assert.throws(() => parseFullBackupPayload('{"vehicles":[]}', 'ka'), /settings/);
   });
+
+  it('builds Factur-X readiness and XML using per-vehicle sellerProfileId (Personal exempt from SIRET, Business 2nd entity keeps own SIRET)', () => {
+    const multiSettings: GarageSettings = {
+      ...SAMPLE_SETTINGS,
+      businessProfiles: [
+        {
+          id: 'biz_primary',
+          name: 'GARAGE PRIMARY SAS',
+          siret: '11122233300011',
+          streetNumber: '1',
+          streetName: 'Rue Alpha',
+          postalCode: '69001',
+          city: 'Lyon',
+          phone: '0478000001',
+          email: 'alpha@garage.fr',
+          isDefault: true,
+        },
+        {
+          id: 'biz_secondary',
+          name: 'AUTO SECONDLY SARL',
+          siret: '88877766600099',
+          streetNumber: '42',
+          streetName: 'Avenue Beta',
+          postalCode: '75008',
+          city: 'Paris',
+          phone: '0144000002',
+          email: 'beta@garage.fr',
+          isDefault: false,
+        },
+      ],
+      personalProfiles: [
+        {
+          id: 'pers_brother',
+          name: '',
+          siret: '',
+          lastName: 'MARTIN',
+          firstName: 'Paul',
+          sex: 'M',
+          streetNumber: '9',
+          streetName: 'Rue Privée',
+          postalCode: '13001',
+          city: 'Marseille',
+          phone: '0600000009',
+          email: 'paul@perso.fr',
+          isDefault: true,
+        },
+      ],
+    };
+
+    const biz2Vehicle: Vehicle = {
+      ...SOLD_VEHICLE,
+      purchaseStatus: 'micro',
+      sellerProfileId: 'biz_secondary',
+    };
+    const biz2Readiness = validateFacturXReadiness(biz2Vehicle, multiSettings, 'fr');
+    assert.equal(biz2Readiness.ready, true);
+    const biz2Xml = buildFacturXXml(biz2Vehicle, multiSettings, {
+      vatMode: 'franchise_base',
+      vatRatePercent: 0,
+    });
+    assert.ok(biz2Xml.includes('<ram:Name>AUTO SECONDLY SARL</ram:Name>'));
+    assert.ok(biz2Xml.includes('88877766600099'));
+    assert.ok(biz2Xml.includes('Paris'));
+
+    const personalVehicle: Vehicle = {
+      ...SOLD_VEHICLE,
+      purchaseStatus: 'particulier',
+      sellerProfileId: 'pers_brother',
+    };
+    const persReadiness = validateFacturXReadiness(personalVehicle, multiSettings, 'fr');
+    assert.equal(persReadiness.ready, true);
+    const persXml = buildFacturXXml(personalVehicle, multiSettings, {
+      vatMode: 'franchise_base',
+      vatRatePercent: 0,
+    });
+    assert.ok(persXml.includes('<ram:Name>MARTIN Paul</ram:Name>'));
+    assert.ok(!persXml.includes('88877766600099'));
+    assert.ok(!persXml.includes('11122233300011'));
+    assert.ok(!persXml.includes('schemeID="0002"'));
+  });
 });
+

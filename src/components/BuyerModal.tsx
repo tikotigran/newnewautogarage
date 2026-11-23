@@ -26,9 +26,12 @@ import {
 import { getGarageSettings } from '../services/garageService';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
+import { SellerProfileSelector } from './SellerProfileSelector';
+import { resolveSellerProfileForVehicle } from '../utils/profileSeparationUtils';
 import {
   buildSaleWizardInitialState,
   formatCerfaMissingToast,
+  resolveDefaultSellerProfileId,
   VIN_REGEX,
 } from '../utils/vehicleFormUtils';
 
@@ -121,6 +124,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   const [sellerProfileType, setSellerProfileType] = useState<AppUserProfileType>(() =>
     resolveInitialSellerProfile(vehicle, resolvedSettings)
   );
+  const [sellerProfileId, setSellerProfileId] = useState<string | undefined>(() => {
+    const mode =
+      resolveInitialSellerProfile(vehicle, resolvedSettings) === 'particulier'
+        ? 'particulier'
+        : 'micro';
+    return (
+      vehicle?.sellerProfileId ||
+      vehicle?.buyerInfo?.sellerProfileId ||
+      resolveDefaultSellerProfileId(mode, resolvedSettings)
+    );
+  });
   const isParticulierSeller = sellerProfileType === 'particulier';
   const effectiveSettings: GarageSettings = {
     ...resolvedSettings,
@@ -153,6 +167,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
   const [phone, setPhone] = useState(initialWizard.phone);
   const [email, setEmail] = useState(initialWizard.email);
   const [salePrice, setSalePrice] = useState<number | ''>(initialWizard.salePrice);
+  const [saleChannel, setSaleChannel] = useState(initialWizard.saleChannel);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,8 +177,17 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     if (vehicle && isOpen) {
       const latestSettings = propGarageSettings || getGarageSettings(vehicle.garageId);
       const resetState = buildSaleWizardInitialState(vehicle);
+      const nextSellerProfile = resolveInitialSellerProfile(vehicle, latestSettings);
       setStep(1);
-      setSellerProfileType(resolveInitialSellerProfile(vehicle, latestSettings));
+      setSellerProfileType(nextSellerProfile);
+      setSellerProfileId(
+        vehicle.sellerProfileId ||
+          vehicle.buyerInfo?.sellerProfileId ||
+          resolveDefaultSellerProfileId(
+            nextSellerProfile === 'particulier' ? 'particulier' : 'micro',
+            latestSettings
+          )
+      );
       setRegistrationNumber(resetState.registrationNumber);
       setVin(resetState.vin);
       setMileage(resetState.mileage);
@@ -183,6 +207,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       setPhone(resetState.phone);
       setEmail(resetState.email);
       setSalePrice(resetState.salePrice);
+      setSaleChannel(resetState.saleChannel);
       setError(null);
       setFieldErrors({});
     }
@@ -368,6 +393,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
       const buyerData: BuyerInfo = {
         isCompany,
         sellerProfileType,
+        sellerProfileId,
         fullName: fullName.trim(),
         siret: siret.trim() || undefined,
         birthDate: isCompany ? undefined : birthDate || undefined,
@@ -382,6 +408,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
         salePrice: Number(salePrice),
         saleDate,
         saleTime,
+        saleChannel: saleChannel || undefined,
         vatRegime: frozenSnapshot.vatRegime,
         vatRatePercent: frozenSnapshot.vatRatePercent,
         taxSnapshot: frozenSnapshot,
@@ -396,6 +423,8 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
         mileage: mileage === '' ? vehicle.mileage : Math.max(0, Number(mileage)),
         firstRegistrationDate: firstRegistrationDate.trim(),
         formulaNumber: cleanedFormula,
+        purchaseStatus: isParticulierSeller ? 'particulier' : 'micro',
+        sellerProfileId,
       };
 
       await onConfirmSale(vehicle.id, buyerData, vehicleUpdates);
@@ -430,19 +459,29 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
     },
   ];
 
-  const sellerDisplayName = isParticulierSeller
-    ? [effectiveSettings.lastName, effectiveSettings.firstName].filter(Boolean).join(' ') ||
-      effectiveSettings.name ||
-      L('Vendeur particulier', 'Частное лицо', 'Անհատ վաճառող', 'კერძო გამყიდველი')
-    : effectiveSettings.name ||
-      [effectiveSettings.lastName, effectiveSettings.firstName].filter(Boolean).join(' ') ||
-      L('Garage / Entreprise', 'Гараж / ИП', 'Ավտոսրահ / ԱՁ', 'გარაჟი / ი/მ');
+  const resolvedSellerInfo = resolveSellerProfileForVehicle({
+    garageSettings: resolvedSettings,
+    overrideMode: isParticulierSeller ? 'particulier' : 'micro',
+    overrideProfileId: sellerProfileId,
+  });
+
+  const sellerDisplayName =
+    resolvedSellerInfo.displayName ||
+    (isParticulierSeller
+      ? L('Vendeur particulier', 'Частное лицо', 'Անհատ վաճառող', 'კერძო გამყიდველი')
+      : L('Garage / Entreprise', 'Гараж / ИП', 'Ավտոսրահ / ԱՁ', 'გარაჟი / ი/მ'));
 
   const sellerAddressLine = [
-    [effectiveSettings.streetNumber, effectiveSettings.streetType, effectiveSettings.streetName]
+    [
+      resolvedSellerInfo.profile.streetNumber,
+      resolvedSellerInfo.profile.streetType,
+      resolvedSellerInfo.profile.streetName,
+    ]
       .filter(Boolean)
       .join(' '),
-    [effectiveSettings.postalCode, effectiveSettings.city].filter(Boolean).join(' '),
+    [resolvedSellerInfo.profile.postalCode, resolvedSellerInfo.profile.city]
+      .filter(Boolean)
+      .join(' '),
   ]
     .filter(Boolean)
     .join(', ');
@@ -710,7 +749,10 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     type="button"
                     data-testid="buyer-modal-seller-micro"
                     aria-pressed={sellerProfileType === 'micro_entrepreneur'}
-                    onClick={() => setSellerProfileType('micro_entrepreneur')}
+                    onClick={() => {
+                      setSellerProfileType('micro_entrepreneur');
+                      setSellerProfileId(resolveDefaultSellerProfileId('micro', resolvedSettings));
+                    }}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition ${
                       sellerProfileType === 'micro_entrepreneur'
                         ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 shadow-sm'
@@ -734,7 +776,10 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     type="button"
                     data-testid="buyer-modal-seller-particulier"
                     aria-pressed={sellerProfileType === 'particulier'}
-                    onClick={() => setSellerProfileType('particulier')}
+                    onClick={() => {
+                      setSellerProfileType('particulier');
+                      setSellerProfileId(resolveDefaultSellerProfileId('particulier', resolvedSettings));
+                    }}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition ${
                       sellerProfileType === 'particulier'
                         ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-200 shadow-sm'
@@ -753,6 +798,20 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       </div>
                     </div>
                   </button>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800">
+                  <SellerProfileSelector
+                    compact
+                    purchaseStatus={isParticulierSeller ? 'particulier' : 'micro'}
+                    selectedProfileId={sellerProfileId}
+                    garageSettings={resolvedSettings}
+                    userId={vehicle.userId}
+                    garageId={vehicle.garageId}
+                    onSelectProfileId={setSellerProfileId}
+                    onSettingsUpdated={setLocalSettings}
+                    testIdPrefix="buyer-modal-seller-profile"
+                  />
                 </div>
               </div>
 
@@ -782,7 +841,7 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                     <div>
                       <span className="text-[10px] text-slate-500 block">SIRET</span>
                       <span className="font-mono text-white">
-                        {effectiveSettings.siret || L('Non renseigné', 'Не указан', 'Նշված չէ', 'არ არის მითითებული')}
+                        {resolvedSellerInfo.profile.siret || L('Non renseigné', 'Не указан', 'Նշված չէ', 'არ არის მითითებული')}
                       </span>
                     </div>
                   )}
@@ -796,11 +855,11 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 block">{t('phone')}</span>
-                    <span>{effectiveSettings.phone || '—'}</span>
+                    <span>{resolvedSellerInfo.profile.phone || '—'}</span>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 block">{t('email')}</span>
-                    <span className="truncate block">{effectiveSettings.email || '—'}</span>
+                    <span className="truncate block">{resolvedSellerInfo.profile.email || '—'}</span>
                   </div>
                 </div>
               </div>
@@ -1246,6 +1305,26 @@ export const BuyerModal: React.FC<BuyerModalProps> = ({
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Optional Sales Channel */}
+                <div className="mt-3">
+                  <label htmlFor="buyer-sale-channel" className="block text-xs font-semibold text-slate-300 mb-1">
+                    {L('Canal de vente (optionnel)', 'Канал продажи (необязательно)', 'Վաճառքի աղբյուր (ոչ պարտադիր)', 'გაყიდვის არხი (არასავალდებულო)')}
+                  </label>
+                  <select
+                    id="buyer-sale-channel"
+                    data-testid="buyer-sale-channel"
+                    value={saleChannel}
+                    onChange={(e) => setSaleChannel(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">{L('Autre / Non précisé', 'Другое / Не указан', 'Այլ / Նշված չէ', 'სხვა / არ არის მითითებული')}</option>
+                    <option value="leboncoin">Leboncoin</option>
+                    <option value="direct">{L('Client direct', 'Прямой клиент', 'Ուղղակի հաճախորդ', 'პირდაპირი კლიენტი')}</option>
+                    <option value="referral">{L('Recommandation', 'Рекомендация', 'Երաշխավորություն', 'რეკომენდაცია')}</option>
+                    <option value="other">{L('Autre', 'Другое', 'Այլ', 'სხვა')}</option>
+                  </select>
                 </div>
               </div>
 

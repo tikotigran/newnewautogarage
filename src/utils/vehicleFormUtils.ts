@@ -34,6 +34,7 @@ export interface VehicleFormInput {
   supplierName?: string;
   status: VehicleStatus;
   purchaseStatus?: VehiclePurchaseStatus;
+  sellerProfileId?: string;
   photos: string[];
 }
 
@@ -81,6 +82,40 @@ export function resolveVehiclePurchaseStatus(
     return 'micro';
   }
   return mapProfileTypeToPurchaseStatus(fallbackProfileType);
+}
+
+export function resolveDefaultSellerProfileId(
+  purchaseStatus: VehiclePurchaseStatus,
+  settings?: Pick<GarageSettings, 'businessProfiles' | 'personalProfiles'> | null
+): string | undefined {
+  const pool =
+    purchaseStatus === 'particulier'
+      ? settings?.personalProfiles || []
+      : settings?.businessProfiles || [];
+  const match = pool.find((p) => p.isDefault) || pool[0];
+  return match?.id;
+}
+
+export function resolveVehicleSellerProfileId(
+  vehicle?: Pick<Vehicle, 'purchaseStatus' | 'sellerProfileId' | 'buyerInfo'> | null,
+  purchaseStatus: VehiclePurchaseStatus = 'micro',
+  settings?: Pick<GarageSettings, 'businessProfiles' | 'personalProfiles'> | null
+): string | undefined {
+  const pool =
+    purchaseStatus === 'particulier'
+      ? settings?.personalProfiles || []
+      : settings?.businessProfiles || [];
+  const candidate =
+    vehicle?.sellerProfileId?.trim() || vehicle?.buyerInfo?.sellerProfileId?.trim();
+  if (candidate && pool.some((p) => p.id === candidate)) {
+    return candidate;
+  }
+  const sameMode =
+    !vehicle?.purchaseStatus || vehicle.purchaseStatus === purchaseStatus;
+  if (candidate && sameMode) {
+    return candidate;
+  }
+  return resolveDefaultSellerProfileId(purchaseStatus, settings);
 }
 
 export type VehicleFormFieldErrorKey =
@@ -342,6 +377,13 @@ export function buildVehicleSubmitPayload(
       ? input.supplierName.trim() || undefined
       : initialVehicle?.supplierName || undefined;
 
+    const resolvedSellerProfileId =
+      input.sellerProfileId !== undefined
+        ? input.sellerProfileId.trim() || undefined
+        : initialVehicle?.purchaseStatus === resolvedPurchaseStatus
+        ? initialVehicle?.sellerProfileId || undefined
+        : undefined;
+
   return {
     userId,
     ...(targetGarageId ? { garageId: targetGarageId } : {}),
@@ -373,6 +415,7 @@ export function buildVehicleSubmitPayload(
     ...(cleanedSupplierName ? { supplierName: cleanedSupplierName } : {}),
     status: nextStatus,
     purchaseStatus: resolvedPurchaseStatus,
+    ...(resolvedSellerProfileId ? { sellerProfileId: resolvedSellerProfileId } : {}),
     photos: input.photos,
     documents: initialVehicle?.documents || [],
     buyerInfo: nextStatus === 'sold' ? initialVehicle?.buyerInfo : undefined,
@@ -552,6 +595,7 @@ export interface SaleWizardInitialState {
   phone: string;
   email: string;
   salePrice: number | '';
+  saleChannel: string;
 }
 
 /**
@@ -604,6 +648,7 @@ export function buildSaleWizardInitialState(
       (vehicle?.targetSalePrice && vehicle.targetSalePrice > 0
         ? vehicle.targetSalePrice
         : vehicle?.purchasePrice || ''),
+    saleChannel: activeBuyer?.saleChannel || '',
   };
 }
 

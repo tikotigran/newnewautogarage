@@ -33,6 +33,76 @@ import {
   getEffectiveCerfa15776Config,
 } from './cerfaConfig';
 import { ensureCerfaCalibrationHydrated } from '../services/adminService';
+import { resolveSellerProfileForVehicle } from './profileSeparationUtils';
+import { hexToRgbTuple, isLightRgb } from './settingsUtils';
+
+function detectImageKind(dataUrl?: string): 'png' | 'jpg' | null {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const trimmed = dataUrl.trim();
+  if (trimmed.startsWith('data:image/png')) return 'png';
+  if (trimmed.startsWith('data:image/jpeg') || trimmed.startsWith('data:image/jpg')) return 'jpg';
+  return null;
+}
+
+function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+  try {
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) return null;
+    const base64 = dataUrl.slice(commaIdx + 1);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+function drawJsPdfLogoOrSignature(
+  doc: jsPDF,
+  dataUrl: string | undefined,
+  boxX: number,
+  boxY: number,
+  maxW: number,
+  maxH: number,
+  alignRight = false
+): boolean {
+  const kind = detectImageKind(dataUrl);
+  if (!kind || !dataUrl) return false;
+  try {
+    const props = doc.getImageProperties(dataUrl);
+    const iw = Math.max(1, props.width || maxW);
+    const ih = Math.max(1, props.height || maxH);
+    const scale = Math.min(maxW / iw, maxH / ih);
+    const drawW = iw * scale;
+    const drawH = ih * scale;
+    const drawX = alignRight ? boxX + (maxW - drawW) : boxX;
+    const drawY = boxY + (maxH - drawH) / 2;
+    doc.addImage(dataUrl, kind === 'png' ? 'PNG' : 'JPEG', drawX, drawY, drawW, drawH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getBrandColors(garageSettings: GarageSettings): {
+  primaryRgb: [number, number, number];
+  secondaryRgb: [number, number, number];
+  headerTextRgb: [number, number, number];
+  headerMutedRgb: [number, number, number];
+} {
+  const primaryRgb = hexToRgbTuple(garageSettings.brandPrimaryColor, [15, 23, 42]);
+  const secondaryRgb = hexToRgbTuple(garageSettings.brandSecondaryColor, [245, 158, 11]);
+  const lightHeader = isLightRgb(primaryRgb);
+  return {
+    primaryRgb,
+    secondaryRgb,
+    headerTextRgb: lightHeader ? [15, 23, 42] : [255, 255, 255],
+    headerMutedRgb: lightHeader ? [71, 85, 105] : [203, 213, 225],
+  };
+}
 
 let cachedCerfaTemplateBytes: ArrayBuffer | null = null;
 
@@ -107,23 +177,41 @@ export function generateSalesInvoicePDF(
     saleDate: new Date().toISOString().split('T')[0],
   };
 
+  const resolvedSeller = resolveSellerProfileForVehicle({ vehicle, garageSettings });
+  const sellerProfile = resolvedSeller.profile;
   const invoiceNumber = `FAC-${vehicle.year}-${vehicle.vin.slice(-5) || '001'}`;
-  const sellerStreetPart = [garageSettings.streetNumber, garageSettings.streetExtension, garageSettings.streetType, garageSettings.streetName].filter(Boolean).join(' ');
-  const sellerAddress = `${sellerStreetPart}, ${garageSettings.postalCode} ${garageSettings.city}`;
+  const sellerStreetPart = [
+    sellerProfile.streetNumber ?? garageSettings.streetNumber,
+    sellerProfile.streetExtension ?? garageSettings.streetExtension,
+    sellerProfile.streetType ?? garageSettings.streetType,
+    sellerProfile.streetName ?? garageSettings.streetName,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const rawCountry = sellerProfile.country ?? garageSettings.country;
+  const sellerCountry = rawCountry?.trim() ? `, ${rawCountry.trim()}` : '';
+  const sellerPostal = sellerProfile.postalCode ?? garageSettings.postalCode;
+  const sellerCity = sellerProfile.city ?? garageSettings.city;
+  const sellerAddress = `${sellerStreetPart}, ${sellerPostal} ${sellerCity}${sellerCountry}`;
+  const brand = getBrandColors(garageSettings);
 
   // Header Banner
-  doc.setFillColor(15, 23, 42); // slate-900
+  doc.setFillColor(...brand.primaryRgb);
   doc.rect(0, 0, 210, 32, 'F');
+  doc.setFillColor(...brand.secondaryRgb);
+  doc.rect(0, 30.4, 210, 1.6, 'F');
 
-  doc.setTextColor(255, 255, 255);
+  const hasHeaderLogo = drawJsPdfLogoOrSignature(doc, garageSettings.logoDataUrl, 158, 4, 38, 23, true);
+
+  doc.setTextColor(...brand.headerTextRgb);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(17);
-  doc.text('FACTURE DE VENTE DE VÉHICULE D’OCCASION', 14, 18);
+  doc.setFontSize(hasHeaderLogo ? 15 : 17);
+  doc.text('FACTURE DE VENTE DE VÉHICULE D’OCCASION', 14, 17, { maxWidth: hasHeaderLogo ? 140 : 182 });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
-  doc.setTextColor(203, 213, 225);
-  doc.text(`Facture N° ${invoiceNumber}  |  Date de cession : ${buyer.saleDate}`, 14, 26);
+  doc.setTextColor(...brand.headerMutedRgb);
+  doc.text(`Facture N° ${invoiceNumber}  |  Date de cession : ${buyer.saleDate}`, 14, 25.5);
 
   // Seller & Buyer 2-Column Boxes
   const dealProfile = resolveDealSellerProfileType(vehicle, garageSettings);
@@ -131,18 +219,30 @@ export function generateSalesInvoicePDF(
     ...garageSettings,
     ...resolveEffectiveSettingsForDeal({ vehicle, garageSettings }),
   };
-  const isParticulierSeller = dealProfile === 'particulier';
+  const isParticulierSeller = resolvedSeller.isPersonal || dealProfile === 'particulier';
   const isMicroDealSeller =
+    !isParticulierSeller &&
     dealProfile === 'micro_entrepreneur' &&
-    (vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur' ||
+    (vehicle.purchaseStatus === 'micro' ||
+      vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur' ||
       dealSettings.taxRegime === 'micro');
-  const formattedPhysiqueSellerName = [garageSettings.firstName, garageSettings.lastName]
+  const formattedPhysiqueSellerName = [
+    sellerProfile.firstName ?? garageSettings.firstName,
+    sellerProfile.lastName ?? garageSettings.lastName,
+  ]
     .filter(Boolean)
     .join(' ')
     .trim();
   const displaySellerName = isParticulierSeller
-    ? formattedPhysiqueSellerName || garageSettings.name
-    : garageSettings.name || formattedPhysiqueSellerName;
+    ? formattedPhysiqueSellerName || sellerProfile.name || garageSettings.name
+    : sellerProfile.name || garageSettings.name || formattedPhysiqueSellerName;
+  const sellerSiret = isParticulierSeller ? '' : sellerProfile.siret || garageSettings.siret || '';
+  const sellerVatNumber = isParticulierSeller
+    ? ''
+    : sellerProfile.vatNumber || garageSettings.vatNumber || '';
+  const sellerPhone = sellerProfile.phone || garageSettings.phone || '';
+  const sellerEmail = sellerProfile.email || garageSettings.email || '';
+  const sellerIban = sellerProfile.iban || garageSettings.iban || '';
 
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10.5);
@@ -154,29 +254,41 @@ export function generateSalesInvoicePDF(
       ? 'VENDEUR (MICRO-ENTREPRENEUR)'
       : 'VENDEUR (GARAGE)',
     14,
-    42
+    41
   );
-  doc.text('ACHETEUR (CLIENT)', 112, 42);
+  doc.text('ACHETEUR (CLIENT)', 112, 41);
 
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 46, 88, 38, 2, 2, 'F');
-  doc.roundedRect(112, 46, 84, 38, 2, 2, 'F');
+  doc.roundedRect(14, 44, 88, 42, 2, 2, 'F');
+  doc.roundedRect(112, 44, 84, 42, 2, 2, 'F');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(displaySellerName, 18, 52);
+  doc.text(displaySellerName, 18, 50);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8.2);
   doc.setTextColor(71, 85, 105);
-  if (!isParticulierSeller && garageSettings.siret) {
-    doc.text(`SIRET : ${garageSettings.siret}`, 18, 58);
+  const sellerMetaParts: string[] = [];
+  if (!isParticulierSeller && sellerSiret) {
+    sellerMetaParts.push(`SIRET : ${sellerSiret}`);
   } else if (isParticulierSeller) {
-    doc.text('Vendeur particulier (vente privée)', 18, 58);
+    sellerMetaParts.push('Vendeur particulier (vente privée)');
   }
-  doc.text(sellerAddress, 18, 64, { maxWidth: 80 });
-  doc.text(`Tél : ${garageSettings.phone}  |  ${garageSettings.email}`, 18, 76, { maxWidth: 80 });
+  if (!isParticulierSeller && sellerVatNumber.trim()) {
+    sellerMetaParts.push(`TVA : ${sellerVatNumber.trim()}`);
+  }
+  if (sellerMetaParts.length > 0) {
+    doc.text(sellerMetaParts.join(' | '), 18, 55.5, { maxWidth: 80 });
+  }
+  doc.text(sellerAddress, 18, 61.5, { maxWidth: 80 });
+  doc.text(`Tél : ${sellerPhone}  |  ${sellerEmail}`, 18, 73, { maxWidth: 80 });
+  if (sellerIban.trim()) {
+    doc.setFontSize(7.5);
+    doc.text(`IBAN : ${sellerIban.trim()}`, 18, 81.5, { maxWidth: 80 });
+    doc.setFontSize(8.2);
+  }
 
   // Buyer Details
   doc.setFont('helvetica', 'bold');
@@ -241,9 +353,9 @@ export function generateSalesInvoicePDF(
   doc.text('DÉCOMPTE FINANCIER & RÈGLEMENT', 14, 142);
 
   // Table header
-  doc.setFillColor(15, 23, 42);
+  doc.setFillColor(...brand.primaryRgb);
   doc.rect(14, 146, 182, 8, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(...brand.headerTextRgb);
   doc.setFontSize(8.5);
   doc.text('DÉSIGNATION', 20, 151.5);
   doc.text('RÉGIME DE TVA', 105, 151.5);
@@ -375,7 +487,14 @@ export function generateSalesInvoicePDF(
     { maxWidth: 174 }
   );
   doc.text('3. Situation administrative : Le vendeur certifie que le véhicule n’est pas gagé et n’a subi aucune transformation susceptible de modifier le certificat d’immatriculation.', 18, 224, { maxWidth: 174 });
-  doc.text('4. Paiement : Virement bancaire ou chèque de banque certifié encaissé avant remise définitive des clés et des titres.', 18, 231);
+  doc.text(
+    sellerIban.trim()
+      ? `4. Paiement : Virement bancaire (IBAN : ${sellerIban.trim()}) ou chèque de banque certifié.`
+      : '4. Paiement : Virement bancaire ou chèque de banque certifié encaissé avant remise définitive des clés et des titres.',
+    18,
+    231,
+    { maxWidth: 174 }
+  );
 
   // Signatures
   doc.setFontSize(8.5);
@@ -387,6 +506,10 @@ export function generateSalesInvoicePDF(
   doc.setDrawColor(203, 213, 225);
   doc.rect(20, 244, 75, 28);
   doc.rect(115, 244, 75, 28);
+
+  if (garageSettings.signatureDataUrl) {
+    drawJsPdfLogoOrSignature(doc, garageSettings.signatureDataUrl, 24, 246, 67, 20, false);
+  }
 
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
@@ -468,6 +591,7 @@ export interface CerfaPdfRenderOptions {
   highlightedFieldPath?: string | null;
   customOffsets?: Partial<CerfaTemplateOffsetConfig> | null;
   showCalibrationPlaceholderForSelected?: boolean;
+  sellerSignatureDataUrl?: string;
 }
 
 /**
@@ -509,6 +633,22 @@ export async function buildCerfa15776PdfBytes(
   const highlightTextColor = rgb(0.88, 0.12, 0.04);
   const highlightFillColor = rgb(0.96, 0.62, 0.04);
   const highlightBorderColor = rgb(0.92, 0.18, 0.05);
+
+  let embeddedSellerSignature: Awaited<ReturnType<PDFDocument['embedPng']>> | null = null;
+  const sigKind = detectImageKind(options?.sellerSignatureDataUrl);
+  if (sigKind && options?.sellerSignatureDataUrl) {
+    const sigBytes = dataUrlToBytes(options.sellerSignatureDataUrl);
+    if (sigBytes) {
+      try {
+        embeddedSellerSignature =
+          sigKind === 'png'
+            ? await pdfDoc.embedPng(sigBytes)
+            : await pdfDoc.embedJpg(sigBytes);
+      } catch {
+        embeddedSellerSignature = null;
+      }
+    }
+  }
 
   const drawField = (
     page: ReturnType<PDFDocument['getPages']>[number],
@@ -715,6 +855,24 @@ export async function buildCerfa15776PdfBytes(
     drawField(page, s.signingCity.toUpperCase(), s2.signatures.faitA, 'section2Seller.signatures.faitA');
     drawField(page, sellerSigningDateFr, s2.signatures.faitLe, 'section2Seller.signatures.faitLe');
 
+    if (embeddedSellerSignature) {
+      const dims = embeddedSellerSignature.scale(1);
+      const maxW = 138;
+      const maxH = 26;
+      const ratio = Math.min(maxW / Math.max(1, dims.width), maxH / Math.max(1, dims.height));
+      const drawW = dims.width * ratio;
+      const drawH = dims.height * ratio;
+      const boxCenterX = 445;
+      const sigX = Math.max(360, boxCenterX - drawW / 2);
+      const sigY = Math.max(279, s2.signatures.faitA.y - drawH - 20);
+      page.drawImage(embeddedSellerSignature, {
+        x: sigX,
+        y: sigY,
+        width: drawW,
+        height: drawH,
+      });
+    }
+
     // ==========================================
     // 3. NOUVEAU PROPRIÉTAIRE (ACQUÉREUR)
     // ==========================================
@@ -788,7 +946,9 @@ export async function generateOfficialCerfa15776PDF(
   action: 'download' | 'print' = 'download'
 ): Promise<void> {
   const initialData = buildInitialCerfaData(vehicle, garageSettings);
-  return generateCerfa15776FromFormData(initialData, action);
+  return generateCerfa15776FromFormData(initialData, action, undefined, {
+    sellerSignatureDataUrl: garageSettings.signatureDataUrl,
+  });
 }
 
 export const generateCertificatCessionPDF = generateOfficialCerfa15776PDF;
@@ -848,16 +1008,32 @@ function generateFallbackCerfaPDF(
   doc.text(`Certificat d’immatriculation présent : OUI [X]`, 115, 74);
 
   // Section 2
+  const fallbackSeller = resolveSellerProfileForVehicle({ vehicle, garageSettings });
+  const fbProf = fallbackSeller.profile;
   doc.setFont('helvetica', 'bold');
   doc.text('2. ANCIEN PROPRIÉTAIRE (CÉDANT)', 14, 92);
   doc.rect(14, 96, 182, 38);
   doc.setFont('helvetica', 'normal');
-  doc.text(`[X] Personne morale — Raison sociale : ${garageSettings.name}`, 18, 103);
-  doc.text(`N° SIRET : ${garageSettings.siret}`, 18, 110);
-  const legacySellerStreet = [garageSettings.streetNumber, garageSettings.streetExtension, garageSettings.streetType, garageSettings.streetName].filter(Boolean).join(' ');
-  doc.text(`Adresse : ${legacySellerStreet}, ${garageSettings.postalCode} ${garageSettings.city}`, 18, 117);
+  if (fallbackSeller.isPersonal) {
+    doc.text(`[X] Personne physique — Nom et Prénom : ${fallbackSeller.displayName || 'Particulier'}`, 18, 103);
+    doc.text(`Statut : Vendeur particulier (aucun SIRET requis)`, 18, 110);
+  } else {
+    doc.text(`[X] Personne morale — Raison sociale : ${fbProf.name || garageSettings.name}`, 18, 103);
+    doc.text(`N° SIRET : ${fbProf.siret || garageSettings.siret}`, 18, 110);
+  }
+  const legacySellerStreet = [
+    fbProf.streetNumber ?? garageSettings.streetNumber,
+    fbProf.streetExtension ?? garageSettings.streetExtension,
+    fbProf.streetType ?? garageSettings.streetType,
+    fbProf.streetName ?? garageSettings.streetName,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const fbCity = fbProf.city ?? garageSettings.city;
+  const fbPostal = fbProf.postalCode ?? garageSettings.postalCode;
+  doc.text(`Adresse : ${legacySellerStreet}, ${fbPostal} ${fbCity}`, 18, 117);
   doc.text(`Certifie céder le véhicule le : ${buyer.saleDate} à ${buyer.saleTime || '14:00'}`, 18, 124);
-  doc.text(`Fait à ${garageSettings.city}, le ${buyer.saleDate}`, 18, 131);
+  doc.text(`Fait à ${fbCity}, le ${buyer.saleDate}`, 18, 131);
 
   // Section 3
   doc.setFont('helvetica', 'bold');
@@ -905,13 +1081,18 @@ export function generateVehicleFinancialReportPDF(
     format: 'a4',
   });
 
+  const brand = getBrandColors(garageSettings);
+
   // Top bar
-  doc.setFillColor(30, 41, 59);
+  doc.setFillColor(...brand.primaryRgb);
   doc.rect(0, 0, 210, 28, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setFillColor(...brand.secondaryRgb);
+  doc.rect(0, 26.5, 210, 1.5, 'F');
+  const hasLogo = drawJsPdfLogoOrSignature(doc, garageSettings.logoDataUrl, 158, 3, 38, 21, true);
+  doc.setTextColor(...brand.headerTextRgb);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('BILAN FINANCIER & DOSSIER VÉHICULE (P&L)', 14, 17);
+  doc.setFontSize(hasLogo ? 14.5 : 16);
+  doc.text('BILAN FINANCIER & DOSSIER VÉHICULE (P&L)', 14, 17, { maxWidth: hasLogo ? 140 : 182 });
 
   // Vehicle summary
   doc.setTextColor(15, 23, 42);
@@ -1155,20 +1336,26 @@ export function generateDealershipFinancialReportPDF(params: {
     format: 'a4',
   });
 
+  const brand = getBrandColors(garageSettings);
+
   // Top Header
-  doc.setFillColor(15, 23, 42);
+  doc.setFillColor(...brand.primaryRgb);
   doc.rect(0, 0, 210, 30, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setFillColor(...brand.secondaryRgb);
+  doc.rect(0, 28.5, 210, 1.5, 'F');
+  const hasHeaderLogo = drawJsPdfLogoOrSignature(doc, garageSettings.logoDataUrl, 158, 3.5, 38, 22, true);
+  doc.setTextColor(...brand.headerTextRgb);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('RAPPORT FINANCIER & P&L CONCESSION', 14, 15);
+  doc.setFontSize(hasHeaderLogo ? 14 : 15);
+  doc.text('RAPPORT FINANCIER & P&L CONCESSION', 14, 15, { maxWidth: hasHeaderLogo ? 140 : 182 });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(203, 213, 225);
+  doc.setTextColor(...brand.headerMutedRgb);
   doc.text(
     `${garageSettings.name} (SIRET ${garageSettings.siret || '-'})  |  Période : ${periodLabel}  |  Édité le ${new Date().toISOString().slice(0, 10)}`,
     14,
-    23
+    23,
+    { maxWidth: hasHeaderLogo ? 140 : 182 }
   );
 
   // Stock & Capital Block
@@ -1438,15 +1625,19 @@ export async function generateFacturXHybridPdf(params: {
     salePrice: vehicle.targetSalePrice,
     saleDate: new Date().toISOString().split('T')[0],
   };
+  const resolvedSeller = resolveSellerProfileForVehicle({ vehicle, garageSettings });
+  const fxSeller = resolvedSeller.profile;
   const sellerStreetPart = [
-    garageSettings.streetNumber,
-    garageSettings.streetExtension,
-    garageSettings.streetType,
-    garageSettings.streetName,
+    fxSeller.streetNumber ?? garageSettings.streetNumber,
+    fxSeller.streetExtension ?? garageSettings.streetExtension,
+    fxSeller.streetType ?? garageSettings.streetType,
+    fxSeller.streetName ?? garageSettings.streetName,
   ]
     .filter(Boolean)
     .join(' ');
-  const sellerAddress = `${sellerStreetPart}, ${garageSettings.postalCode} ${garageSettings.city}`;
+  const fxCountryRaw = fxSeller.country ?? garageSettings.country;
+  const sellerCountry = fxCountryRaw?.trim() ? `, ${fxCountryRaw.trim()}` : '';
+  const sellerAddress = `${sellerStreetPart}, ${fxSeller.postalCode ?? garageSettings.postalCode} ${fxSeller.city ?? garageSettings.city}${sellerCountry}`;
   const grossPrice = Number(buyer.salePrice) || Number(vehicle.targetSalePrice) || 0;
   const vatBreakdown = calculateFrenchVat({
     salePrice: grossPrice,
@@ -1456,16 +1647,20 @@ export async function generateFacturXHybridPdf(params: {
   });
   const htAmount = vatBreakdown.htAmount;
   const vatAmount = vatBreakdown.vatAmount;
+  const brand = getBrandColors(garageSettings);
 
-  doc.setFillColor(15, 23, 42);
+  doc.setFillColor(...brand.primaryRgb);
   doc.rect(0, 0, 210, 32, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.setFillColor(...brand.secondaryRgb);
+  doc.rect(0, 30.4, 210, 1.6, 'F');
+  const hasFacturXLogo = drawJsPdfLogoOrSignature(doc, garageSettings.logoDataUrl, 158, 4, 38, 23, true);
+  doc.setTextColor(...brand.headerTextRgb);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('FACTURE ÉLECTRONIQUE — FACTUR-X (EN 16931)', 14, 17);
+  doc.setFontSize(hasFacturXLogo ? 14.5 : 16);
+  doc.text('FACTURE ÉLECTRONIQUE — FACTUR-X (EN 16931)', 14, 17, { maxWidth: hasFacturXLogo ? 140 : 182 });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.setTextColor(203, 213, 225);
+  doc.setTextColor(...brand.headerMutedRgb);
   doc.text(
     `Facture N° ${invoiceNumber}  |  Date : ${buyer.saleDate}  |  XML factur-x.xml embarqué`,
     14,
@@ -1482,32 +1677,47 @@ export async function generateFacturXHybridPdf(params: {
       ? 'VENDEUR (MICRO-ENTREPRENEUR)'
       : 'VENDEUR (GARAGE)',
     14,
-    42
+    41
   );
-  doc.text('ACHETEUR (CLIENT)', 112, 42);
+  doc.text('ACHETEUR (CLIENT)', 112, 41);
 
   doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 46, 88, 36, 2, 2, 'F');
-  doc.roundedRect(112, 46, 84, 36, 2, 2, 'F');
+  doc.roundedRect(14, 44, 88, 42, 2, 2, 'F');
+  doc.roundedRect(112, 44, 84, 42, 2, 2, 'F');
 
   const facturxSellerName =
     isParticulierDeal || garageSettings.entityType === 'physique'
-      ? `${garageSettings.firstName || ''} ${garageSettings.lastName || ''}`.trim() || garageSettings.name
-      : garageSettings.name;
+      ? `${fxSeller.firstName ?? ''} ${fxSeller.lastName ?? ''}`.trim() ||
+        fxSeller.name ||
+        `${garageSettings.firstName || ''} ${garageSettings.lastName || ''}`.trim() ||
+        garageSettings.name
+      : fxSeller.name || garageSettings.name;
+  const fxSiret = isParticulierDeal ? '' : fxSeller.siret || garageSettings.siret || '';
+  const fxVat = isParticulierDeal ? '' : fxSeller.vatNumber || garageSettings.vatNumber || '';
+  const fxPhone = fxSeller.phone || garageSettings.phone || '';
+  const fxEmail = fxSeller.email || garageSettings.email || '';
+  const fxIban = fxSeller.iban || garageSettings.iban || '';
 
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(facturxSellerName, 18, 52);
+  doc.text(facturxSellerName, 18, 50);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8.2);
   doc.setTextColor(71, 85, 105);
-  doc.text(
-    isParticulierDeal ? 'Vendeur particulier (vente privée)' : `SIRET : ${garageSettings.siret || '-'}`,
-    18,
-    58
-  );
-  doc.text(sellerAddress, 18, 64, { maxWidth: 80 });
-  doc.text(`${garageSettings.phone} | ${garageSettings.email}`, 18, 75, { maxWidth: 80 });
+  const fxSellerMeta: string[] = [
+    isParticulierDeal ? 'Vendeur particulier (vente privée)' : `SIRET : ${fxSiret || '-'}`,
+  ];
+  if (!isParticulierDeal && fxVat.trim()) {
+    fxSellerMeta.push(`TVA : ${fxVat.trim()}`);
+  }
+  doc.text(fxSellerMeta.join(' | '), 18, 55.5, { maxWidth: 80 });
+  doc.text(sellerAddress, 18, 61.5, { maxWidth: 80 });
+  doc.text(`${fxPhone} | ${fxEmail}`, 18, 72.5, { maxWidth: 80 });
+  if (fxIban.trim()) {
+    doc.setFontSize(7.5);
+    doc.text(`IBAN : ${fxIban.trim()}`, 18, 81, { maxWidth: 80 });
+    doc.setFontSize(8.2);
+  }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
@@ -1594,6 +1804,24 @@ export async function generateFacturXHybridPdf(params: {
     170,
     { maxWidth: 182 }
   );
+
+  if (fxIban.trim() || garageSettings.signatureDataUrl) {
+    if (fxIban.trim()) {
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Règlement par virement bancaire — IBAN : ${fxIban.trim()}`, 14, 184, { maxWidth: 182 });
+    }
+    if (garageSettings.signatureDataUrl) {
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Signature vendeur (${facturxSellerName}) :`, 14, 195);
+      doc.setDrawColor(203, 213, 225);
+      doc.rect(14, 198, 72, 26);
+      drawJsPdfLogoOrSignature(doc, garageSettings.signatureDataUrl, 17, 200, 66, 22, false);
+    }
+  }
 
   // Embed factur-x.xml inside the PDF using pdf-lib
   const basePdfBytes = doc.output('arraybuffer');

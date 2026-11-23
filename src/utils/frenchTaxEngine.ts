@@ -63,13 +63,20 @@ export function resolveUserProfileType(
  * Legacy sold vehicles without `sellerProfileType` fall back to global settings / profileType.
  */
 export function resolveDealSellerProfileType(
-  vehicle?: Pick<Vehicle, 'buyerInfo'> | null,
+  vehicle?: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'> | null,
   garageSettings?: Partial<GarageSettings> | null,
   fallbackProfileType?: AppUserProfileType
 ): AppUserProfileType {
   const explicitDealProfile = vehicle?.buyerInfo?.sellerProfileType;
   if (explicitDealProfile === 'particulier' || explicitDealProfile === 'micro_entrepreneur') {
     return explicitDealProfile;
+  }
+
+  if (vehicle?.purchaseStatus === 'particulier') {
+    return 'particulier';
+  }
+  if (vehicle?.purchaseStatus === 'micro') {
+    return 'micro_entrepreneur';
   }
 
   if (fallbackProfileType === 'particulier') {
@@ -94,25 +101,33 @@ export function resolveDealSellerProfileType(
 /**
  * Returns GarageSettings patched for a specific deal's seller regime.
  * Ensures a deal marked as 'particulier' always yields 0 € taxes, while a deal marked
- * as 'micro_entrepreneur' applies Micro URSSAF + VL even if global settings are Particulier.
+ * as 'micro_entrepreneur' applies Micro URSSAF + VL even if legacy global settings were Particulier.
  */
 export function resolveEffectiveSettingsForDeal(params: {
-  vehicle?: Pick<Vehicle, 'buyerInfo'> | null;
+  vehicle?: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'> | null;
   garageSettings?: Partial<GarageSettings> | null;
   fallbackProfileType?: AppUserProfileType;
 }): Partial<GarageSettings> {
   const { vehicle, garageSettings, fallbackProfileType } = params;
   const base = garageSettings || {};
   const explicitDealProfile = vehicle?.buyerInfo?.sellerProfileType;
+  const resolvedPerVehicleProfile: AppUserProfileType | undefined =
+    explicitDealProfile === 'particulier' || explicitDealProfile === 'micro_entrepreneur'
+      ? explicitDealProfile
+      : vehicle?.purchaseStatus === 'particulier'
+      ? 'particulier'
+      : vehicle?.purchaseStatus === 'micro'
+      ? 'micro_entrepreneur'
+      : undefined;
 
-  if (explicitDealProfile === 'particulier') {
+  if (resolvedPerVehicleProfile === 'particulier') {
     return {
       ...base,
       ...buildProfileSettingsPatch('particulier', base),
     };
   }
 
-  if (explicitDealProfile === 'micro_entrepreneur') {
+  if (resolvedPerVehicleProfile === 'micro_entrepreneur') {
     return {
       ...base,
       ...buildProfileSettingsPatch('micro_entrepreneur', base),

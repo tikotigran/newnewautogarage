@@ -5,6 +5,7 @@ import { Check, ChevronDown } from 'lucide-react';
 export interface ThemedSelectOption<T extends string = string> {
   value: T;
   label: string;
+  triggerLabel?: string;
 }
 
 interface ThemedSelectProps<T extends string = string> {
@@ -149,7 +150,9 @@ export function ThemedSelect<T extends string = string>({
         }}
         className={`inline-flex items-center justify-between gap-2 text-left transition cursor-pointer focus:outline-none focus:ring-1 focus:ring-[var(--primary)] ${triggerClassName}`}
       >
-        <span className="truncate">{selectedOption?.label ?? ''}</span>
+        <span className="truncate">
+          {selectedOption?.triggerLabel ?? selectedOption?.label ?? ''}
+        </span>
         <ChevronDown
           className={`w-3.5 h-3.5 shrink-0 opacity-80 transition-transform duration-150 ${
             open ? 'rotate-180' : ''

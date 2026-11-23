@@ -1,6 +1,15 @@
-import { GeneralExpense, RepairTask, Vehicle } from '../types/garage';
-import { getIntlLocale, Language } from './i18nUtils';
+import {
+  AppUserProfileType,
+  GeneralExpense,
+  RepairTask,
+  Vehicle,
+  VehiclePurchaseStatus,
+  VehicleStatus,
+} from '../types/garage';
+import { getIntlLocale, Language, pickLocalized } from './i18nUtils';
 import { roundToTwo } from './finance';
+import { resolveVehiclePurchaseStatus } from './vehicleFormUtils';
+import { resolveVehicleQuickFlags } from './quickListUtils';
 
 export interface VehicleInventoryFinancials {
   purchasePrice: number;
@@ -18,6 +27,33 @@ export interface InventorySummaryTotals {
 }
 
 export type InventorySortField = 'date' | 'invested' | 'price' | 'mileage';
+
+export type InventoryTableSortColumn =
+  | 'vehicle'
+  | 'mileage'
+  | 'status'
+  | 'ct'
+  | 'docs'
+  | 'purchasePrice'
+  | 'expenses'
+  | 'totalInvested';
+
+export type SortDirection = 'asc' | 'desc';
+
+export interface InventoryTableSortState {
+  column: InventoryTableSortColumn;
+  direction: SortDirection;
+}
+
+export type InventoryTransactionFilter = 'all' | 'micro' | 'particulier';
+
+export interface InventoryStatusCounts {
+  all: number;
+  preparation: number;
+  repair: number;
+  for_sale: number;
+  sold: number;
+}
 
 /**
  * Computes exact inventory financials for a vehicle while strictly avoiding
@@ -180,3 +216,217 @@ export function sortInventoryVehicles(
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 }
+
+export function matchesVehicleTransactionType(
+  vehicle: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'>,
+  filter: InventoryTransactionFilter,
+  fallbackProfileType: AppUserProfileType = 'micro_entrepreneur'
+): boolean {
+  if (filter === 'all') return true;
+  return resolveVehiclePurchaseStatus(vehicle, fallbackProfileType) === filter;
+}
+
+export type InventoryScope = 'active' | 'sold';
+
+export interface ActiveInventoryStatusCounts {
+  all: number;
+  preparation: number;
+  repair: number;
+  for_sale: number;
+}
+
+export function filterVehiclesByInventoryScope<T extends Pick<Vehicle, 'status'>>(
+  vehicles: ReadonlyArray<T>,
+  scope: InventoryScope
+): T[] {
+  return vehicles.filter((v) =>
+    scope === 'sold' ? v.status === 'sold' : v.status !== 'sold'
+  );
+}
+
+export function partitionInventoryVehicles<T extends Pick<Vehicle, 'status'>>(
+  vehicles: ReadonlyArray<T>
+): { activeVehicles: T[]; soldVehicles: T[] } {
+  const activeVehicles: T[] = [];
+  const soldVehicles: T[] = [];
+  for (const v of vehicles) {
+    if (v.status === 'sold') {
+      soldVehicles.push(v);
+    } else {
+      activeVehicles.push(v);
+    }
+  }
+  return { activeVehicles, soldVehicles };
+}
+
+export function computeActiveInventoryStatusCounts(
+  vehicles: ReadonlyArray<Pick<Vehicle, 'status'>>
+): ActiveInventoryStatusCounts {
+  const counts: ActiveInventoryStatusCounts = {
+    all: 0,
+    preparation: 0,
+    repair: 0,
+    for_sale: 0,
+  };
+  for (const v of vehicles) {
+    if (v.status === 'sold') continue;
+    counts.all += 1;
+    if (v.status === 'preparation') counts.preparation += 1;
+    else if (v.status === 'repair') counts.repair += 1;
+    else if (v.status === 'for_sale') counts.for_sale += 1;
+  }
+  return counts;
+}
+
+export function computeInventoryStatusCounts(
+  vehicles: ReadonlyArray<Pick<Vehicle, 'status'>>
+): InventoryStatusCounts {
+  const counts: InventoryStatusCounts = {
+    all: vehicles.length,
+    preparation: 0,
+    repair: 0,
+    for_sale: 0,
+    sold: 0,
+  };
+  for (const v of vehicles) {
+    if (v.status === 'preparation') counts.preparation += 1;
+    else if (v.status === 'repair') counts.repair += 1;
+    else if (v.status === 'for_sale') counts.for_sale += 1;
+    else if (v.status === 'sold') counts.sold += 1;
+  }
+  return counts;
+}
+
+export function formatListTrimSubtitle(
+  trim?: string | null,
+  maxLength = 15
+): { display: string; full: string } {
+  const full = (trim || '').trim() || 'Standard';
+  if (full.length <= maxLength) {
+    return { display: full, full };
+  }
+  return {
+    display: `${full.slice(0, maxLength).trimEnd()}...`,
+    full,
+  };
+}
+
+const STATUS_SORT_ORDER: Record<VehicleStatus, number> = {
+  preparation: 0,
+  repair: 1,
+  for_sale: 2,
+  sold: 3,
+};
+
+export function toggleTableSortState(
+  current: InventoryTableSortState | null,
+  column: InventoryTableSortColumn
+): InventoryTableSortState {
+  if (current?.column === column) {
+    return {
+      column,
+      direction: current.direction === 'asc' ? 'desc' : 'asc',
+    };
+  }
+  const defaultAsc = column === 'vehicle' || column === 'status';
+  return {
+    column,
+    direction: defaultAsc ? 'asc' : 'desc',
+  };
+}
+
+export function sortInventoryVehiclesByColumn(
+  vehicles: Vehicle[],
+  sortState: InventoryTableSortState,
+  financialsById?: Map<string, VehicleInventoryFinancials>
+): Vehicle[] {
+  const dir = sortState.direction === 'asc' ? 1 : -1;
+  return [...vehicles].sort((a, b) => {
+    let cmp = 0;
+    switch (sortState.column) {
+      case 'vehicle': {
+        const nameA = `${a.make || ''} ${a.model || ''}`.trim();
+        const nameB = `${b.make || ''} ${b.model || ''}`.trim();
+        cmp = nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+        if (cmp === 0) {
+          cmp = (Number(a.year) || 0) - (Number(b.year) || 0);
+        }
+        break;
+      }
+      case 'mileage':
+        cmp = (Number(a.mileage) || 0) - (Number(b.mileage) || 0);
+        break;
+      case 'status':
+        cmp = (STATUS_SORT_ORDER[a.status] ?? 99) - (STATUS_SORT_ORDER[b.status] ?? 99);
+        break;
+      case 'ct': {
+        const ctA = resolveVehicleQuickFlags(a).ctPassed ? 1 : 0;
+        const ctB = resolveVehicleQuickFlags(b).ctPassed ? 1 : 0;
+        cmp = ctA - ctB;
+        break;
+      }
+      case 'docs': {
+        const docsA = resolveVehicleQuickFlags(a).docsCompleted ? 1 : 0;
+        const docsB = resolveVehicleQuickFlags(b).docsCompleted ? 1 : 0;
+        cmp = docsA - docsB;
+        break;
+      }
+      case 'purchasePrice': {
+        const pA = financialsById?.get(a.id)?.purchasePrice ?? (Number(a.purchasePrice) || 0);
+        const pB = financialsById?.get(b.id)?.purchasePrice ?? (Number(b.purchasePrice) || 0);
+        cmp = pA - pB;
+        break;
+      }
+      case 'expenses': {
+        const eA = financialsById?.get(a.id)?.totalExpenses ?? (Number(a.totalExpenses) || 0);
+        const eB = financialsById?.get(b.id)?.totalExpenses ?? (Number(b.totalExpenses) || 0);
+        cmp = eA - eB;
+        break;
+      }
+      case 'totalInvested': {
+        const tA =
+          financialsById?.get(a.id)?.totalInvested ??
+          (Number(a.totalInvested) || Number(a.purchasePrice) || 0);
+        const tB =
+          financialsById?.get(b.id)?.totalInvested ??
+          (Number(b.totalInvested) || Number(b.purchasePrice) || 0);
+        cmp = tA - tB;
+        break;
+      }
+    }
+    if (cmp !== 0) return cmp * dir;
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
+}
+
+export interface VehicleTransactionBadgeInfo {
+  mode: VehiclePurchaseStatus;
+  label: string;
+}
+
+export function getVehicleTransactionBadgeInfo(
+  vehicle: Pick<Vehicle, 'purchaseStatus' | 'buyerInfo'>,
+  lang: Language,
+  fallbackProfileType: AppUserProfileType = 'micro_entrepreneur'
+): VehicleTransactionBadgeInfo {
+  const mode = resolveVehiclePurchaseStatus(vehicle, fallbackProfileType);
+  const label =
+    mode === 'micro'
+      ? pickLocalized(lang, {
+          fr: 'PRO',
+          ru: 'ФИРМА',
+          hy: 'ԸՆԿ.',
+          ka: 'ფირმა',
+        })
+      : pickLocalized(lang, {
+          fr: 'PERSO',
+          ru: 'ЧАСТ.',
+          hy: 'ԱՆՀ.',
+          ka: 'კერძო',
+        });
+  return { mode, label };
+}
+
+
+
+

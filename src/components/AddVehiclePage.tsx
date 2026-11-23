@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -12,11 +12,13 @@ import {
   TrendingUp,
   Upload,
 } from 'lucide-react';
-import { Supplier, Vehicle, VehiclePurchaseStatus, VehicleStatus } from '../types/garage';
+import { GarageSettings, Supplier, Vehicle, VehiclePurchaseStatus, VehicleStatus } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
 import { LocaleDateInput } from './LocaleDateInput';
+import { SellerProfileSelector } from './SellerProfileSelector';
+import { fetchGarageSettingsFromCloud, getGarageSettings } from '../services/garageService';
 import { compressImageFileToDataUrl } from '../utils/documentFileHelpers';
 import { formatEuro } from '../utils/finance';
 import {
@@ -24,6 +26,7 @@ import {
   computeVehicleMarginPreview,
   estimatePhotosPayloadBytes,
   MAX_VEHICLE_PHOTOS_BYTES,
+  resolveDefaultSellerProfileId,
   validateVehicleFormDetailed,
   VehicleFormFieldErrorKey,
 } from '../utils/vehicleFormUtils';
@@ -52,7 +55,32 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
   const { t, lang } = useI18n();
   const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
 
+  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
+    getGarageSettings(activeGarageId || undefined)
+  );
   const [purchaseStatus, setPurchaseStatus] = useState<VehiclePurchaseStatus>(defaultPurchaseStatus);
+  const [sellerProfileId, setSellerProfileId] = useState<string | undefined>(() =>
+    resolveDefaultSellerProfileId(defaultPurchaseStatus, getGarageSettings(activeGarageId || undefined))
+  );
+
+  useEffect(() => {
+    const syncLocal = () => setGarageSettings(getGarageSettings(activeGarageId || undefined));
+    syncLocal();
+    window.addEventListener('autogarage_settings_updated', syncLocal);
+    let cancelled = false;
+    if (userId) {
+      fetchGarageSettingsFromCloud(userId, activeGarageId || undefined).then((cloud) => {
+        if (!cancelled) {
+          setGarageSettings(cloud);
+        }
+      });
+    }
+    return () => {
+      cancelled = true;
+      window.removeEventListener('autogarage_settings_updated', syncLocal);
+    };
+  }, [userId, activeGarageId]);
+
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>(new Date().getFullYear());
@@ -240,6 +268,7 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
       supplierName,
       status,
       purchaseStatus,
+      sellerProfileId,
       photos,
     };
 
@@ -427,7 +456,10 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     type="button"
                     data-testid="add-vehicle-mode-pro"
                     aria-pressed={purchaseStatus === 'micro'}
-                    onClick={() => setPurchaseStatus('micro')}
+                    onClick={() => {
+                      setPurchaseStatus('micro');
+                      setSellerProfileId(resolveDefaultSellerProfileId('micro', garageSettings));
+                    }}
                     className={`px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
                       purchaseStatus === 'micro'
                         ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
@@ -445,7 +477,10 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     type="button"
                     data-testid="add-vehicle-mode-personal"
                     aria-pressed={purchaseStatus === 'particulier'}
-                    onClick={() => setPurchaseStatus('particulier')}
+                    onClick={() => {
+                      setPurchaseStatus('particulier');
+                      setSellerProfileId(resolveDefaultSellerProfileId('particulier', garageSettings));
+                    }}
                     className={`px-3 py-1 rounded-full text-[11px] font-semibold transition cursor-pointer whitespace-nowrap shrink-0 ${
                       purchaseStatus === 'particulier'
                         ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
@@ -460,6 +495,20 @@ export const AddVehiclePage: React.FC<AddVehiclePageProps> = ({
                     )}
                   </button>
                 </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[var(--background)]/65 border border-[var(--border)]">
+                <SellerProfileSelector
+                  compact
+                  purchaseStatus={purchaseStatus}
+                  selectedProfileId={sellerProfileId}
+                  garageSettings={garageSettings}
+                  userId={userId}
+                  garageId={activeGarageId}
+                  onSelectProfileId={setSellerProfileId}
+                  onSettingsUpdated={setGarageSettings}
+                  testIdPrefix="add-vehicle-seller-profile"
+                />
               </div>
 
               {/* Row 1 (2 columns): Brand * / Model * */}

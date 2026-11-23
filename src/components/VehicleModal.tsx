@@ -8,17 +8,20 @@ import {
   ChevronDown,
   FileText,
 } from 'lucide-react';
-import { Vehicle, VehiclePurchaseStatus, VehicleStatus } from '../types/garage';
+import { GarageSettings, Vehicle, VehiclePurchaseStatus, VehicleStatus } from '../types/garage';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
 import { ThemedSelect } from './ThemedSelect';
 import { LocaleDateInput } from './LocaleDateInput';
+import { SellerProfileSelector } from './SellerProfileSelector';
 import { fetchGarageSettingsFromCloud, getGarageSettings } from '../services/garageService';
 import {
   buildVehicleSubmitPayload,
   resolveDefaultPurchaseStatus,
+  resolveDefaultSellerProfileId,
   resolveTargetGarageId,
   resolveVehiclePurchaseStatus,
+  resolveVehicleSellerProfileId,
   validateVehicleFormDetailed,
   VehicleFormFieldErrorKey,
 } from '../utils/vehicleFormUtils';
@@ -75,10 +78,20 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [targetSalePrice, setTargetSalePrice] = useState<number | ''>('');
   const [status, setStatus] = useState<VehicleStatus>('preparation');
+  const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
+    getGarageSettings(targetGarageId)
+  );
   const [purchaseStatus, setPurchaseStatus] = useState<VehiclePurchaseStatus>(
     () =>
       defaultPurchaseStatus ||
       resolveDefaultPurchaseStatus(undefined, getGarageSettings(targetGarageId))
+  );
+  const [sellerProfileId, setSellerProfileId] = useState<string | undefined>(() =>
+    resolveVehicleSellerProfileId(
+      initialVehicle,
+      defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, getGarageSettings(targetGarageId)),
+      getGarageSettings(targetGarageId)
+    )
   );
   const [photos, setPhotos] = useState<string[]>([]);
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
@@ -90,6 +103,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   useEffect(() => {
     hasEditedPurchaseStatusRef.current = false;
     const scopedSettings = getGarageSettings(targetGarageId);
+    setGarageSettings(scopedSettings);
     const scopedFallbackProfile =
       resolveDefaultPurchaseStatus(undefined, scopedSettings) === 'particulier'
         ? 'particulier'
@@ -123,15 +137,17 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setPurchaseDate(initialVehicle.purchaseDate || new Date().toISOString().split('T')[0]);
       setTargetSalePrice(initialVehicle.targetSalePrice > 0 ? initialVehicle.targetSalePrice : '');
       setStatus(initialVehicle.status);
-      setPurchaseStatus(
-        resolveVehiclePurchaseStatus(
-          initialVehicle,
-          initialVehicle.garageId
-            ? scopedFallbackProfile
-            : defaultPurchaseStatus === 'particulier'
-            ? 'particulier'
-            : scopedFallbackProfile
-        )
+      const resolvedInitialStatus = resolveVehiclePurchaseStatus(
+        initialVehicle,
+        initialVehicle.garageId
+          ? scopedFallbackProfile
+          : defaultPurchaseStatus === 'particulier'
+          ? 'particulier'
+          : scopedFallbackProfile
+      );
+      setPurchaseStatus(resolvedInitialStatus);
+      setSellerProfileId(
+        resolveVehicleSellerProfileId(initialVehicle, resolvedInitialStatus, scopedSettings)
       );
       setPhotos(initialVehicle.photos || []);
     } else {
@@ -159,9 +175,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setPurchaseDate(new Date().toISOString().split('T')[0]);
       setTargetSalePrice('');
       setStatus('preparation');
-      setPurchaseStatus(
-        defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, scopedSettings)
-      );
+      const nextDefaultStatus =
+        defaultPurchaseStatus || resolveDefaultPurchaseStatus(undefined, scopedSettings);
+      setPurchaseStatus(nextDefaultStatus);
+      setSellerProfileId(resolveDefaultSellerProfileId(nextDefaultStatus, scopedSettings));
       setPhotos([]);
     }
     setError(null);
@@ -169,16 +186,27 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   }, [initialVehicle, isOpen, defaultPurchaseStatus, targetGarageId]);
 
   useEffect(() => {
-    if (!isOpen || !userId || !targetGarageId) return;
+    const syncLocal = () => setGarageSettings(getGarageSettings(targetGarageId));
+    window.addEventListener('autogarage_settings_updated', syncLocal);
+    if (!isOpen || !userId || !targetGarageId) {
+      return () => {
+        window.removeEventListener('autogarage_settings_updated', syncLocal);
+      };
+    }
     let isCancelled = false;
     fetchGarageSettingsFromCloud(userId, targetGarageId).then((cloudSettings) => {
-      if (isCancelled || hasEditedPurchaseStatusRef.current) return;
+      if (isCancelled) return;
+      setGarageSettings(cloudSettings);
+      if (hasEditedPurchaseStatusRef.current) return;
       if (!initialVehicle && !defaultPurchaseStatus) {
-        setPurchaseStatus(resolveDefaultPurchaseStatus(undefined, cloudSettings));
+        const nextStatus = resolveDefaultPurchaseStatus(undefined, cloudSettings);
+        setPurchaseStatus(nextStatus);
+        setSellerProfileId(resolveDefaultSellerProfileId(nextStatus, cloudSettings));
       }
     });
     return () => {
       isCancelled = true;
+      window.removeEventListener('autogarage_settings_updated', syncLocal);
     };
   }, [isOpen, userId, targetGarageId, initialVehicle, defaultPurchaseStatus]);
 
@@ -263,6 +291,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       targetSalePrice,
       status,
       purchaseStatus,
+      sellerProfileId,
       photos,
     };
 
@@ -391,6 +420,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 onClick={() => {
                   hasEditedPurchaseStatusRef.current = true;
                   setPurchaseStatus('micro');
+                  setSellerProfileId(resolveDefaultSellerProfileId('micro', garageSettings));
                 }}
                 className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-left text-xs font-bold transition cursor-pointer ${
                   purchaseStatus === 'micro'
@@ -412,6 +442,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 onClick={() => {
                   hasEditedPurchaseStatusRef.current = true;
                   setPurchaseStatus('particulier');
+                  setSellerProfileId(resolveDefaultSellerProfileId('particulier', garageSettings));
                 }}
                 className={`flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl border text-left text-xs font-bold transition cursor-pointer ${
                   purchaseStatus === 'particulier'
@@ -424,6 +455,20 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 )}
               </button>
+            </div>
+
+            <div className="pt-2 border-t border-[var(--border)]/70">
+              <SellerProfileSelector
+                compact
+                purchaseStatus={purchaseStatus}
+                selectedProfileId={sellerProfileId}
+                garageSettings={garageSettings}
+                userId={userId}
+                garageId={targetGarageId}
+                onSelectProfileId={setSellerProfileId}
+                onSettingsUpdated={setGarageSettings}
+                testIdPrefix="vehicle-modal-seller-profile"
+              />
             </div>
           </div>
 

@@ -122,6 +122,7 @@ import { buildSoldRevertUpdate, resolvePendingVehicleSelection } from './utils/v
 
 export type ActiveAppView =
   | 'desktop'
+  | 'sold_vehicles'
   | 'new_vehicle'
   | 'analytics'
   | 'suppliers'
@@ -714,6 +715,11 @@ export default function App() {
     return filterVehiclesByGarage(vehicles, activeGarageId);
   }, [vehicles, activeGarageId]);
 
+  const soldGarageVehiclesCount = useMemo(
+    () => garageVehicles.filter((v) => v.status === 'sold').length,
+    [garageVehicles]
+  );
+
   // Wait until a newly created vehicle appears in the resolved list before opening its detail view
   useEffect(() => {
     if (!pendingSelectedVehicleId) return;
@@ -1073,9 +1079,13 @@ export default function App() {
     const sellerProfile: AppUserProfileType =
       buyerInfo.sellerProfileType === 'particulier' || buyerInfo.sellerProfileType === 'micro_entrepreneur'
         ? buyerInfo.sellerProfileType
-        : activeProfileType === 'particulier'
+        : vehicleUpdates?.purchaseStatus === 'particulier' || targetVehicle.purchaseStatus === 'particulier'
         ? 'particulier'
-        : resolveUserProfileType(settingsForGarage);
+        : 'micro_entrepreneur';
+    const resolvedSellerProfileId =
+      buyerInfo.sellerProfileId ||
+      vehicleUpdates?.sellerProfileId ||
+      targetVehicle.sellerProfileId;
     const effectiveSaleSettings = {
       ...settingsForGarage,
       ...buildProfileSettingsPatch(sellerProfile, settingsForGarage),
@@ -1097,10 +1107,12 @@ export default function App() {
       ? {
           ...buyerInfo,
           sellerProfileType: sellerProfile,
+          sellerProfileId: resolvedSellerProfileId,
         }
       : {
           ...buyerInfo,
           sellerProfileType: sellerProfile,
+          sellerProfileId: resolvedSellerProfileId,
           vatRegime: isVatExemptSeller
             ? 'franchise_base'
             : buyerInfo.vatRegime || effectiveSaleSettings.frenchTaxConfig?.vatRegime || 'tva_marge',
@@ -1138,6 +1150,8 @@ export default function App() {
 
     await updateVehicle(vehicleId, {
       ...(vehicleUpdates || {}),
+      purchaseStatus: sellerProfile === 'particulier' ? 'particulier' : 'micro',
+      sellerProfileId: resolvedSellerProfileId,
       status: 'sold',
       buyerInfo: enrichedBuyerInfo,
       totalInvested: computedTotalInvested,
@@ -1391,6 +1405,10 @@ export default function App() {
       setPendingSelectedVehicleId(null);
       setSelectedVehicle(null);
       handleSetActiveView('desktop');
+    } else if (target === 'sold_vehicles') {
+      setPendingSelectedVehicleId(null);
+      setSelectedVehicle(null);
+      handleSetActiveView('sold_vehicles');
     } else if (target === 'analytics' && effectiveFeatureFlags.expenseAnalytics) {
       handleSetActiveView('analytics');
     } else if (target === 'suppliers' && effectiveFeatureFlags.suppliersModule) {
@@ -1401,6 +1419,9 @@ export default function App() {
     } else if (target === 'exports' && effectiveFeatureFlags.exportsBackup) {
       handleSetActiveView('exports');
     } else if (target === 'settings') {
+      if (activeView !== 'settings') {
+        setActiveSettingsTab('company');
+      }
       handleSetActiveView('settings');
     } else if (target === 'admin') {
       handleSetActiveView('admin');
@@ -1512,7 +1533,7 @@ export default function App() {
   const activeGarageRecord = garages.find((g) => g.id === activeGarageId) || null;
 
   const showInlineMobileNavTrigger =
-    activeView !== 'desktop' ||
+    (activeView !== 'desktop' && activeView !== 'sold_vehicles') ||
     Boolean(selectedVehicle) ||
     Boolean(effectiveFeatureFlags.multiGarage && !activeGarageId);
 
@@ -1529,6 +1550,7 @@ export default function App() {
         onCloseMobile={() => setMobileSidebarOpen(false)}
         activeView={activeView}
         onNavigate={handleSidebarNavigate}
+        soldVehiclesCount={soldGarageVehiclesCount}
         activeSettingsTab={activeSettingsTab}
         onSelectSettingsTab={setActiveSettingsTab}
         onExitSettings={() => handleSetActiveView(previousViewBeforeSettings)}
@@ -1650,16 +1672,7 @@ export default function App() {
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-bold shadow-sm"
               >
                 <Menu className="w-4 h-4 text-[var(--primary)]" />
-                <span>
-                  {activeView === 'settings'
-                    ? pickLocalized(lang, {
-                        fr: 'Menu paramètres',
-                        ru: 'Разделы настроек',
-                        hy: 'Կարգավորումներ',
-                        ka: 'პარამეტრების მენიუ',
-                      })
-                    : t('navSectionLabel')}
-                </span>
+                <span>{t('navSectionLabel')}</span>
               </button>
 
               {activeView === 'settings' && (
@@ -1799,6 +1812,9 @@ export default function App() {
               allVehiclesCount={vehicles.length}
               activeGarageId={activeGarageId}
               vehicles={garageVehicles}
+              repairs={fleetRepairs}
+              expenses={fleetExpenses}
+              purchases={garagePurchases}
               theme={theme}
               onThemeChange={setTheme}
               onPlanUpdated={(updated) => setUserProfile(updated)}
@@ -1813,12 +1829,8 @@ export default function App() {
               }}
               userEmail={userProfile?.email || user?.email || null}
               userRole={isSuperAdmin ? 'superadmin' : (userProfile?.role || 'user')}
-              onSettingsSaved={(saved) => {
-                const nextProfile = resolveUserProfileType(saved);
-                setUserProfile((prev) =>
-                  prev ? { ...prev, profileType: nextProfile } : prev
-                );
-                void updateUserProfileType(effectiveUserId, nextProfile);
+              onSettingsSaved={() => {
+                setSettingsVersion((n) => n + 1);
               }}
             />
           ) : effectiveFeatureFlags.multiGarage && !activeGarageId ? (
@@ -1835,7 +1847,7 @@ export default function App() {
             <AddVehiclePage
               userId={effectiveUserId}
               activeGarageId={activeGarageId}
-              defaultPurchaseStatus={activeProfileType === 'particulier' ? 'particulier' : 'micro'}
+              defaultPurchaseStatus="micro"
               suppliers={garageSuppliers}
               onBack={() => handleSetActiveView('desktop')}
               onSubmit={handleSaveVehicle}
@@ -1871,9 +1883,12 @@ export default function App() {
             />
           ) : (
             <VehicleList
+              key={activeView === 'sold_vehicles' ? 'sold' : 'active'}
+              inventoryScope={activeView === 'sold_vehicles' ? 'sold' : 'active'}
               vehicles={garageVehicles}
               repairs={fleetRepairs}
               expenses={fleetExpenses}
+              profileType={activeProfileType}
               onSelectVehicle={(v) => {
                 setPendingSelectedVehicleId(null);
                 setSelectedVehicle(v);
@@ -1926,7 +1941,7 @@ export default function App() {
         initialVehicle={editingVehicle}
         userId={effectiveUserId}
         activeGarageId={activeGarageId}
-        defaultPurchaseStatus={activeProfileType === 'particulier' ? 'particulier' : 'micro'}
+        defaultPurchaseStatus="micro"
         onValidationToast={showGlobalToast}
       />
 

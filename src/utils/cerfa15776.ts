@@ -6,6 +6,7 @@ import {
   EMPTY_PARTICULIER_PROFILE,
   EMPTY_PRO_PROFILE,
   pickStatusProfileFields,
+  resolveSellerProfileForVehicle,
   resolveSeparatedProfiles,
 } from './profileSeparationUtils';
 import { CerfaTemplateKey } from './cerfaConfig';
@@ -186,15 +187,25 @@ export function resolveCerfaSellerModeForVehicle(
 export function buildCerfaSellerFromProfile(
   garageSettings: GarageSettings = DEFAULT_GARAGE_SETTINGS,
   targetMode: AppUserProfileType = 'micro_entrepreneur',
-  baseSeller?: Partial<Cerfa15776SellerStep>
+  baseSeller?: Partial<Cerfa15776SellerStep>,
+  explicitProfileId?: string
 ): Cerfa15776SellerStep {
   const isParticulier = targetMode === 'particulier';
+  const hasExplicitMultiProfiles = isParticulier
+    ? Array.isArray(garageSettings.personalProfiles) && garageSettings.personalProfiles.length > 0
+    : Array.isArray(garageSettings.businessProfiles) && garageSettings.businessProfiles.length > 0;
   const hasSeparatedSlots = Boolean(
     garageSettings.particulierProfile || garageSettings.proProfile
   );
 
   let sourceSlot: Partial<StatusProfileData>;
-  if (hasSeparatedSlots) {
+  if (explicitProfileId?.trim() || hasExplicitMultiProfiles) {
+    sourceSlot = resolveSellerProfileForVehicle({
+      garageSettings,
+      overrideMode: isParticulier ? 'particulier' : 'micro',
+      overrideProfileId: explicitProfileId,
+    }).profile;
+  } else if (hasSeparatedSlots) {
     const { particulierProfile, proProfile } = resolveSeparatedProfiles(garageSettings);
     sourceSlot = isParticulier ? particulierProfile : proProfile;
   } else if (isParticulier) {
@@ -302,12 +313,19 @@ export function buildInitialCerfaData(
   const saleTime = buyer?.saleTime || '14:00';
 
   const initialSellerMode = resolveCerfaSellerModeForVehicle(vehicle, garageSettings);
+  const resolvedSellerProfileId =
+    vehicle.sellerProfileId?.trim() || vehicle.buyerInfo?.sellerProfileId?.trim() || undefined;
 
-  const sellerStep = buildCerfaSellerFromProfile(garageSettings, initialSellerMode, {
-    saleDate,
-    saleTime,
-    signingDate: saleDate,
-  });
+  const sellerStep = buildCerfaSellerFromProfile(
+    garageSettings,
+    initialSellerMode,
+    {
+      saleDate,
+      saleTime,
+      signingDate: saleDate,
+    },
+    resolvedSellerProfileId
+  );
 
   return {
     vehicle: {

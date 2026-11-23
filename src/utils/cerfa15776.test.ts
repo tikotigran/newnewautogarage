@@ -712,3 +712,99 @@ test('resolveCerfaTargetGarageId prioritizes vehicle.garageId and isolates selle
   assert.equal(cerfaB.seller.city, 'Marseille');
 });
 
+test('buildInitialCerfaData selects exact multi-profile Seller via vehicle.sellerProfileId without SIRET bleed', () => {
+  const multiSettings: GarageSettings = {
+    ...mockGarage,
+    businessProfiles: [
+      {
+        id: 'biz_1',
+        name: 'GARAGE PRINCIPAL SAS',
+        siret: '12345678900011',
+        streetNumber: '1',
+        streetType: 'Rue',
+        streetName: 'Principale',
+        postalCode: '69001',
+        city: 'Lyon',
+        phone: '0400000001',
+        email: 'biz1@garage.fr',
+        isDefault: true,
+      },
+      {
+        id: 'biz_2',
+        name: 'GARAGE SECONDAIRE SARL',
+        siret: '98765432100022',
+        streetNumber: '99',
+        streetType: 'Avenue',
+        streetName: 'Secondaire',
+        postalCode: '75008',
+        city: 'Paris',
+        phone: '0100000002',
+        email: 'biz2@garage.fr',
+        isDefault: false,
+      },
+    ],
+    personalProfiles: [
+      {
+        id: 'pers_1',
+        name: '',
+        siret: '',
+        lastName: 'DUPONT',
+        firstName: 'Jean',
+        sex: 'M',
+        streetNumber: '10',
+        streetType: 'Rue',
+        streetName: 'Proprio',
+        postalCode: '69002',
+        city: 'Lyon',
+        phone: '0600000001',
+        email: 'jean@perso.fr',
+        isDefault: true,
+      },
+      {
+        id: 'pers_2',
+        name: '',
+        lastName: 'DUPONT',
+        firstName: 'Luc',
+        sex: 'M',
+        siret: '99999999999999', // must be ignored/stripped for physique
+        streetNumber: '44',
+        streetType: 'Boulevard',
+        streetName: 'Du Frere',
+        postalCode: '13001',
+        city: 'Marseille',
+        phone: '0600000002',
+        email: 'luc@perso.fr',
+        isDefault: false,
+      },
+    ],
+  };
+
+  // Personal vehicle bound to brother (pers_2) -> uses DUPONT Luc & Marseille with empty SIRET
+  const brotherVehicle: Vehicle = {
+    ...mockVehicle,
+    purchaseStatus: 'particulier',
+    sellerProfileId: 'pers_2',
+    buyerInfo: undefined,
+  };
+  const cerfaBrother = buildInitialCerfaData(brotherVehicle, multiSettings);
+  assert.equal(cerfaBrother.seller.entityType, 'physique');
+  assert.equal(cerfaBrother.seller.nameOrCompany, 'DUPONT LUC');
+  assert.equal(cerfaBrother.seller.siret, '');
+  assert.equal(cerfaBrother.seller.streetNumber, '44');
+  assert.equal(cerfaBrother.seller.city, 'Marseille');
+
+  // Business vehicle bound to biz_2 -> uses GARAGE SECONDAIRE SARL & SIRET 98765432100022
+  const secondaryBizVehicle: Vehicle = {
+    ...mockVehicle,
+    purchaseStatus: 'micro',
+    sellerProfileId: 'biz_2',
+    buyerInfo: undefined,
+  };
+  const cerfaBiz2 = buildInitialCerfaData(secondaryBizVehicle, multiSettings);
+  assert.equal(cerfaBiz2.seller.entityType, 'morale');
+  assert.equal(cerfaBiz2.seller.nameOrCompany, 'GARAGE SECONDAIRE SARL');
+  assert.equal(cerfaBiz2.seller.siret, '98765432100022');
+  assert.equal(cerfaBiz2.seller.city, 'Paris');
+});
+
+

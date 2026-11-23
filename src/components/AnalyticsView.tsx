@@ -51,6 +51,8 @@ import { formatEuro } from '../utils/finance';
 import { createDefaultFrenchTaxConfig, resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { useI18n } from '../i18n/I18nContext';
 import { pickLocalized } from '../utils/i18nUtils';
+import { ThemedSelect } from './ThemedSelect';
+import { InventoryTransactionFilter } from '../utils/inventoryUtils';
 
 interface AnalyticsViewProps {
   vehicles: Vehicle[];
@@ -121,7 +123,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   profileType: propProfileType,
 }) => {
   const { lang, t, getTextStyle } = useI18n();
+  const L = <T,>(fr: T, ru: T, hy: T, ka: T) => pickLocalized(lang, { fr, ru, hy, ka });
   const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>('month');
+  const [transactionTypeFilter, setTransactionTypeFilter] =
+    useState<InventoryTransactionFilter>('all');
   const defaultDates = useMemo(() => getDefaultCustomDates(), []);
   const [customStartDate, setCustomStartDate] = useState<string>(defaultDates.startDate);
   const [customEndDate, setCustomEndDate] = useState<string>(defaultDates.endDate);
@@ -161,16 +166,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     return () => unsubCats();
   }, []);
 
-  const activeProfileType: AppUserProfileType =
-    propProfileType === 'particulier'
-      ? 'particulier'
-      : resolveUserProfileType(garageSettings);
-  const isParticulier = activeProfileType === 'particulier';
-
   const report = useMemo(() => {
-    const effectiveTaxConfig = isParticulier
-      ? createDefaultFrenchTaxConfig('particulier')
-      : garageSettings.frenchTaxConfig;
+    const businessTaxRegime =
+      garageSettings.taxRegime && garageSettings.taxRegime !== 'none'
+        ? garageSettings.taxRegime
+        : 'micro';
+    const businessTaxConfig =
+      garageSettings.frenchTaxConfig || createDefaultFrenchTaxConfig('micro_entreprise');
     return computeDealershipAnalytics({
       vehicles,
       repairs: fleetData.repairs,
@@ -181,9 +183,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           ? { startDate: customStartDate, endDate: customEndDate }
           : undefined,
       dynamicCategories,
-      taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
-      taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
-      frenchTaxConfig: effectiveTaxConfig,
+      taxRegime: businessTaxRegime,
+      taxRatePercent: garageSettings.taxRatePercent,
+      frenchTaxConfig: businessTaxConfig,
+      transactionTypeFilter,
     });
   }, [
     vehicles,
@@ -193,7 +196,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     customStartDate,
     customEndDate,
     dynamicCategories,
-    isParticulier,
+    transactionTypeFilter,
     garageSettings.taxRegime,
     garageSettings.taxRatePercent,
     garageSettings.frenchTaxConfig,
@@ -210,12 +213,18 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     salesPerformance.vatAmount > 0;
   const particulierDealsCount = salesPerformance.particulierDealsCount ?? 0;
   const taxedDealsCount = salesPerformance.taxedDealsCount ?? 0;
-  const isMixedRegime = particulierDealsCount > 0 && (taxedDealsCount > 0 || hasAnyCalculatedTax);
+  const isMixedRegime =
+    transactionTypeFilter === 'all' &&
+    particulierDealsCount > 0 &&
+    (taxedDealsCount > 0 || hasAnyCalculatedTax);
   const allDealsParticulier =
-    salesPerformance.soldCount > 0 &&
-    particulierDealsCount === salesPerformance.soldCount &&
-    !hasAnyCalculatedTax;
-  const showFrenchTaxBreakdown = (!isParticulier && !allDealsParticulier) || hasAnyCalculatedTax;
+    transactionTypeFilter === 'particulier' ||
+    (salesPerformance.soldCount > 0 &&
+      particulierDealsCount === salesPerformance.soldCount &&
+      !hasAnyCalculatedTax);
+  const showFrenchTaxBreakdown =
+    transactionTypeFilter !== 'particulier' &&
+    (!allDealsParticulier || hasAnyCalculatedTax);
   const showHistoricalIsCard = salesPerformance.corporateIsAmount > 0;
 
   const timeRanges: { id: AnalyticsTimeRange; label: string }[] = [
@@ -305,7 +314,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* Header & Period Switcher */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4 shrink-0" style={{ color: 'var(--ag-chart-accent)' }} />
               <h1
@@ -318,32 +327,72 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{t('analyticsSubtitle')}</p>
           </div>
 
-          {/* 7-option Period Segmented Control (Today, Week, Month, Quarter, Year, Custom, All) */}
-          <div
-            className="flex flex-wrap items-center gap-1 bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)]"
-            role="group"
-            aria-label="Period selector"
-            data-testid="analytics-period-selector"
-          >
-            <span className="px-2 text-[var(--muted-foreground)] hidden sm:inline-flex items-center">
-              <Calendar className="w-3.5 h-3.5" />
-            </span>
-            {timeRanges.map((tr) => (
-              <button
-                key={tr.id}
-                type="button"
-                data-testid={`period-btn-${tr.id}`}
-                onClick={() => setTimeRange(tr.id)}
-                aria-pressed={timeRange === tr.id}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  timeRange === tr.id
-                    ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
-                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
-                }`}
-              >
-                {tr.label}
-              </button>
-            ))}
+          {/* Transaction-Type Filter & 7-option Period Segmented Control */}
+          <div className="flex flex-wrap md:flex-nowrap items-center gap-2 shrink-0">
+            <ThemedSelect<InventoryTransactionFilter>
+              testId="analytics-transaction-type-filter"
+              ariaLabel={L(
+                'Filtrer par type de transaction',
+                'Фильтр по типу сделки',
+                'Զտել ըստ գործարքի տեսակի',
+                'გარიგების ტიპის ფილტრი'
+              )}
+              value={transactionTypeFilter}
+              onChange={setTransactionTypeFilter}
+              options={[
+                {
+                  value: 'all',
+                  triggerLabel: L('Type : Tous', 'Тип: Все', 'Տեսակ՝ Բոլորը', 'ტიპი: ყველა'),
+                  label: L('Tous', 'Все', 'Բոլորը', 'ყველა'),
+                },
+                {
+                  value: 'micro',
+                  label: L(
+                    'Pro (Micro-entreprise)',
+                    'Фирма (Micro-entreprise)',
+                    'Ընկերություն (Micro-entreprise)',
+                    'ფირმა (Micro-entreprise)'
+                  ),
+                },
+                {
+                  value: 'particulier',
+                  label: L(
+                    'Particulier',
+                    'Частные (Particulier)',
+                    'Անհատ (Particulier)',
+                    'კერძო (Particulier)'
+                  ),
+                },
+              ]}
+              triggerClassName="h-[38px] px-3 rounded-[var(--ag-button-radius)] bg-[var(--background)] border border-[var(--border)] text-xs font-semibold text-[var(--foreground)] hover:border-[var(--primary)]/50 focus:outline-none focus:border-[var(--primary)] whitespace-nowrap"
+            />
+
+            <div
+              className="flex flex-wrap items-center gap-0.5 bg-[var(--background)] p-1 rounded-[var(--ag-button-radius)] border border-[var(--border)]"
+              role="group"
+              aria-label="Period selector"
+              data-testid="analytics-period-selector"
+            >
+              <span className="px-1.5 text-[var(--muted-foreground)] hidden 2xl:inline-flex items-center">
+                <Calendar className="w-3.5 h-3.5" />
+              </span>
+              {timeRanges.map((tr) => (
+                <button
+                  key={tr.id}
+                  type="button"
+                  data-testid={`period-btn-${tr.id}`}
+                  onClick={() => setTimeRange(tr.id)}
+                  aria-pressed={timeRange === tr.id}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                    timeRange === tr.id
+                      ? 'bg-[var(--primary)] text-[var(--primary-foreground)] shadow-sm'
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
+                  }`}
+                >
+                  {tr.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -385,7 +434,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               {t('analyticsPillarsHeading')}
             </h2>
             <div className="flex flex-wrap items-center gap-1.5">
-              {((!isParticulier && !allDealsParticulier) || hasAnyCalculatedTax) && (
+              {(!allDealsParticulier || hasAnyCalculatedTax) && (
                 <span
                   data-testid="analytics-tax-estimate-badge"
                   className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-500 border border-amber-500/30"
@@ -397,9 +446,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 data-testid="analytics-regime-badge"
                 className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-[var(--surface-muted)] text-[var(--secondary-foreground)] border border-[var(--border)] tabular-nums"
               >
-                {(isParticulier && !hasAnyCalculatedTax) || allDealsParticulier
+                {allDealsParticulier
                   ? t('profileBadgeParticulier')
-                  : isMixedRegime || (isParticulier && hasAnyCalculatedTax)
+                  : isMixedRegime
                   ? pickLocalized(lang, {
                       fr: `Mixte par transaction (${particulierDealsCount} Particulier · ${taxedDealsCount} Pro)`,
                       ru: `Смешанный режим (${particulierDealsCount} Физлицо · ${taxedDealsCount} Проф.)`,
@@ -494,7 +543,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </div>
                 <p
                   data-testid="pillar-net-profit-value"
-                  className="text-2xl sm:text-3xl font-bold tabular-nums mt-2"
+                  className="text-xl sm:text-2xl font-bold tabular-nums mt-1.5"
                   style={{
                     color:
                       salesPerformance.netProfit >= 0
@@ -506,21 +555,25 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   {formatEuro(salesPerformance.netProfit)}
                 </p>
               </div>
-              <p className="text-xs text-[var(--muted-foreground)] mt-2 tabular-nums">
-                {(isParticulier && !hasAnyCalculatedTax) || allDealsParticulier
+              <p
+                data-testid="pillar-net-profit-subtitle"
+                className="text-xs text-[var(--muted-foreground)] mt-1.5 tabular-nums"
+              >
+                {allDealsParticulier
                   ? t('profileBadgeParticulier')
-                  : t('pillarNetProfitHint', {
-                      regime:
-                        isParticulier || isMixedRegime
-                          ? pickLocalized(lang, {
-                              fr: 'Ventes Micro-entrepreneur uniquement',
-                              ru: 'Только сделки Micro-entrepreneur',
-                              hy: 'Միայն Micro-entrepreneur գործարքներ',
-                              ka: 'მხოლოდ Micro-entrepreneur გარიგებები',
-                            })
-                          : salesPerformance.taxLabel,
-                      tax: formatEuro(salesPerformance.taxAmount),
-                    })}
+                  : salesPerformance.taxAmount > 0
+                  ? L(
+                      `Charges / impôts Pro déduits : ${formatEuro(salesPerformance.taxAmount)}`,
+                      `Учтены налоги Pro: ${formatEuro(salesPerformance.taxAmount)}`,
+                      `Ներառված Pro հարկեր՝ ${formatEuro(salesPerformance.taxAmount)}`,
+                      `გათვალისწინებული Pro გადასახადი: ${formatEuro(salesPerformance.taxAmount)}`
+                    )
+                  : L(
+                      'Marge brute après charges applicables',
+                      'Валовая прибыль с учётом применимых налогов',
+                      'Զուտ շահույթ՝ կիրառելի հարկերից հետո',
+                      'წმინდა მოგება შესაბამისი გადასახადების შემდეგ'
+                    )}
               </p>
             </div>
           </div>
@@ -823,7 +876,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* SECTION 3: Cash Flow Panel */}
       <section
         data-testid="analytics-cash-flow"
-        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-4"
+        className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--ag-card-radius)] p-4 space-y-3"
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
@@ -838,8 +891,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Inflow / Outflow / Net Strip */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-3.5">
             <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
               <span>{t('analyticsCashInflow')}</span>
               <ArrowUpRight className="w-4 h-4 text-emerald-500" />
@@ -849,7 +902,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </p>
           </div>
 
-          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-4">
+          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-3.5">
             <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
               <span>{t('analyticsCashOutflow')}</span>
               <ArrowDownRight className="w-4 h-4 text-rose-500" />
@@ -859,25 +912,37 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </p>
             <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[var(--muted-foreground)] tabular-nums">
               <span>{t('analyticsOutflowPurchases')}:</span>
-              <span className="text-right font-semibold text-[var(--secondary-foreground)]">
+              <span
+                data-testid="cash-flow-outflow-purchases"
+                className="text-right font-semibold text-[var(--secondary-foreground)]"
+              >
                 {formatEuro(cashFlow.vehiclePurchasesOutflow)}
               </span>
               <span>{t('analyticsOutflowRepairs')}:</span>
-              <span className="text-right font-semibold text-[var(--secondary-foreground)]">
+              <span
+                data-testid="cash-flow-outflow-repairs"
+                className="text-right font-semibold text-[var(--secondary-foreground)]"
+              >
                 {formatEuro(cashFlow.repairsOutflow)}
               </span>
               <span>{t('analyticsOutflowExpenses')}:</span>
-              <span className="text-right font-semibold text-[var(--secondary-foreground)]">
+              <span
+                data-testid="cash-flow-outflow-expenses"
+                className="text-right font-semibold text-[var(--secondary-foreground)]"
+              >
                 {formatEuro(cashFlow.generalExpensesOutflow)}
               </span>
               <span>{t('analyticsOutflowTaxes')}:</span>
-              <span className="text-right font-semibold text-[var(--secondary-foreground)]">
+              <span
+                data-testid="cash-flow-outflow-taxes"
+                className="text-right font-semibold text-[var(--secondary-foreground)]"
+              >
                 {formatEuro(cashFlow.taxesOutflow)}
               </span>
             </div>
           </div>
 
-          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-4 flex flex-col justify-between">
+          <div className="bg-[var(--background)] border border-[var(--border)] rounded-xl p-3.5 flex flex-col justify-between">
             <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
               <span>{t('analyticsCashNet')}</span>
               {cashFlow.netCashFlow >= 0 ? (
@@ -899,7 +964,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               {cashFlow.netCashFlow > 0 ? '+' : ''}
               {formatEuro(cashFlow.netCashFlow)}
             </p>
-            <div className="h-1.5 w-full rounded-full bg-[var(--surface-muted)] overflow-hidden mt-3 flex">
+            <div className="h-1.5 w-full rounded-full bg-[var(--surface-muted)] overflow-hidden mt-2.5 flex">
               {cashFlow.inflow + cashFlow.outflow > 0 && (
                 <>
                   <div
@@ -922,7 +987,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
         {/* Cash Flow Timeline Bars */}
         {cashFlow.series.length > 0 && (
-          <div className="pt-2 space-y-2">
+          <div className="pt-1 space-y-1.5">
             <div className="flex items-center justify-end gap-4 text-[11px] text-[var(--muted-foreground)]">
               <span className="inline-flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
@@ -934,7 +999,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </span>
             </div>
             <div className="overflow-x-auto pb-1">
-              <div className="flex items-end gap-3 min-w-max h-36 px-2 pt-4 pb-1 bg-[var(--background)] rounded-xl border border-[var(--border)]">
+              <div
+                data-testid="cash-flow-chart-container"
+                className="flex items-end gap-3 min-w-full w-max h-40 px-3 pt-3 pb-2 bg-[var(--background)] rounded-xl border border-[var(--border)]"
+              >
                 {cashFlow.series.map((bucket) => {
                   const inflowPct =
                     maxCashFlowBucket > 0 ? Math.max(4, Math.round((bucket.inflow / maxCashFlowBucket) * 100)) : 0;
@@ -946,7 +1014,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                       className="flex flex-col items-center gap-1.5 min-w-[46px]"
                       title={`${bucket.label}: +${formatEuro(bucket.inflow)} / -${formatEuro(bucket.outflow)} (Net: ${formatEuro(bucket.net)})`}
                     >
-                      <div className="flex items-end gap-1 h-24 w-full justify-center">
+                      <div className="flex items-end gap-1 h-28 w-full justify-center">
                         <div
                           className="w-3 rounded-t bg-emerald-500/85 transition-all"
                           style={{ height: bucket.inflow > 0 ? `${inflowPct}%` : '2px' }}
@@ -1086,7 +1154,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
           {report.agingUnsoldVehicles.length === 0 ? (
             <p className="text-xs text-[var(--muted-foreground)] py-8 text-center bg-[var(--background)] rounded-xl border border-[var(--border)]">
-              {t('analyticsAllStockFresh')}
+              {L(
+                'Aucun véhicule « En vente » depuis plus de 30 jours.',
+                'Нет автомобилей в статусе «В продаже» более 30 дней.',
+                '30 օրից ավելի վաճառքում գտնվող մեքենաներ չկան։',
+                '30 დღეზე მეტი გაყიდვაში მყოფი ავტომობილები არ არის.'
+              )}
             </p>
           ) : (
             <div className="divide-y divide-[var(--border)]">
@@ -1167,10 +1240,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           <p className="text-xs text-[var(--muted-foreground)] font-medium">{t('analyticsImpactedVehicles')}</p>
           <p className="text-2xl font-bold tabular-nums mt-1" style={{ color: 'var(--ag-chart-accent)' }}>
             {analytics.impactedVehiclesCount}{' '}
-            <span className="text-sm font-normal text-[var(--muted-foreground)]">/ {vehicles.length}</span>
+            <span className="text-sm font-normal text-[var(--muted-foreground)]">/ {report.filteredFleetCount}</span>
           </p>
           <p className="text-xs text-[var(--muted-foreground)] mt-1">
-            {t('totalFleet')} {vehicles.length}
+            {t('totalFleet')} {report.filteredFleetCount}
           </p>
         </div>
 

@@ -392,12 +392,11 @@ test('computeDealershipAnalytics separates Revenue, Gross Profit, and Net Profit
   assert.equal(report.cashFlow.netCashFlow, -5250);
   assert.ok(report.cashFlow.series.length >= 1);
 
-  // Aging Unsold Vehicles: v2 (May 15 -> 179 days), v1 (Oct 1 -> 40 days), v5 (Nov 8 -> 2 days)
-  assert.equal(report.agingUnsoldVehicles[0].vehicleId, 'v2');
-  assert.equal(report.agingUnsoldVehicles[0].ageTier, 'critical');
-  assert.equal(report.agingUnsoldVehicles[1].vehicleId, 'v1');
-  assert.equal(report.agingUnsoldVehicles[1].ageTier, 'watch');
-  assert.equal(report.slowMovingCount, 2); // v2 and v1 >= 30 days
+  // Aging Unsold Vehicles: strictly status === 'for_sale' && daysInStock > 30 (only v1: Oct 1 -> 40 days; v2 is 'repair', v5 is 'preparation')
+  assert.equal(report.agingUnsoldVehicles.length, 1);
+  assert.equal(report.agingUnsoldVehicles[0].vehicleId, 'v1');
+  assert.equal(report.agingUnsoldVehicles[0].ageTier, 'watch');
+  assert.equal(report.slowMovingCount, 1); // only v1 is 'for_sale' > 30 days
 
   // Check ALL time range includes both v3 and v4
   const allReport = computeDealershipAnalytics({
@@ -1040,5 +1039,530 @@ test('allocateCorporateIsToBuckets and Cash Flow distribute progressive corporat
   const seriesOutflowSum = Math.round(report.cashFlow.series.reduce((s, b) => s + b.outflow, 0) * 100) / 100;
   assert.equal(seriesOutflowSum, report.cashFlow.outflow);
 });
+
+test('computeDealershipAnalytics filters by transactionTypeFilter (all/micro/particulier) and excludes Particulier deals via purchaseStatus from Micro taxes', () => {
+  const proSold: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_tx_pro',
+    purchaseStatus: 'micro',
+    purchaseDate: '2026-10-10',
+    purchasePrice: 10000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 10000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Pro Buyer',
+      address: 'Paris',
+      phone: '0600000001',
+      email: 'pro@test.fr',
+      salePrice: 15000,
+      saleDate: '2026-11-05',
+      vatRegime: 'franchise_base',
+    },
+  };
+  const partSoldByPurchaseStatus: Vehicle = {
+    ...mockVehicles[1],
+    id: 'v_tx_part',
+    purchaseStatus: 'particulier',
+    purchaseDate: '2026-10-12',
+    purchasePrice: 8000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    totalExpenses: 0,
+    totalInvested: 8000,
+    status: 'sold',
+    buyerInfo: {
+      fullName: 'Perso Buyer',
+      address: 'Lyon',
+      phone: '0600000002',
+      email: 'perso@test.fr',
+      salePrice: 10000,
+      saleDate: '2026-11-06',
+      vatRegime: 'franchise_base',
+    },
+  };
+  const proExpense: GeneralExpense = {
+    id: 'exp_tx_pro',
+    vehicleId: 'v_tx_pro',
+    userId: 'u1',
+    category: 'fuel',
+    description: 'Essence Pro',
+    amount: 100,
+    date: '2026-11-01',
+    createdAt: '2026-11-01T10:00:00Z',
+    updatedAt: '2026-11-01T10:00:00Z',
+  };
+  const partExpense: GeneralExpense = {
+    id: 'exp_tx_part',
+    vehicleId: 'v_tx_part',
+    userId: 'u1',
+    category: 'admin',
+    description: 'Carte Grise Perso',
+    amount: 200,
+    date: '2026-11-02',
+    createdAt: '2026-11-02T10:00:00Z',
+    updatedAt: '2026-11-02T10:00:00Z',
+  };
+
+  // All: Pro (15000 sale, 10000 buy, 100 fuel -> 4900 gross, 1995 tax (13.3% of 15000)) + Particulier (10000 sale, 8000 buy, 200 admin -> 1800 gross, 0 tax)
+  const allReport = computeDealershipAnalytics({
+    vehicles: [proSold, partSoldByPurchaseStatus],
+    repairs: [],
+    expenses: [proExpense, partExpense],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    transactionTypeFilter: 'all',
+    now: fixedNow,
+  });
+  assert.equal(allReport.filteredFleetCount, 2);
+  assert.equal(allReport.salesPerformance.soldCount, 2);
+  assert.equal(allReport.salesPerformance.revenue, 25000);
+  assert.equal(allReport.salesPerformance.grossProfit, 6700);
+  assert.equal(allReport.salesPerformance.taxAmount, 1995);
+  assert.equal(allReport.salesPerformance.netProfit, 4705);
+  assert.equal(allReport.cashFlow.generalExpensesOutflow, 300);
+
+  // Micro filter: only v_tx_pro
+  const microOnly = computeDealershipAnalytics({
+    vehicles: [proSold, partSoldByPurchaseStatus],
+    repairs: [],
+    expenses: [proExpense, partExpense],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    transactionTypeFilter: 'micro',
+    now: fixedNow,
+  });
+  assert.equal(microOnly.filteredFleetCount, 1);
+  assert.equal(microOnly.salesPerformance.soldCount, 1);
+  assert.equal(microOnly.salesPerformance.revenue, 15000);
+  assert.equal(microOnly.salesPerformance.grossProfit, 4900);
+  assert.equal(microOnly.salesPerformance.taxAmount, 1995);
+  assert.equal(microOnly.salesPerformance.netProfit, 2905);
+  assert.equal(microOnly.cashFlow.generalExpensesOutflow, 100);
+
+  // Particulier filter: only v_tx_part, 0€ taxes
+  const partOnly = computeDealershipAnalytics({
+    vehicles: [proSold, partSoldByPurchaseStatus],
+    repairs: [],
+    expenses: [proExpense, partExpense],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    transactionTypeFilter: 'particulier',
+    now: fixedNow,
+  });
+  assert.equal(partOnly.filteredFleetCount, 1);
+  assert.equal(partOnly.salesPerformance.soldCount, 1);
+  assert.equal(partOnly.salesPerformance.revenue, 10000);
+  assert.equal(partOnly.salesPerformance.grossProfit, 1800);
+  assert.equal(partOnly.salesPerformance.taxAmount, 0);
+  assert.equal(partOnly.salesPerformance.netProfit, 1800);
+  assert.equal(partOnly.cashFlow.taxesOutflow, 0);
+  assert.equal(partOnly.cashFlow.generalExpensesOutflow, 200);
+});
+
+test('Cash Flow separates Atelier & Pieces (repairsOutflow) from Frais generaux (generalExpensesOutflow) across repairs and workshop expenses', () => {
+  const repairRow: RepairTask = {
+    id: 'r_split',
+    vehicleId: 'v1',
+    userId: 'u1',
+    title: 'Embrayage',
+    status: 'done',
+    partsCost: 400,
+    laborCost: 300,
+    totalCost: 700,
+    date: '2026-11-02',
+    createdAt: '2026-11-02T10:00:00Z',
+    updatedAt: '2026-11-02T10:00:00Z',
+  };
+  const workshopQuickExpense: GeneralExpense = {
+    id: 'e_parts',
+    vehicleId: 'v1',
+    userId: 'u1',
+    category: 'parts_labor',
+    description: 'Pneus & montage',
+    amount: 220,
+    date: '2026-11-03',
+    createdAt: '2026-11-03T10:00:00Z',
+    updatedAt: '2026-11-03T10:00:00Z',
+  };
+  const tireQuickExpense: GeneralExpense = {
+    id: 'e_tires',
+    vehicleId: 'v1',
+    userId: 'u1',
+    category: 'tires',
+    description: 'Pneus hiver',
+    amount: 180,
+    date: '2026-11-04',
+    createdAt: '2026-11-04T10:00:00Z',
+    updatedAt: '2026-11-04T10:00:00Z',
+  };
+  const adminExpense: GeneralExpense = {
+    id: 'e_admin',
+    vehicleId: 'v1',
+    userId: 'u1',
+    category: 'controle_technique',
+    description: 'CT',
+    amount: 85,
+    date: '2026-11-05',
+    createdAt: '2026-11-05T10:00:00Z',
+    updatedAt: '2026-11-05T10:00:00Z',
+  };
+  const fuelExpense: GeneralExpense = {
+    id: 'e_fuel',
+    vehicleId: 'v1',
+    userId: 'u1',
+    category: 'fuel',
+    description: 'Carburant',
+    amount: 65,
+    date: '2026-11-06',
+    createdAt: '2026-11-06T10:00:00Z',
+    updatedAt: '2026-11-06T10:00:00Z',
+  };
+
+  const report = computeDealershipAnalytics({
+    vehicles: [mockVehicles[0]],
+    repairs: [repairRow],
+    expenses: [workshopQuickExpense, tireQuickExpense, adminExpense, fuelExpense],
+    timeRange: 'month',
+    taxRegime: 'micro',
+    now: fixedNow,
+  });
+
+  // Atelier & Pièces = 700 + 220 + 180 = 1100; Frais généraux = 85 + 65 = 150
+  assert.equal(report.cashFlow.repairsOutflow, 1100);
+  assert.equal(report.cashFlow.generalExpensesOutflow, 150);
+  assert.equal(report.cashFlow.outflow, 1250);
+  assert.equal(report.expenseBreakdown.totalSpent, 1250);
+});
+
+test('agingUnsoldVehicles strictly includes only status === for_sale with daysInStock > 30', () => {
+  const prepOld: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_prep_old',
+    status: 'preparation',
+    purchaseDate: '2026-08-01', // 101 days, but still in preparation
+  };
+  const repairOld: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_rep_old',
+    status: 'repair',
+    purchaseDate: '2026-08-01', // 101 days, but in repair
+  };
+  const forSaleExactly30: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_sale_30',
+    status: 'for_sale',
+    purchaseDate: '2026-10-11', // exactly 30 days from 2026-11-10 -> NOT > 30
+  };
+  const forSale31: Vehicle = {
+    ...mockVehicles[0],
+    id: 'v_sale_31',
+    status: 'for_sale',
+    purchaseDate: '2026-10-10', // 31 days -> INCLUDED
+  };
+
+  const report = computeDealershipAnalytics({
+    vehicles: [prepOld, repairOld, forSaleExactly30, forSale31],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    now: fixedNow,
+  });
+
+  assert.equal(report.agingUnsoldVehicles.length, 1);
+  assert.equal(report.agingUnsoldVehicles[0].vehicleId, 'v_sale_31');
+  assert.equal(report.agingUnsoldVehicles[0].daysInStock, 31);
+  assert.equal(report.slowMovingCount, 1);
+});
+
+test('stockAgeDistribution categorizes active vehicles and invested capital across 4 age brackets', () => {
+  const v0_30: Vehicle = {
+    ...mockVehicles[0],
+    id: 'age_1',
+    status: 'preparation',
+    purchaseDate: '2026-10-25', // 16 days
+    purchasePrice: 5000,
+    repairCostTotal: 200,
+    generalExpensesTotal: 0,
+  };
+  const v31_60: Vehicle = {
+    ...mockVehicles[0],
+    id: 'age_2',
+    status: 'repair',
+    purchaseDate: '2026-09-25', // 46 days
+    purchasePrice: 8000,
+    repairCostTotal: 500,
+    generalExpensesTotal: 100,
+  };
+  const v61_90: Vehicle = {
+    ...mockVehicles[0],
+    id: 'age_3',
+    status: 'for_sale',
+    purchaseDate: '2026-08-25', // 77 days
+    purchasePrice: 10000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+  };
+  const v90_plus: Vehicle = {
+    ...mockVehicles[0],
+    id: 'age_4',
+    status: 'for_sale',
+    purchaseDate: '2026-07-01', // 132 days
+    purchasePrice: 12000,
+    repairCostTotal: 1000,
+    generalExpensesTotal: 0,
+  };
+  const vSoldExcluded: Vehicle = {
+    ...mockVehicles[2],
+    id: 'age_sold',
+    status: 'sold',
+    purchaseDate: '2026-06-01',
+    purchasePrice: 99999,
+  };
+
+  const report = computeDealershipAnalytics({
+    vehicles: [v0_30, v31_60, v61_90, v90_plus, vSoldExcluded],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    now: fixedNow,
+  });
+
+  const byId = new Map(report.stockAgeDistribution.map((b) => [b.id, b]));
+  assert.equal(byId.get('0_30')?.vehicleCount, 1);
+  assert.equal(byId.get('0_30')?.totalInvested, 5200);
+  assert.equal(byId.get('0_30')?.sharePercent, 25);
+  assert.equal(byId.get('31_60')?.vehicleCount, 1);
+  assert.equal(byId.get('31_60')?.totalInvested, 8600);
+  assert.equal(byId.get('61_90')?.vehicleCount, 1);
+  assert.equal(byId.get('61_90')?.totalInvested, 10000);
+  assert.equal(byId.get('90_plus')?.vehicleCount, 1);
+  assert.equal(byId.get('90_plus')?.totalInvested, 13000);
+});
+
+test('salesEconomics and salesChannels compute period averages and channel breakdown respecting transactionTypeFilter', () => {
+  const sLbcPro: Vehicle = {
+    ...mockVehicles[2],
+    id: 's_lbc_pro',
+    status: 'sold',
+    purchaseStatus: 'micro',
+    purchaseDate: '2026-10-01',
+    purchasePrice: 10000,
+    repairCostTotal: 1000,
+    generalExpensesTotal: 500,
+    buyerInfo: {
+      fullName: 'Client LBC',
+      sellerProfileType: 'micro_entrepreneur',
+      address: 'Lyon',
+      phone: '0600000001',
+      email: 'a@b.fr',
+      salePrice: 15000,
+      saleDate: '2026-10-21', // 20 days
+      saleChannel: 'leboncoin',
+    },
+  };
+  const sDirectPro: Vehicle = {
+    ...mockVehicles[2],
+    id: 's_direct_pro',
+    status: 'sold',
+    purchaseStatus: 'micro',
+    purchaseDate: '2026-10-01',
+    purchasePrice: 8000,
+    repairCostTotal: 500,
+    generalExpensesTotal: 0,
+    buyerInfo: {
+      fullName: 'Client Direct',
+      sellerProfileType: 'micro_entrepreneur',
+      address: 'Paris',
+      phone: '0600000002',
+      email: 'c@d.fr',
+      salePrice: 12000,
+      saleDate: '2026-10-11', // 10 days
+      saleChannel: 'direct',
+    },
+  };
+  const sReferralParticulier: Vehicle = {
+    ...mockVehicles[2],
+    id: 's_ref_part',
+    status: 'sold',
+    purchaseStatus: 'particulier',
+    purchaseDate: '2026-10-01',
+    purchasePrice: 6000,
+    repairCostTotal: 500,
+    generalExpensesTotal: 0,
+    buyerInfo: {
+      fullName: 'Ami Particulier',
+      sellerProfileType: 'particulier',
+      address: 'Nice',
+      phone: '0600000003',
+      email: 'e@f.fr',
+      salePrice: 9000,
+      saleDate: '2026-10-31', // 30 days
+      saleChannel: 'referral',
+    },
+  };
+
+  const microCfg = {
+    legalStatus: 'micro_entreprise' as const,
+    businessTaxRegime: 'micro' as const,
+    socialContributionRate: 12.3,
+    versementLiberatoireEnabled: true,
+    versementLiberatoireRate: 1,
+    microBicAbattementPercent: 71,
+    microBicIncomeTaxRate: 11,
+    isRateMode: 'progressive_15_25' as const,
+    corporateTaxRateReduced: 15,
+    corporateTaxRateStandard: 25,
+    corporateTaxCustomRate: 25,
+    reducedIsEligible: true,
+    reducedIsThreshold: 42500,
+    annualTaxableProfit: 0,
+    financialYear: 2026,
+    vatRegime: 'franchise_base' as const,
+    vatRatePercent: 0,
+    effectiveDates: { urssaf: '2026-01-01', is: '2026-01-01', vat: '2026-01-01' },
+  };
+
+  const allReport = computeDealershipAnalytics({
+    vehicles: [sLbcPro, sDirectPro, sReferralParticulier],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    frenchTaxConfig: microCfg,
+    now: fixedNow,
+  });
+
+  // Avg purchase = (10000 + 8000 + 6000)/3 = 8000
+  // Avg sale = (15000 + 12000 + 9000)/3 = 12000
+  // Avg expenses = (1500 + 500 + 500)/3 = 833.33
+  assert.equal(allReport.salesEconomics.averagePurchasePrice, 8000);
+  assert.equal(allReport.salesEconomics.averageSalePrice, 12000);
+  assert.equal(allReport.salesEconomics.averageExpensesPerVehicle, 833.33);
+
+  const lbc = allReport.salesChannels.find((c) => c.channelId === 'leboncoin')!;
+  const direct = allReport.salesChannels.find((c) => c.channelId === 'direct')!;
+  const ref = allReport.salesChannels.find((c) => c.channelId === 'referral')!;
+  assert.equal(lbc.salesCount, 1);
+  assert.equal(lbc.revenue, 15000);
+  // Gross 3500 - 13.3% * 15000 (1995) = 1505
+  assert.equal(lbc.netProfit, 1505);
+  assert.equal(lbc.averageDaysToSell, 20);
+  assert.equal(direct.salesCount, 1);
+  assert.equal(direct.averageDaysToSell, 10);
+  assert.equal(ref.salesCount, 1);
+  // Particulier: 0% tax -> gross 2500 = net 2500
+  assert.equal(ref.netProfit, 2500);
+
+  // Scoped to Pro only -> referral (Particulier) drops to 0
+  const proOnly = computeDealershipAnalytics({
+    vehicles: [sLbcPro, sDirectPro, sReferralParticulier],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    frenchTaxConfig: microCfg,
+    transactionTypeFilter: 'micro',
+    now: fixedNow,
+  });
+  assert.equal(proOnly.salesPerformance.soldCount, 2);
+  assert.equal(proOnly.salesChannels.find((c) => c.channelId === 'referral')?.salesCount, 0);
+  assert.equal(proOnly.salesEconomics.averagePurchasePrice, 9000);
+});
+
+test('computeDealershipAnalytics always applies Business URSSAF/VL per micro vehicle even if profileType is particulier', () => {
+  const fixedNow = new Date('2026-10-25T12:00:00Z');
+  const microCfg = {
+    legalStatus: 'micro_entreprise' as const,
+    businessTaxRegime: 'micro' as const,
+    socialContributionRate: 12.3,
+    versementLiberatoireEnabled: true,
+    versementLiberatoireRate: 1,
+    microBicAbattementPercent: 71,
+    microBicIncomeTaxRate: 11,
+    isRateMode: 'progressive_15_25' as const,
+    corporateTaxRateReduced: 15,
+    corporateTaxRateStandard: 25,
+    corporateTaxCustomRate: 25,
+    reducedIsEligible: true,
+    reducedIsThreshold: 42500,
+    annualTaxableProfit: 0,
+    financialYear: 2026,
+    vatRegime: 'franchise_base' as const,
+    vatRatePercent: 0,
+    effectiveDates: { urssaf: '2026-01-01', is: '2026-01-01', vat: '2026-01-01' },
+  };
+
+  const proCar: Vehicle = {
+    ...mockVehicles[0],
+    id: 'pro_car_1',
+    status: 'sold',
+    purchaseStatus: 'micro',
+    purchaseDate: '2026-10-01',
+    purchasePrice: 7000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    buyerInfo: {
+      fullName: 'Client Pro Deal',
+      address: '10 Rue Pro, 69001 Lyon',
+      phone: '0600000001',
+      email: 'client1@test.fr',
+      salePrice: 10000,
+      saleDate: '2026-10-15',
+      sellerProfileType: 'micro_entrepreneur',
+    },
+  };
+
+  const personalCar: Vehicle = {
+    ...mockVehicles[1],
+    id: 'pers_car_1',
+    status: 'sold',
+    purchaseStatus: 'particulier',
+    purchaseDate: '2026-10-01',
+    purchasePrice: 4000,
+    repairCostTotal: 0,
+    generalExpensesTotal: 0,
+    buyerInfo: {
+      fullName: 'Client Perso Deal',
+      address: '20 Rue Perso, 69002 Lyon',
+      phone: '0600000002',
+      email: 'client2@test.fr',
+      salePrice: 6000,
+      saleDate: '2026-10-18',
+      sellerProfileType: 'particulier',
+    },
+  };
+
+  // Even if caller passes profileType='particulier', per-vehicle purchaseStatus='micro' takes precedence
+  const report = computeDealershipAnalytics({
+    vehicles: [proCar, personalCar],
+    repairs: [],
+    expenses: [],
+    timeRange: 'all',
+    taxRegime: 'micro',
+    frenchTaxConfig: microCfg,
+    profileType: 'particulier',
+    now: fixedNow,
+  });
+
+  assert.equal(report.salesPerformance.soldCount, 2);
+  assert.equal(report.salesPerformance.taxedDealsCount, 1);
+  assert.equal(report.salesPerformance.particulierDealsCount, 1);
+  // Gross profit = (10000 - 7000) + (6000 - 4000) = 5000
+  assert.equal(report.salesPerformance.grossProfit, 5000);
+  // Commercial tax applies ONLY to proCar (10000 * 13.3% = 1330), personalCar pays 0
+  assert.equal(report.salesPerformance.urssafAmount, 1230);
+  assert.equal(report.salesPerformance.versementLiberatoireAmount, 100);
+  assert.equal(report.salesPerformance.taxAmount, 1330);
+  assert.equal(report.salesPerformance.netProfit, 3670);
+});
+
+
+
+
 
 

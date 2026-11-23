@@ -23,6 +23,7 @@ import {
 } from './frenchTaxEngine';
 import { DEFAULT_GARAGE_ID } from './garageUtils';
 import { Language, pickLocalized } from './i18nUtils';
+import { resolveSellerProfileForVehicle } from './profileSeparationUtils';
 
 export interface VehicleExportRow {
   ID: string;
@@ -573,16 +574,26 @@ export function validateFacturXReadiness(
 ): FacturXReadinessResult {
   const L = (fr: string, ru: string, hy: string, ka: string) =>
     pickLocalized(lang, { fr, ru, hy, ka });
-  const cleanSiret = (settings.siret || '').replace(/\s+/g, '');
-  const cleanZip = (settings.postalCode || '').replace(/\s+/g, '');
-  const sellerName =
-    settings.entityType === 'physique'
-      ? `${settings.firstName || ''} ${settings.lastName || ''}`.trim() || settings.name
-      : settings.name;
+  const hasExplicitMode =
+    Boolean(vehicle.purchaseStatus) ||
+    Boolean(vehicle.sellerProfileId) ||
+    Boolean(vehicle.buyerInfo?.sellerProfileType) ||
+    Boolean(vehicle.buyerInfo?.sellerProfileId);
+  const resolvedSeller = hasExplicitMode
+    ? resolveSellerProfileForVehicle({ vehicle, garageSettings: settings })
+    : null;
+  const sellerSource = resolvedSeller ? resolvedSeller.profile : settings;
+  const isPersonalSeller = Boolean(resolvedSeller?.isPersonal);
+
+  const cleanSiret = isPersonalSeller ? '' : (sellerSource.siret || '').replace(/\s+/g, '');
+  const cleanZip = (sellerSource.postalCode || '').replace(/\s+/g, '');
+  const sellerName = isPersonalSeller || (!resolvedSeller && settings.entityType === 'physique')
+    ? `${sellerSource.firstName || ''} ${sellerSource.lastName || ''}`.trim() || sellerSource.name
+    : sellerSource.name;
   const sellerAddressOk =
-    Boolean(settings.streetName?.trim()) &&
+    Boolean(sellerSource.streetName?.trim()) &&
     /^\d{5}$/.test(cleanZip) &&
-    Boolean(settings.city?.trim());
+    Boolean(sellerSource.city?.trim());
   const invoiceNumber = buildFacturXInvoiceNumber(vehicle);
   const issueDateIso =
     vehicle.buyerInfo?.saleDate || new Date().toISOString().slice(0, 10);
@@ -602,22 +613,32 @@ export function validateFacturXReadiness(
     },
     {
       id: 'seller_siret',
-      labelFr: 'Numéro SIRET vendeur (14 chiffres — identifiant 0002)',
-      labelRu: 'SIRET продавца (14 цифр — схема 0002)',
-      labelHy: 'Վաճառողի SIRET (14 նիշ — սխեմա 0002)',
-      labelKa: 'გამყიდველის SIRET (14 ციფრი — სქემა 0002)',
-      passed: /^\d{14}$/.test(cleanSiret),
-      valuePreview: cleanSiret || '—',
+      labelFr: isPersonalSeller
+        ? 'Statut Particulier (SIRET non requis)'
+        : 'Numéro SIRET vendeur (14 chiffres — identifiant 0002)',
+      labelRu: isPersonalSeller
+        ? 'Личная продажа (SIRET не требуется)'
+        : 'SIRET продавца (14 цифр — схема 0002)',
+      labelHy: isPersonalSeller
+        ? 'Անհատ վաճառող (SIRET պարտադիր չէ)'
+        : 'Վաճառողի SIRET (14 նիշ — սխեմա 0002)',
+      labelKa: isPersonalSeller
+        ? 'პირადი გაყიდვა (SIRET არ მოითხოვება)'
+        : 'გამყიდველის SIRET (14 ციფრი — სქემა 0002)',
+      passed: isPersonalSeller ? true : /^\d{14}$/.test(cleanSiret),
+      valuePreview: isPersonalSeller
+        ? L('Particulier (exempté)', 'Частное лицо', 'Անհատ', 'ფიზიკური პირი')
+        : cleanSiret || '—',
     },
     {
       id: 'seller_address',
-      labelFr: 'Adresse postale complète du garage (Rue, CP 5 chiffres, Ville)',
-      labelRu: 'Полный почтовый адрес (Улица, Индекс 5 цифр, Город)',
-      labelHy: 'Ամբողջական հասցե (Փողոց, 5-նիշ ինդեքս, Քաղաք)',
-      labelKa: 'სრული მისამართი (ქუჩა, 5-ნიშნა ინდექსი, ქალაქი)',
+      labelFr: 'Adresse postale complète du vendeur (Rue, CP 5 chiffres, Ville)',
+      labelRu: 'Полный почтовый адрес продавца (Улица, Индекс 5 цифр, Город)',
+      labelHy: 'Վաճառողի ամբողջական հասցե (Փողոց, 5-նիշ ինդեքս, Քաղաք)',
+      labelKa: 'გამყიდველის სრული მისამართი (ქუჩა, 5-ნიშნა ინდექსი, ქალაქი)',
       passed: sellerAddressOk,
       valuePreview: sellerAddressOk
-        ? `${settings.streetNumber || ''} ${settings.streetName}, ${cleanZip} ${settings.city}`.trim()
+        ? `${sellerSource.streetNumber || ''} ${sellerSource.streetName}, ${cleanZip} ${sellerSource.city}`.trim()
         : L('Incomplète', 'Неполный адрес', 'Անավարտ է', 'არასრული'),
     },
     {
@@ -713,17 +734,23 @@ export function buildFacturXXml(
     ...settings,
     ...resolveEffectiveSettingsForDeal({ vehicle, garageSettings: settings }),
   };
-  const isParticulierDeal = dealProfile === 'particulier';
+  const resolvedSeller = resolveSellerProfileForVehicle({ vehicle, garageSettings: settings });
+  const sellerSource = resolvedSeller.profile;
+  const isParticulierDeal = resolvedSeller.isPersonal;
 
   const isCorporateVatSeller =
+    !isParticulierDeal &&
     !vehicle.buyerInfo?.sellerProfileType &&
+    vehicle.purchaseStatus !== 'micro' &&
     (dealSettings.taxRegime === 'sarl' ||
       dealSettings.taxRegime === 'sas' ||
       dealSettings.taxRegime === 'custom');
 
   const resolvedVatRegime: VatRegime = (() => {
     const raw =
-      isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+      isParticulierDeal ||
+      vehicle.purchaseStatus === 'micro' ||
+      vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
         ? options?.vatMode || 'franchise_base'
         : isCorporateVatSeller
         ? options?.vatMode ||
@@ -741,39 +768,50 @@ export function buildFacturXXml(
     return raw;
   })();
 
-  const resolvedVatRate = isParticulierDeal || vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
-    ? options?.vatRatePercent ?? 0
-    : isCorporateVatSeller
-    ? options?.vatRatePercent ??
-      vehicle.buyerInfo?.vatRatePercent ??
-      vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
-      dealSettings.frenchTaxConfig?.vatRatePercent ??
-      20
-    : options?.vatRatePercent ??
-      (resolvedVatRegime === 'franchise_base'
-        ? 0
-        : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0);
+  const resolvedVatRate =
+    isParticulierDeal ||
+    vehicle.purchaseStatus === 'micro' ||
+    vehicle.buyerInfo?.sellerProfileType === 'micro_entrepreneur'
+      ? options?.vatRatePercent ?? 0
+      : isCorporateVatSeller
+      ? options?.vatRatePercent ??
+        vehicle.buyerInfo?.vatRatePercent ??
+        vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ??
+        dealSettings.frenchTaxConfig?.vatRatePercent ??
+        20
+      : options?.vatRatePercent ??
+        (resolvedVatRegime === 'franchise_base'
+          ? 0
+          : vehicle.buyerInfo?.taxSnapshot?.vatRatePercent ?? 0);
 
-  const cleanSiret = isParticulierDeal ? '' : (settings.siret || '').replace(/\s+/g, '');
+  const cleanSiret = isParticulierDeal
+    ? ''
+    : (sellerSource.siret || settings.siret || '').replace(/\s+/g, '');
   const sellerName =
     isParticulierDeal || settings.entityType === 'physique'
-      ? `${settings.firstName || ''} ${settings.lastName || ''}`.trim() || settings.name
-      : settings.name;
+      ? `${sellerSource.firstName || ''} ${sellerSource.lastName || ''}`.trim() ||
+        sellerSource.name ||
+        `${settings.firstName || ''} ${settings.lastName || ''}`.trim() ||
+        settings.name
+      : sellerSource.name || settings.name;
   const sellerStreet = [
-    settings.streetNumber,
-    settings.streetExtension,
-    settings.streetType,
-    settings.streetName,
+    sellerSource.streetNumber ?? settings.streetNumber,
+    sellerSource.streetExtension ?? settings.streetExtension,
+    sellerSource.streetType ?? settings.streetType,
+    sellerSource.streetName ?? settings.streetName,
   ]
     .filter(Boolean)
     .join(' ')
     .trim();
 
   const buyerName = vehicle.buyerInfo?.fullName?.trim() || 'Client Particulier';
-  const buyerStreet = [vehicle.buyerInfo?.streetNumber, vehicle.buyerInfo?.streetName]
-    .filter(Boolean)
-    .join(' ')
-    .trim() || vehicle.buyerInfo?.address || 'France';
+  const buyerStreet =
+    [vehicle.buyerInfo?.streetNumber, vehicle.buyerInfo?.streetName]
+      .filter(Boolean)
+      .join(' ')
+      .trim() ||
+    vehicle.buyerInfo?.address ||
+    'France';
   const buyerZip = (vehicle.buyerInfo?.postalCode || '').replace(/\s+/g, '') || '75000';
   const buyerCity = vehicle.buyerInfo?.city?.trim() || 'France';
   const buyerSiret = (vehicle.buyerInfo?.siret || '').replace(/\s+/g, '');
@@ -794,10 +832,32 @@ export function buildFacturXXml(
   const vatAmount = isStandardOnTotal ? vatBreakdown.vatAmount : 0;
   const taxCategoryCode =
     resolvedVatRegime === 'franchise_base' ? 'E' : isStandardOnTotal ? 'S' : 'AE';
-  const legalNote =
-    resolvedVatRegime === 'tva_marge' && settings.tvaMention?.trim()
-      ? settings.tvaMention
-      : vatBreakdown.legalMention;
+  const legalNote = isParticulierDeal
+    ? 'Vente privée réalisée par un particulier non assujetti à la TVA (Art. 256 A du CGI).'
+    : resolvedVatRegime === 'tva_marge' && (sellerSource.tvaMention?.trim() || settings.tvaMention?.trim())
+    ? sellerSource.tvaMention?.trim() || settings.tvaMention!
+    : vatBreakdown.legalMention;
+
+  const cleanIban = (sellerSource.iban || settings.iban || '').replace(/\s+/g, '').toUpperCase();
+  const cleanVat = isParticulierDeal
+    ? ''
+    : (sellerSource.vatNumber || settings.vatNumber || '').replace(/\s+/g, '').toUpperCase();
+  const sellerZipCode = (sellerSource.postalCode || settings.postalCode || '').replace(/\s+/g, '') || '75000';
+  const sellerCityName = sellerSource.city || settings.city || 'Paris';
+  const sellerEmailAddr = sellerSource.email || settings.email || 'contact@autogarage.fr';
+  const sellerCountryCode = (() => {
+    const c = (sellerSource.country || settings.country || '').trim().toUpperCase();
+    if (/^[A-Z]{2}$/.test(c)) return c;
+    if (c.includes('BELG')) return 'BE';
+    if (c.includes('SUIS') || c.includes('SWITZ')) return 'CH';
+    if (c.includes('LUX')) return 'LU';
+    if (c.includes('ALLEM') || c.includes('GERM')) return 'DE';
+    if (c.includes('ESP')) return 'ES';
+    if (c.includes('ITAL')) return 'IT';
+    if (c.includes('ARM')) return 'AM';
+    if (c.includes('GEORG') || c.includes('GÉORG')) return 'GE';
+    return 'FR';
+  })();
 
   const lineItemTitle = `Véhicule d'occasion ${vehicle.make} ${vehicle.model} ${vehicle.trim || ''} (${vehicle.year}) - VIN ${vehicle.vin}`.trim();
 
@@ -853,20 +913,25 @@ export function buildFacturXXml(
     </ram:IncludedSupplyChainTradeLineItem>
     <ram:ApplicableHeaderTradeAgreement>
       <ram:SellerTradeParty>
-        <ram:Name>${escapeXml(sellerName)}</ram:Name>
+        <ram:Name>${escapeXml(sellerName)}</ram:Name>${
+        cleanSiret
+          ? `
         <ram:SpecifiedLegalOrganization>
-          <ram:ID schemeID="0002">${escapeXml(cleanSiret || '00000000000000')}</ram:ID>
-          <ram:TradingBusinessName>${escapeXml(settings.name)}</ram:TradingBusinessName>
-        </ram:SpecifiedLegalOrganization>
+          <ram:ID schemeID="0002">${escapeXml(cleanSiret)}</ram:ID>
+          <ram:TradingBusinessName>${escapeXml(sellerName)}</ram:TradingBusinessName>
+        </ram:SpecifiedLegalOrganization>`
+          : ''
+      }
         <ram:PostalTradeAddress>
-          <ram:PostcodeCode>${escapeXml((settings.postalCode || '').replace(/\s+/g, '') || '75000')}</ram:PostcodeCode>
-          <ram:LineOne>${escapeXml(sellerStreet || 'Adresse garage')}</ram:LineOne>
-          <ram:CityName>${escapeXml(settings.city || 'Paris')}</ram:CityName>
-          <ram:CountryID>FR</ram:CountryID>
+          <ram:PostcodeCode>${escapeXml(sellerZipCode)}</ram:PostcodeCode>
+          <ram:LineOne>${escapeXml(sellerStreet || 'Adresse vendeur')}</ram:LineOne>
+          <ram:CityName>${escapeXml(sellerCityName)}</ram:CityName>
+          <ram:CountryID>${escapeXml(sellerCountryCode)}</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:URIUniversalCommunication>
-          <ram:URIID schemeID="EM">${escapeXml(settings.email || 'contact@autogarage.fr')}</ram:URIID>
+          <ram:URIID schemeID="EM">${escapeXml(sellerEmailAddr)}</ram:URIID>
         </ram:URIUniversalCommunication>
+        ${cleanVat ? `<ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">${escapeXml(cleanVat)}</ram:ID></ram:SpecifiedTaxRegistration>` : ''}
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
         <ram:Name>${escapeXml(buyerName)}</ram:Name>
@@ -891,6 +956,7 @@ export function buildFacturXXml(
       <ram:InvoiceCurrencyCode>${escapeXml(currency)}</ram:InvoiceCurrencyCode>
       <ram:SpecifiedTradeSettlementPaymentMeans>
         <ram:TypeCode>${escapeXml(paymentMeansCode)}</ram:TypeCode>
+        ${cleanIban ? `<ram:PayeePartyCreditorFinancialAccount><ram:IBANID>${escapeXml(cleanIban)}</ram:IBANID></ram:PayeePartyCreditorFinancialAccount>` : ''}
       </ram:SpecifiedTradeSettlementPaymentMeans>
       <ram:ApplicableTradeTax>
         <ram:CalculatedAmount>${vatAmount.toFixed(2)}</ram:CalculatedAmount>

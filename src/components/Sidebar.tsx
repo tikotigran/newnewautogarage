@@ -18,6 +18,7 @@ import {
   Palette,
   ExternalLink,
   Crown,
+  Archive,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import {
@@ -28,7 +29,6 @@ import {
   SubscriptionPlanId,
 } from '../types/garage';
 import { DEFAULT_FEATURE_FLAGS, getPlanBadgeLabel } from '../utils/adminUtils';
-import { resolveUserProfileType } from '../utils/frenchTaxEngine';
 import { hasOpenGarageWorkspace } from '../utils/garageUtils';
 import { useI18n } from '../i18n/I18nContext';
 import { ThemedSelect } from './ThemedSelect';
@@ -37,6 +37,7 @@ import type { SettingsTab } from './Settings';
 
 export type SidebarNavTarget =
   | 'inventory'
+  | 'sold_vehicles'
   | 'analytics'
   | 'suppliers'
   | 'documents'
@@ -51,6 +52,7 @@ interface SidebarProps {
   onCloseMobile: () => void;
   activeView:
     | 'desktop'
+    | 'sold_vehicles'
     | 'new_vehicle'
     | 'analytics'
     | 'suppliers'
@@ -59,6 +61,7 @@ interface SidebarProps {
     | 'settings'
     | 'admin';
   onNavigate: (target: SidebarNavTarget) => void;
+  soldVehiclesCount?: number;
   garages?: GarageWorkspace[];
   activeGarageId?: string | null;
   onSelectGarage?: (garageId: string | null) => void;
@@ -86,6 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   activeView,
   onNavigate,
+  soldVehiclesCount = 0,
   garages = [],
   activeGarageId = null,
   onSelectGarage,
@@ -187,22 +191,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [mobileProfileOpen]);
 
-  const activeGarage = activeGarageId
-    ? garages.find((g) => g.id === activeGarageId) || null
-    : null;
-
-  const resolvedProfileType: AppUserProfileType =
-    profileType || (activeGarage ? resolveUserProfileType(activeGarage) : 'micro_entrepreneur');
-  const profileBadgeLabel =
-    resolvedProfileType === 'particulier'
-      ? t('profileBadgeParticulier')
-      : t('profileBadgeMicro');
+  const profileBadgeLabel = pickLocalized(lang, {
+    fr: 'Gestion Parc Auto',
+    ru: 'Управление автопарком',
+    hy: 'Ավտոպարկի կառավարում',
+    ka: 'ავტოპარკის მართვა',
+  });
   const planBadgeLabel = getPlanBadgeLabel(planId, lang, plans);
 
   const signedInEmail = user?.email || activeSessionEmail || null;
   const displayName = user?.displayName || signedInEmail || t('signIn');
   const avatarInitial = (user?.displayName || signedInEmail || 'U').charAt(0).toUpperCase();
 
+  const activeGarage = activeGarageId
+    ? garages.find((g) => g.id === activeGarageId) || null
+    : null;
   const hasOpenedGarage = hasOpenGarageWorkspace(featureFlags.multiGarage, activeGarageId);
 
   const navItems: {
@@ -212,6 +215,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     active: boolean;
     visible: boolean;
     accentAdmin?: boolean;
+    badgeCount?: number;
+    dividerBefore?: boolean;
   }[] = [
     {
       id: 'inventory',
@@ -256,6 +261,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       visible: isSuperAdmin,
       accentAdmin: true,
     },
+    {
+      id: 'sold_vehicles',
+      label: t('navSoldVehicles'),
+      icon: <Archive className="w-4 h-4 shrink-0" />,
+      active: activeView === 'sold_vehicles',
+      visible: hasOpenedGarage,
+      dividerBefore: true,
+    },
   ];
   const visibleNavItems = navItems.filter((item) => item.visible);
 
@@ -283,7 +296,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ka: 'ანგარიშიდან გასვლა',
     });
 
-    const isSettingsMode = activeView === 'settings';
+    // Keep the full left sidebar navigation (Parc Automobile, Véhicules vendus, etc.) intact on Settings
+    const isSettingsMode = false;
 
     const backToAppLabel = pickLocalized(lang, {
       fr: 'Retour à l’application',
@@ -453,6 +467,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="border-t border-[var(--border)] my-1.5" />
+
+        <button
+          type="button"
+          data-testid={
+            isMobileDrawer ? 'sidebar-mobile-profile-settings-btn' : 'sidebar-profile-settings-btn'
+          }
+          onClick={() => {
+            setProfileOpen(false);
+            handleItemClick('settings', isMobileDrawer);
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-semibold text-[var(--foreground)] hover:bg-[var(--surface-muted)] transition cursor-pointer mb-0.5"
+        >
+          <Settings className="w-3.5 h-3.5 shrink-0 text-[var(--primary)]" />
+          <span className="truncate">{t('navGarageSettings')}</span>
+        </button>
 
         {/* Logout button */}
         <button
@@ -871,36 +900,83 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   );
                 }
 
+                const tooltipLabel =
+                  typeof item.badgeCount === 'number'
+                    ? `${item.label} (${item.badgeCount})`
+                    : item.label;
+
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    data-testid={
-                      isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
-                    }
-                    onClick={() => handleItemClick(item.id, isMobileDrawer)}
-                    onMouseEnter={(e) => showCollapsedTooltip(e, item.label, collapsed)}
-                    onMouseLeave={hideCollapsedTooltip}
-                    onFocus={(e) => showCollapsedTooltip(e, item.label, collapsed)}
-                    onBlur={hideCollapsedTooltip}
-                    aria-label={collapsed ? item.label : undefined}
-                    className={
-                      collapsed
-                        ? `w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                  <React.Fragment key={item.id}>
+                    {item.dividerBefore && (
+                      <div
+                        className={
+                          collapsed
+                            ? 'w-6 border-t border-[var(--border)]/60 my-1.5'
+                            : 'border-t border-[var(--border)]/60 my-2 pt-1'
+                        }
+                      />
+                    )}
+                    <button
+                      type="button"
+                      data-testid={
+                        isMobileDrawer ? `sidebar-mobile-nav-${item.id}` : `sidebar-nav-${item.id}`
+                      }
+                      onClick={() => handleItemClick(item.id, isMobileDrawer)}
+                      onMouseEnter={(e) => showCollapsedTooltip(e, tooltipLabel, collapsed)}
+                      onMouseLeave={hideCollapsedTooltip}
+                      onFocus={(e) => showCollapsedTooltip(e, tooltipLabel, collapsed)}
+                      onBlur={hideCollapsedTooltip}
+                      aria-label={collapsed ? tooltipLabel : undefined}
+                      className={
+                        collapsed
+                          ? `relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                              item.active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
+                                : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
+                            }`
+                          : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                              item.active
+                                ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
+                                : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
+                            }`
+                      }
+                    >
+                      {item.icon}
+                      {!collapsed && (
+                        <span className="truncate flex-1 text-left">{item.label}</span>
+                      )}
+                      {typeof item.badgeCount === 'number' && !collapsed && (
+                        <span
+                          data-testid={
+                            isMobileDrawer
+                              ? `sidebar-mobile-nav-badge-${item.id}`
+                              : `sidebar-nav-badge-${item.id}`
+                          }
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums shrink-0 leading-none ${
                             item.active
-                              ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm'
-                              : `text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] ${iconHoverClass}`
-                          }`
-                        : `w-full flex items-center gap-2.5 rounded-[var(--ag-button-radius)] px-3 py-2 text-xs font-semibold transition-colors ${
-                            item.active
-                              ? 'bg-[var(--ag-nav-active-bg)] text-[var(--ag-nav-active-text)] shadow-sm font-bold'
-                              : 'text-[var(--ag-header-text)]/80 hover:text-[var(--ag-header-text)] hover:bg-[var(--surface-muted)]'
-                          }`
-                    }
-                  >
-                    {item.icon}
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                  </button>
+                              ? 'bg-black/20 text-current'
+                              : 'bg-[var(--surface-muted)] text-[var(--muted-foreground)] border border-[var(--border)]'
+                          }`}
+                        >
+                          {item.badgeCount}
+                        </span>
+                      )}
+                      {typeof item.badgeCount === 'number' &&
+                        item.badgeCount > 0 &&
+                        collapsed && (
+                          <span
+                            data-testid={
+                              isMobileDrawer
+                                ? `sidebar-mobile-nav-badge-${item.id}`
+                                : `sidebar-nav-badge-${item.id}`
+                            }
+                            className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] text-[9px] font-bold tabular-nums flex items-center justify-center leading-none border border-[var(--ag-header-bg)]"
+                          >
+                            {item.badgeCount}
+                          </span>
+                        )}
+                    </button>
+                  </React.Fragment>
                 );
               })}
           </nav>

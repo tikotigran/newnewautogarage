@@ -380,7 +380,7 @@ const fr = {
   pillarGrossProfitLabel: '2. Marge brute (Gross Profit)',
   pillarGrossProfitHint: 'Vente − Achat − Réparations − Frais',
   pillarNetProfitLabel: '3. Bénéfice net (Net Profit)',
-  pillarNetProfitHint: 'Après impôts ({regime} : -{tax})',
+  pillarNetProfitHint: 'Marge brute déduite des impôts applicables ({regime} : {tax})',
   analyticsNoSalesPeriod: 'Aucune vente clôturée sur cette période.',
   analyticsStockValueTitle: 'Valeur totale en stock',
   analyticsStockValueHint: '{count} véhicule(s) en stock actif',
@@ -410,7 +410,7 @@ const fr = {
   analyticsTopProfitableTitle: 'Véhicules les plus rentables',
   analyticsTopProfitableSubtitle: 'Classement par bénéfice net après impôts sur la période',
   analyticsAgingStockTitle: 'Véhicules en stock depuis longtemps',
-  analyticsAgingStockSubtitle: '{count} véhicule(s) en stock ≥ 30 jours sans vente',
+  analyticsAgingStockSubtitle: '{count} véhicule(s) en vente depuis > 30 jours',
   analyticsAllStockFresh: 'Aucun véhicule invendu en stock pour le moment.',
   analyticsDaysInStock: '{days} j en stock',
   analyticsSoldInDays: 'Vendu en {days} j',
@@ -434,6 +434,7 @@ const fr = {
 
   // Sidebar & Dual-Layout
   navInventory: 'Parc Automobile',
+  navSoldVehicles: 'Véhicules vendus',
   navAnalyticsPnl: 'Analytique & P&L',
   navSuppliers: 'Fournisseurs & Achats',
   navSuppliersShort: 'Fournisseurs',
@@ -1007,7 +1008,7 @@ const ru: Record<TranslationKey, string> = {
   pillarGrossProfitLabel: '2. Валовая прибыль (Gross Profit)',
   pillarGrossProfitHint: 'Выручка − Покупка − Ремонт − Расходы',
   pillarNetProfitLabel: '3. Чистая прибыль (Net Profit)',
-  pillarNetProfitHint: 'После налогов ({regime}: -{tax})',
+  pillarNetProfitHint: 'Валовая прибыль за вычетом налогов ({regime}: {tax})',
   analyticsNoSalesPeriod: 'За выбранный период закрытых продаж нет.',
   analyticsStockValueTitle: 'Общая стоимость авто на складе',
   analyticsStockValueHint: '{count} авто в активном наличии',
@@ -1037,7 +1038,7 @@ const ru: Record<TranslationKey, string> = {
   analyticsTopProfitableTitle: 'Самые прибыльные автомобили',
   analyticsTopProfitableSubtitle: 'Рейтинг проданных авто по чистой прибыли после налогов',
   analyticsAgingStockTitle: 'Автомобили, которые долго стоят без продажи',
-  analyticsAgingStockSubtitle: '{count} авто на складе ≥ 30 дней без продажи',
+  analyticsAgingStockSubtitle: '{count} авто в продаже > 30 дней',
   analyticsAllStockFresh: 'На складе нет непроданных автомобилей.',
   analyticsDaysInStock: '{days} дн. в наличии',
   analyticsSoldInDays: 'Продан за {days} дн.',
@@ -1061,6 +1062,7 @@ const ru: Record<TranslationKey, string> = {
 
   // Sidebar & Dual-Layout
   navInventory: 'Склад автомобилей',
+  navSoldVehicles: 'Проданные авто',
   navAnalyticsPnl: 'Аналитика и P&L',
   navSuppliers: 'Поставщики и закупки',
   navSuppliersShort: 'Поставщики',
@@ -1632,7 +1634,7 @@ const hy: Record<TranslationKey, string> = {
   pillarGrossProfitLabel: '2. Համախառն շահույթ (Gross Profit)',
   pillarGrossProfitHint: 'Վաճառք − Գնում − Վերանորոգում − Ծախսեր',
   pillarNetProfitLabel: '3. Զուտ շահույթ (Net Profit)',
-  pillarNetProfitHint: 'Հարկերից հետո ({regime}՝ -{tax})',
+  pillarNetProfitHint: 'Համախառն շահույթից հանած հարկերը ({regime}՝ {tax})',
   analyticsNoSalesPeriod: 'Ընտրված ժամանակահատվածում փակված վաճառքներ չկան։',
   analyticsStockValueTitle: 'Պահեստում գտնվող մեքենաների ընդհանուր արժեք',
   analyticsStockValueHint: '{count} մեքենա ակտիվ պահեստում',
@@ -1662,7 +1664,7 @@ const hy: Record<TranslationKey, string> = {
   analyticsTopProfitableTitle: 'Ամենաշահութաբեր ավտոմեքենաները',
   analyticsTopProfitableSubtitle: 'Վաճառված մեքենաների վարկանիշ՝ հարկերից հետո զուտ շահույթով',
   analyticsAgingStockTitle: 'Երկար չվաճառվող ավտոմեքենաներ',
-  analyticsAgingStockSubtitle: '{count} մեքենա պահեստում է ≥ 30 օր առանց վաճառքի',
+  analyticsAgingStockSubtitle: '{count} մեքենա վաճառքում է > 30 օր',
   analyticsAllStockFresh: 'Պահեստում չվաճառված մեքենաներ չկան։',
   analyticsDaysInStock: '{days} օր պահեստում',
   analyticsSoldInDays: 'Վաճառվել է {days} օրում',
@@ -1686,6 +1688,7 @@ const hy: Record<TranslationKey, string> = {
 
   // Sidebar & Dual-Layout
   navInventory: 'Ավտոպարկի պահեստ',
+  navSoldVehicles: 'Վաճառված մեքենաներ',
   navAnalyticsPnl: 'Վերլուծություն և P&L',
   navSuppliers: 'Մատակարարներ և գնումներ',
   navSuppliersShort: 'Մատակարարներ',
@@ -2257,7 +2260,7 @@ const ka: Record<TranslationKey, string> = {
   pillarGrossProfitLabel: '2. მთლიანი მოგება (Gross Profit)',
   pillarGrossProfitHint: 'გაყიდვა − შესყიდვა − შეკეთება − ხარჯები',
   pillarNetProfitLabel: '3. წმინდა მოგება (Net Profit)',
-  pillarNetProfitHint: 'გადასახადების შემდეგ ({regime}: -{tax})',
+  pillarNetProfitHint: 'მთლიანი მოგება გადასახადების გამოკლებით ({regime}: {tax})',
   analyticsNoSalesPeriod: 'არჩეულ პერიოდში დასრულებული გაყიდვები არ არის.',
   analyticsStockValueTitle: 'მარაგში მყოფი ავტომობილების საერთო ღირებულება',
   analyticsStockValueHint: '{count} ავტომობილი აქტიურ მარაგში',
@@ -2287,7 +2290,7 @@ const ka: Record<TranslationKey, string> = {
   analyticsTopProfitableTitle: 'ყველაზე მომგებიანი ავტომობილები',
   analyticsTopProfitableSubtitle: 'გაყიდული ავტომობილების რეიტინგი გადასახადების შემდეგ წმინდა მოგებით',
   analyticsAgingStockTitle: 'ავტომობილები, რომლებიც დიდხანს დგას გაყიდვის გარეშე',
-  analyticsAgingStockSubtitle: '{count} ავტომობილი მარაგშია ≥ 30 დღე გაყიდვის გარეშე',
+  analyticsAgingStockSubtitle: '{count} ავტომობილი გაყიდვაშია > 30 დღე',
   analyticsAllStockFresh: 'მარაგში გაუყიდავი ავტომობილები არ არის.',
   analyticsDaysInStock: '{days} დღე მარაგში',
   analyticsSoldInDays: 'გაიყიდა {days} დღეში',
@@ -2311,6 +2314,7 @@ const ka: Record<TranslationKey, string> = {
 
   // Sidebar & Dual-Layout
   navInventory: 'ავტომობილების საწყობი',
+  navSoldVehicles: 'გაყიდული ავტოები',
   navAnalyticsPnl: 'ანალიტიკა და P&L',
   navSuppliers: 'მომწოდებლები და შესყიდვები',
   navSuppliersShort: 'მომწოდებლები',

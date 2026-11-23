@@ -30,7 +30,7 @@ export const QUICK_EXPENSE_PRESETS: QuickExpensePreset[] = [
   },
   {
     id: 'tires',
-    category: 'other',
+    category: 'parts_labor',
     chipLabel: {
       fr: 'Pneus',
       ru: 'Шины',
@@ -47,7 +47,7 @@ export const QUICK_EXPENSE_PRESETS: QuickExpensePreset[] = [
   },
   {
     id: 'parts_repair',
-    category: 'other',
+    category: 'parts_labor',
     chipLabel: {
       fr: 'Pièces / Réparation',
       ru: 'Запчасти / Ремонт',
@@ -64,7 +64,7 @@ export const QUICK_EXPENSE_PRESETS: QuickExpensePreset[] = [
   },
   {
     id: 'oil_filters',
-    category: 'other',
+    category: 'parts_labor',
     chipLabel: {
       fr: 'Vidange & Filtres',
       ru: 'Масло и фильтры',
@@ -122,6 +122,15 @@ export interface QuickExpenseCategoryOption {
 
 export const QUICK_EXPENSE_CATEGORIES: QuickExpenseCategoryOption[] = [
   {
+    value: 'parts_labor',
+    label: {
+      fr: 'Atelier & Pièces',
+      ru: 'Ремонт и запчасти',
+      hy: 'Արհեստանոց և մասեր',
+      ka: 'სახელოსნო და ნაწილები',
+    },
+  },
+  {
     value: 'controle_technique',
     label: {
       fr: 'Contrôle Technique',
@@ -178,10 +187,10 @@ export const QUICK_EXPENSE_CATEGORIES: QuickExpenseCategoryOption[] = [
   {
     value: 'other',
     label: {
-      fr: 'Pièces / Entretien / Autre',
-      ru: 'Запчасти / Обслуживание / Прочее',
-      hy: 'Պահեստամասեր / Սպասարկում / Այլ',
-      ka: 'ნაწილები / მომსახურება / სხვა',
+      fr: 'Autres frais généraux',
+      ru: 'Прочие расходы',
+      hy: 'Այլ ընդհանուր ծախսեր',
+      ka: 'სხვა ზოგადი ხარჯები',
     },
   },
 ];

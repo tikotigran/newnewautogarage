@@ -5,10 +5,17 @@ import { createDefaultFrenchTaxConfig } from './frenchTaxEngine';
 import {
   EMPTY_PARTICULIER_PROFILE,
   EMPTY_PRO_PROFILE,
+  deleteSellerProfileEntry,
+  ensureBusinessProfiles,
+  ensurePersonalProfiles,
   pickStatusProfileFields,
+  resolveSellerProfileForVehicle,
   resolveSeparatedProfiles,
+  setDefaultSellerProfileEntry,
   switchGarageSettingsProfile,
   syncActiveProfileOnEdit,
+  syncSellerProfileArraysToSettings,
+  upsertSellerProfileEntry,
 } from './profileSeparationUtils';
 
 function createBaseSettings(): GarageSettings {
@@ -182,3 +189,110 @@ test('pickStatusProfileFields strips SIRET, legalForm, and TVA mention in Partic
   assert.equal(cleaned.tvaMention, '');
   assert.equal(cleaned.city, 'Nice');
 });
+
+test('multi-profile CRUD supports multiple Business and Personal profiles without cross-contamination', () => {
+  const base = createBaseSettings();
+
+  // Add 2 Business entities
+  const b1Res = upsertSellerProfileEntry(
+    [],
+    {
+      name: 'AutoGarage Pro Lyon',
+      siret: '11122233300011',
+      streetNumber: '10',
+      streetName: 'Rue Pro',
+      postalCode: '69001',
+      city: 'Lyon',
+      phone: '0478000001',
+      email: 'pro1@garage.fr',
+      isDefault: true,
+    },
+    'micro'
+  );
+  const b2Res = upsertSellerProfileEntry(
+    b1Res.list,
+    {
+      name: 'AutoImport Paris SAS',
+      siret: '99988877700022',
+      city: 'Paris',
+      postalCode: '75001',
+    },
+    'micro'
+  );
+  assert.equal(b2Res.list.length, 2);
+
+  // Add 3 Personal individuals (Owner, Brother, Spouse)
+  const p1Res = upsertSellerProfileEntry(
+    [],
+    {
+      lastName: 'PETROSYAN',
+      firstName: 'Armen',
+      sex: 'M',
+      siret: '11122233300011', // Should be stripped cleanly!
+      streetNumber: '5',
+      streetName: 'Rue Perso',
+      postalCode: '69002',
+      city: 'Lyon',
+      phone: '0600000001',
+      email: 'armen@perso.fr',
+      isDefault: true,
+    },
+    'particulier'
+  );
+  const p2Res = upsertSellerProfileEntry(
+    p1Res.list,
+    {
+      lastName: 'PETROSYAN',
+      firstName: 'Karen',
+      sex: 'M',
+      streetNumber: '22',
+      streetName: 'Avenue Frere',
+      postalCode: '69003',
+      city: 'Villeurbanne',
+      phone: '0600000002',
+      email: 'karen@perso.fr',
+    },
+    'particulier'
+  );
+  assert.equal(p2Res.list.length, 2);
+  assert.equal(p2Res.list[0].siret, '');
+  assert.equal(p2Res.list[1].isDefault, false);
+
+  // Set Brother (p2) as default personal profile
+  const redefaultedPersonal = setDefaultSellerProfileEntry(p2Res.list, p2Res.saved.id, 'particulier');
+  assert.equal(redefaultedPersonal.find((p) => p.id === p2Res.saved.id)?.isDefault, true);
+  assert.equal(redefaultedPersonal.find((p) => p.id === p1Res.saved.id)?.isDefault, false);
+
+  const synced = syncSellerProfileArraysToSettings(base, b2Res.list, redefaultedPersonal);
+  assert.equal(ensureBusinessProfiles(synced).length, 2);
+  assert.equal(ensurePersonalProfiles(synced).length, 2);
+  // Primary slots mirror the default entries (sorted/maintained with default promoted)
+  assert.equal(synced.proProfile?.name, 'AutoGarage Pro Lyon');
+  assert.equal(synced.particulierProfile?.firstName, 'Karen');
+
+  // Resolve exact Personal seller by vehicle.sellerProfileId (Owner even though Brother is default)
+  const ownerResolution = resolveSellerProfileForVehicle({
+    vehicle: { purchaseStatus: 'particulier', sellerProfileId: p1Res.saved.id },
+    garageSettings: synced,
+  });
+  assert.equal(ownerResolution.isPersonal, true);
+  assert.equal(ownerResolution.displayName, 'PETROSYAN Armen');
+  assert.equal(ownerResolution.profile.siret, '');
+  assert.equal(ownerResolution.profile.city, 'Lyon');
+
+  // Resolve exact Business entity 2 by vehicle.sellerProfileId
+  const biz2Resolution = resolveSellerProfileForVehicle({
+    vehicle: { purchaseStatus: 'micro', sellerProfileId: b2Res.saved.id },
+    garageSettings: synced,
+  });
+  assert.equal(biz2Resolution.isPersonal, false);
+  assert.equal(biz2Resolution.displayName, 'AutoImport Paris SAS');
+  assert.equal(biz2Resolution.profile.siret, '99988877700022');
+
+  // Deleting default promotes remaining item
+  const afterDelete = deleteSellerProfileEntry(redefaultedPersonal, p2Res.saved.id, 'particulier');
+  assert.equal(afterDelete.length, 1);
+  assert.equal(afterDelete[0].id, p1Res.saved.id);
+  assert.equal(afterDelete[0].isDefault, true);
+});
+

@@ -2,11 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GeneralExpense, RepairTask, Vehicle } from '../types/garage';
 import {
+  computeActiveInventoryStatusCounts,
+  computeInventoryStatusCounts,
   computeInventorySummaryTotals,
   computeVehicleInventoryFinancials,
+  filterVehiclesByInventoryScope,
+  formatListTrimSubtitle,
   formatMileageKm,
+  getVehicleTransactionBadgeInfo,
   matchesVehicleSearch,
+  matchesVehicleTransactionType,
+  partitionInventoryVehicles,
   sortInventoryVehicles,
+  sortInventoryVehiclesByColumn,
+  toggleTableSortState,
 } from './inventoryUtils';
 
 function createVehicle(overrides: Partial<Vehicle> = {}): Vehicle {
@@ -161,3 +170,187 @@ test('sortInventoryVehicles sorts by totalInvested descending when requested', (
   assert.equal(sorted[0].id, 'v1');
   assert.equal(sorted[1].id, 'v2');
 });
+
+test('matchesVehicleTransactionType filters micro vs particulier vehicles using purchaseStatus and profile fallback', () => {
+  const microVehicle = createVehicle({ id: 'v_micro', purchaseStatus: 'micro' });
+  const particulierVehicle = createVehicle({ id: 'v_part', purchaseStatus: 'particulier' });
+  const legacyVehicle = createVehicle({ id: 'v_legacy', purchaseStatus: undefined });
+
+  assert.equal(matchesVehicleTransactionType(microVehicle, 'all'), true);
+  assert.equal(matchesVehicleTransactionType(microVehicle, 'micro'), true);
+  assert.equal(matchesVehicleTransactionType(microVehicle, 'particulier'), false);
+
+  assert.equal(matchesVehicleTransactionType(particulierVehicle, 'micro'), false);
+  assert.equal(matchesVehicleTransactionType(particulierVehicle, 'particulier'), true);
+
+  assert.equal(
+    matchesVehicleTransactionType(legacyVehicle, 'micro', 'micro_entrepreneur'),
+    true
+  );
+  assert.equal(
+    matchesVehicleTransactionType(legacyVehicle, 'particulier', 'particulier'),
+    true
+  );
+});
+
+test('computeInventoryStatusCounts accurately tallies statuses for filtered fleet slices', () => {
+  const fleet = [
+    createVehicle({ id: '1', status: 'preparation', purchaseStatus: 'micro' }),
+    createVehicle({ id: '2', status: 'repair', purchaseStatus: 'particulier' }),
+    createVehicle({ id: '3', status: 'for_sale', purchaseStatus: 'micro' }),
+    createVehicle({ id: '4', status: 'sold', purchaseStatus: 'micro' }),
+  ];
+
+  assert.deepEqual(computeInventoryStatusCounts(fleet), {
+    all: 4,
+    preparation: 1,
+    repair: 1,
+    for_sale: 1,
+    sold: 1,
+  });
+
+  const microOnly = fleet.filter((v) => matchesVehicleTransactionType(v, 'micro'));
+  assert.deepEqual(computeInventoryStatusCounts(microOnly), {
+    all: 3,
+    preparation: 1,
+    repair: 0,
+    for_sale: 1,
+    sold: 1,
+  });
+});
+
+test('formatListTrimSubtitle truncates subtitles over 15 chars with ellipsis and preserves full string', () => {
+  assert.deepEqual(formatListTrimSubtitle('1.2 PureTech 130ch GT Line EAT8'), {
+    display: '1.2 PureTech 13...',
+    full: '1.2 PureTech 130ch GT Line EAT8',
+  });
+  assert.deepEqual(formatListTrimSubtitle('TCe 90 Intens'), {
+    display: 'TCe 90 Intens',
+    full: 'TCe 90 Intens',
+  });
+  assert.deepEqual(formatListTrimSubtitle(''), {
+    display: 'Standard',
+    full: 'Standard',
+  });
+});
+
+test('toggleTableSortState toggles direction on same column and selects sensible defaults for new columns', () => {
+  const first = toggleTableSortState(null, 'vehicle');
+  assert.deepEqual(first, { column: 'vehicle', direction: 'asc' });
+
+  const second = toggleTableSortState(first, 'vehicle');
+  assert.deepEqual(second, { column: 'vehicle', direction: 'desc' });
+
+  const numeric = toggleTableSortState(second, 'totalInvested');
+  assert.deepEqual(numeric, { column: 'totalInvested', direction: 'desc' });
+
+  const numericFlipped = toggleTableSortState(numeric, 'totalInvested');
+  assert.deepEqual(numericFlipped, { column: 'totalInvested', direction: 'asc' });
+});
+
+test('sortInventoryVehiclesByColumn sorts cleanly across all inventory table columns', () => {
+  const vA = createVehicle({
+    id: 'a',
+    make: 'Audi',
+    model: 'A3',
+    mileage: 50000,
+    status: 'sold',
+    ctPassed: true,
+    docsCompleted: false,
+    purchasePrice: 18000,
+    totalExpenses: 500,
+    totalInvested: 18500,
+  });
+  const vB = createVehicle({
+    id: 'b',
+    make: 'Peugeot',
+    model: '208',
+    mileage: 90000,
+    status: 'preparation',
+    ctPassed: false,
+    docsCompleted: true,
+    purchasePrice: 10000,
+    totalExpenses: 1200,
+    totalInvested: 11200,
+  });
+
+  const byVehicleAsc = sortInventoryVehiclesByColumn([vB, vA], { column: 'vehicle', direction: 'asc' });
+  assert.deepEqual(byVehicleAsc.map((v) => v.id), ['a', 'b']);
+
+  const byMileageDesc = sortInventoryVehiclesByColumn([vA, vB], { column: 'mileage', direction: 'desc' });
+  assert.deepEqual(byMileageDesc.map((v) => v.id), ['b', 'a']);
+
+  const byStatusAsc = sortInventoryVehiclesByColumn([vA, vB], { column: 'status', direction: 'asc' });
+  assert.deepEqual(byStatusAsc.map((v) => v.id), ['b', 'a']);
+
+  const byCtDesc = sortInventoryVehiclesByColumn([vB, vA], { column: 'ct', direction: 'desc' });
+  assert.deepEqual(byCtDesc.map((v) => v.id), ['a', 'b']);
+
+  const byDocsDesc = sortInventoryVehiclesByColumn([vA, vB], { column: 'docs', direction: 'desc' });
+  assert.deepEqual(byDocsDesc.map((v) => v.id), ['b', 'a']);
+
+  const byExpensesDesc = sortInventoryVehiclesByColumn([vA, vB], { column: 'expenses', direction: 'desc' });
+  assert.deepEqual(byExpensesDesc.map((v) => v.id), ['b', 'a']);
+
+  const byInvestedAsc = sortInventoryVehiclesByColumn([vA, vB], { column: 'totalInvested', direction: 'asc' });
+  assert.deepEqual(byInvestedAsc.map((v) => v.id), ['b', 'a']);
+});
+
+test('getVehicleTransactionBadgeInfo returns concise localized PRO/PERSO badges', () => {
+  const pro = createVehicle({ purchaseStatus: 'micro' });
+  const perso = createVehicle({ purchaseStatus: 'particulier' });
+  const unset = createVehicle({ purchaseStatus: undefined });
+
+  assert.deepEqual(getVehicleTransactionBadgeInfo(pro, 'fr'), { mode: 'micro', label: 'PRO' });
+  assert.deepEqual(getVehicleTransactionBadgeInfo(pro, 'ru'), { mode: 'micro', label: 'ФИРМА' });
+  assert.deepEqual(getVehicleTransactionBadgeInfo(perso, 'fr'), { mode: 'particulier', label: 'PERSO' });
+  assert.deepEqual(getVehicleTransactionBadgeInfo(perso, 'ru'), { mode: 'particulier', label: 'ЧАСТ.' });
+  assert.deepEqual(getVehicleTransactionBadgeInfo(unset, 'fr', 'particulier'), {
+    mode: 'particulier',
+    label: 'PERSO',
+  });
+});
+
+test('partitionInventoryVehicles and filterVehiclesByInventoryScope separate active and sold vehicles cleanly', () => {
+  const fleet = [
+    createVehicle({ id: 'a1', status: 'preparation' }),
+    createVehicle({ id: 'a2', status: 'repair' }),
+    createVehicle({ id: 'a3', status: 'for_sale' }),
+    createVehicle({ id: 's1', status: 'sold' }),
+  ];
+
+  const { activeVehicles, soldVehicles } = partitionInventoryVehicles(fleet);
+  assert.deepEqual(activeVehicles.map((v) => v.id), ['a1', 'a2', 'a3']);
+  assert.deepEqual(soldVehicles.map((v) => v.id), ['s1']);
+
+  assert.deepEqual(
+    filterVehiclesByInventoryScope(fleet, 'active').map((v) => v.id),
+    ['a1', 'a2', 'a3']
+  );
+  assert.deepEqual(
+    filterVehiclesByInventoryScope(fleet, 'sold').map((v) => v.id),
+    ['s1']
+  );
+});
+
+test('computeActiveInventoryStatusCounts excludes sold vehicles from all and category tallies', () => {
+  const fleet = [
+    createVehicle({ id: '1', status: 'preparation' }),
+    createVehicle({ id: '2', status: 'repair' }),
+    createVehicle({ id: '3', status: 'for_sale' }),
+    createVehicle({ id: '4', status: 'sold' }),
+    createVehicle({ id: '5', status: 'sold' }),
+  ];
+
+  assert.deepEqual(computeActiveInventoryStatusCounts(fleet), {
+    all: 3,
+    preparation: 1,
+    repair: 1,
+    for_sale: 1,
+  });
+});
+
+
+
+
+

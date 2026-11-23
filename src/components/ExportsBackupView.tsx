@@ -153,20 +153,14 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
   const [garageSettings, setGarageSettings] = useState<GarageSettings>(() =>
     getGarageSettings(activeGarageId || undefined)
   );
-  const activeProfileType: AppUserProfileType =
-    propProfileType === 'particulier'
-      ? 'particulier'
-      : resolveUserProfileType(garageSettings);
-  const isParticulier = activeProfileType === 'particulier';
-  const effectiveGarageSettings: GarageSettings = isParticulier
-    ? {
-        ...garageSettings,
-        ...buildProfileSettingsPatch('particulier', garageSettings),
-      }
-    : garageSettings;
+  const businessTaxRegime =
+    garageSettings.taxRegime && garageSettings.taxRegime !== 'none'
+      ? garageSettings.taxRegime
+      : 'micro';
+  const businessTaxConfig =
+    garageSettings.frenchTaxConfig || createDefaultFrenchTaxConfig('micro_entreprise');
   const isCorporateTaxRegime =
-    !isParticulier &&
-    (effectiveGarageSettings.taxRegime === 'sarl' || effectiveGarageSettings.taxRegime === 'sas');
+    businessTaxRegime === 'sarl' || businessTaxRegime === 'sas';
   const isVatExemptSeller = !isCorporateTaxRegime;
   const [fleetData, setFleetData] = useState<{
     repairs: RepairTask[];
@@ -255,11 +249,9 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       expenses: fleetData.expenses,
       timeRange: periodRange,
       dynamicCategories,
-      taxRegime: isParticulier ? 'none' : garageSettings.taxRegime,
-      taxRatePercent: isParticulier ? 0 : garageSettings.taxRatePercent,
-      frenchTaxConfig: isParticulier
-        ? createDefaultFrenchTaxConfig('particulier')
-        : garageSettings.frenchTaxConfig,
+      taxRegime: businessTaxRegime,
+      taxRatePercent: garageSettings.taxRatePercent,
+      frenchTaxConfig: businessTaxConfig,
     });
   }, [
     vehicles,
@@ -267,11 +259,16 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     fleetData.expenses,
     periodRange,
     dynamicCategories,
-    isParticulier,
-    garageSettings.taxRegime,
+    businessTaxRegime,
+    businessTaxConfig,
     garageSettings.taxRatePercent,
-    garageSettings.frenchTaxConfig,
   ]);
+
+  const allExportsDealsParticulier =
+    analyticsReport.salesPerformance.soldCount > 0 &&
+    (analyticsReport.salesPerformance.particulierDealsCount ?? 0) ===
+      analyticsReport.salesPerformance.soldCount &&
+    analyticsReport.salesPerformance.taxAmount === 0;
 
   const periodLabelMap: Record<AnalyticsTimeRange, string> = {
     today: t('periodToday'),
@@ -295,9 +292,21 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     [vehicles, facturxVehicleId]
   );
 
+  const isFacturXParticulier = useMemo(() => {
+    if (!facturxVehicle) return false;
+    return (
+      facturxVehicle.buyerInfo?.sellerProfileType === 'particulier' ||
+      facturxVehicle.purchaseStatus === 'particulier'
+    );
+  }, [facturxVehicle]);
+
+  const isFacturXVatExemptSeller = isFacturXParticulier || isVatExemptSeller;
+
   useEffect(() => {
     if (!facturxVehicle) return;
-    const explicitDealProfile = facturxVehicle.buyerInfo?.sellerProfileType;
+    const explicitDealProfile =
+      facturxVehicle.buyerInfo?.sellerProfileType ||
+      (facturxVehicle.purchaseStatus === 'particulier' ? 'particulier' : undefined);
     const isDealVatExempt =
       explicitDealProfile === 'particulier' ||
       explicitDealProfile === 'micro_entrepreneur';
@@ -307,7 +316,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
       (facturxVehicle.buyerInfo.taxSnapshot.vatAmount > 0 ||
         facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sarl' ||
         facturxVehicle.buyerInfo.taxSnapshot.taxRegime === 'sas');
-    if (isDealVatExempt || (isVatExemptSeller && !isFrozenCorporateVat)) {
+    if (isDealVatExempt || (isFacturXVatExemptSeller && !isFrozenCorporateVat)) {
       setVatMode('franchise_base');
       setVatRatePercent(0);
       return;
@@ -326,7 +335,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
     );
   }, [
     facturxVehicle,
-    isVatExemptSeller,
+    isFacturXVatExemptSeller,
     garageSettings.frenchTaxConfig?.vatRegime,
     garageSettings.frenchTaxConfig?.vatRatePercent,
   ]);
@@ -1106,7 +1115,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
               <div className="p-3.5 rounded-xl bg-[var(--surface-muted)] border border-[var(--border)]">
                 <div className="text-[11px] font-semibold text-[var(--muted-foreground)] flex items-center justify-between gap-1">
                   <span>
-                    {isParticulier
+                    {allExportsDealsParticulier
                       ? t('profileBadgeParticulier')
                       : `${pickLocalized(lang, {
                           fr: 'Impôts',
@@ -1120,7 +1129,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                   {formatEuro(analyticsReport.salesPerformance.taxAmount)}
                 </div>
                 <div className="text-[11px] text-[var(--muted-foreground)]">
-                  {isParticulier ? t('profileBadgeParticulier') : t('profileBadgeMicro')}
+                  {allExportsDealsParticulier ? t('profileBadgeParticulier') : t('profileBadgeMicro')}
                 </div>
               </div>
 
@@ -1149,7 +1158,7 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
               </div>
             </div>
 
-            {!isParticulier && (
+            {!allExportsDealsParticulier && (
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-[var(--muted-foreground)]">
                 <span className="tabular-nums">
                   {analyticsReport.salesPerformance.vatAmount > 0 &&
@@ -1483,12 +1492,12 @@ export const ExportsBackupView: React.FC<ExportsBackupViewProps> = ({
                           ka: 'დღგ რეჟიმი (TVA)',
                         })}
                       </label>
-                      {isVatExemptSeller ? (
+                      {isFacturXVatExemptSeller ? (
                         <div
                           data-testid="facturx-vat-exempt-badge"
                           className="w-full px-3 py-2 rounded-[var(--ag-button-radius)] bg-[var(--surface-muted)] border border-[var(--border)] text-xs font-semibold text-[var(--foreground)]"
                         >
-                          {isParticulier
+                          {isFacturXParticulier
                             ? pickLocalized(lang, {
                                 fr: 'Particulier — Non assujetti (0%)',
                                 ru: 'Particulier — Без НДС (0%)',

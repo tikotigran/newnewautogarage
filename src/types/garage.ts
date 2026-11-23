@@ -142,10 +142,20 @@ export interface StatusProfileData {
   streetName: string;
   postalCode: string;
   city: string;
+  country?: string;
   phone: string;
   email: string;
   legalForm?: string;
   tvaMention?: string;
+  vatNumber?: string;
+  iban?: string;
+}
+
+export interface SellerProfileEntry extends StatusProfileData {
+  id: string;
+  label?: string;
+  isDefault?: boolean;
+  updatedAt?: string;
 }
 
 export interface GarageSettings {
@@ -164,12 +174,22 @@ export interface GarageSettings {
   streetName: string;
   postalCode: string;
   city: string;
+  country?: string;
   phone: string;
   email: string;
   legalForm?: string;
   tvaMention?: string;
+  vatNumber?: string;
+  iban?: string;
+  logoDataUrl?: string;
+  brandPrimaryColor?: string;
+  brandSecondaryColor?: string;
+  signatureDataUrl?: string;
+  accountantEmail?: string;
   particulierProfile?: StatusProfileData;
   proProfile?: StatusProfileData;
+  businessProfiles?: SellerProfileEntry[];
+  personalProfiles?: SellerProfileEntry[];
   defaultCerfaTemplate?: string;
   theme?: 'dark' | 'light';
   defaultMarginPercent?: number;
@@ -181,10 +201,13 @@ export interface GarageSettings {
   taxAuditHistory?: TaxSettingsAuditEntry[];
 }
 
+export type SaleChannelId = 'leboncoin' | 'direct' | 'referral' | 'other';
+
 export interface BuyerInfo {
   fullName: string;
   isCompany?: boolean;
   sellerProfileType?: AppUserProfileType;
+  sellerProfileId?: string;
   siret?: string;
   birthDate?: string;      // Né(e) le ... for Cerfa 15776
   birthPlace?: string;     // à ... for Cerfa 15776
@@ -198,6 +221,7 @@ export interface BuyerInfo {
   salePrice: number;
   saleDate: string;
   saleTime?: string;       // e.g. "14:30"
+  saleChannel?: SaleChannelId | string;
   vatRegime?: VatRegime;
   vatRatePercent?: number;
   taxSnapshot?: TransactionTaxSnapshot;
@@ -232,6 +256,7 @@ export interface Vehicle {
   supplierName?: string;
   status: VehicleStatus;
   purchaseStatus?: VehiclePurchaseStatus;
+  sellerProfileId?: string;
   photos: string[];
   documents: VehicleDocument[];
   buyerInfo?: BuyerInfo;
@@ -583,6 +608,8 @@ export interface GarageWorkspace {
   frenchTaxConfig?: FrenchTaxConfiguration;
   particulierProfile?: StatusProfileData;
   proProfile?: StatusProfileData;
+  businessProfiles?: SellerProfileEntry[];
+  personalProfiles?: SellerProfileEntry[];
   planId?: SubscriptionPlanId;
   plan?: SubscriptionPlanId;
   subscriptionTier?: SubscriptionPlanId;
